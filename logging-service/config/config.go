@@ -12,7 +12,11 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	GRPCPort int
+	HTTPPort int
+}
+
+func (s *ServerConfig) Addr() string {
+	return ":" + strconv.Itoa(s.HTTPPort)
 }
 
 type DatabaseConfig struct {
@@ -33,7 +37,7 @@ type RedisConfig struct {
 func Load() *Config {
 	return &Config{
 		Server: ServerConfig{
-			GRPCPort: getEnvInt("GRPC_PORT", 8080),
+			HTTPPort: getEnvInt("LOGGING_HTTP_PORT", 9090),
 		},
 		Database: DatabaseConfig{
 			Host:     getEnv("DATABASE_HOST", "localhost"),

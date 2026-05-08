@@ -1,85 +1,90 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"log"
-	"net"
+	"net/http"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/portfolio-sim/logging-service/config"
 	"github.com/portfolio-sim/logging-service/database"
-	"github.com/portfolio-sim/logging-service/logging"
-	"github.com/portfolio-sim/logging-service/models"
 	"github.com/portfolio-sim/logging-service/redis"
-	"github.com/portfolio-sim/logging-service/sse"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
-type LoggingServiceServer struct {
-	models.UnimplementedLoggingServiceServer
-	db     *database.Postgres
-	redis  *redis.Client
-	sseMgr *sse.Manager
+type LogEntry struct {
+	ID        string                 `json:"id"`
+	Timestamp string                 `json:"timestamp"`
+	Level     string                 `json:"level"`
+	Service   string                 `json:"service"`
+	Component string                 `json:"component"`
+	Message   string                 `json:"message"`
+	Metadata  map[string]interface{} `json:"metadata"`
+	TraceID   string                 `json:"trace_id"`
+	SpanID    string                 `json:"span_id"`
 }
 
-func NewLoggingServiceServer(db *database.Postgres, r *redis.Client, sseMgr *sse.Manager) *LoggingServiceServer {
-	return &LoggingServiceServer{
-		db:     db,
-		redis:  r,
-		sseMgr: sseMgr,
+type EmitLogRequest struct {
+	Level     string                 `json:"level"`
+	Service   string                 `json:"service"`
+	Component string                 `json:"component"`
+	Message   string                 `json:"message"`
+	Metadata  map[string]interface{} `json:"metadata"`
+	TraceID   string                 `json:"trace_id"`
+	SpanID    string                 `json:"span_id"`
+}
+
+type LoggingService struct {
+	db    *database.Postgres
+	redis *redis.Client
+}
+
+func NewLoggingService(db *database.Postgres, r *redis.Client) *LoggingService {
+	return &LoggingService{db: db, redis: r}
+}
+
+func (s *LoggingService) HandleEmitLog(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
 	}
-}
 
-func (s *LoggingServiceServer) EmitLog(ctx context.Context, req *models.EmitLogRequest) (*models.EmitLogResponse, error) {
+	var req EmitLogRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	if req.Level == "" || req.Service == "" || req.Message == "" {
-		return nil, status.Error(codes.InvalidArgument, "level, service, and message are required")
+		http.Error(w, "level, service, and message are required", http.StatusBadRequest)
+		return
 	}
 
 	validLevels := map[string]bool{"DEBUG": true, "INFO": true, "WARN": true, "ERROR": true, "FATAL": true}
 	if !validLevels[req.Level] {
-		return nil, status.Error(codes.InvalidArgument, "invalid log level")
+		http.Error(w, "invalid log level", http.StatusBadRequest)
+		return
 	}
 
 	id := uuid.New()
 	timestamp := time.Now().UTC()
 
-	metadataJSON, err := json.Marshal(req.Metadata)
-	if err != nil {
-		metadataJSON = []byte("{}")
-	}
+	metadataJSON, _ := json.Marshal(req.Metadata)
 
-	_, err = s.db.Pool().Exec(ctx, `
+	_, err := s.db.Pool().Exec(r.Context(), `
 		INSERT INTO logs (id, timestamp, level, service, component, message, metadata, trace_id, span_id)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`, id, timestamp, req.Level, req.Service, req.Component, req.Message, metadataJSON, req.TraceID, req.SpanID)
 
 	if err != nil {
-		if pgxErr, ok := err.(pgx.SqlErr); ok && pgxErr.Code == "42P01" {
-			partitionDate := timestamp.Truncate(24 * time.Hour)
-			_, createErr := s.db.Pool().Exec(ctx, "SELECT create_monthly_partition('logs', $1)", partitionDate)
-			if createErr == nil {
-				_, err = s.db.Pool().Exec(ctx, `
-					INSERT INTO logs (id, timestamp, level, service, component, message, metadata, trace_id, span_id)
-					VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-				`, id, timestamp, req.Level, req.Service, req.Component, req.Message, metadataJSON, req.TraceID, req.SpanID)
-			}
-		}
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "insert log: %v", err)
-		}
+		log.Printf("Failed to insert log: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
 	}
 
-	partitionDate := timestamp.Truncate(24 * time.Hour)
-	go s.db.Exec(context.Background(), "SELECT create_monthly_partition('logs', $1)", partitionDate)
-
-	logEntry := &models.Log{
-		ID:        id,
-		Timestamp: timestamp,
+	logJSON, _ := json.Marshal(LogEntry{
+		ID:        id.String(),
+		Timestamp: timestamp.Format(time.RFC3339Nano),
 		Level:     req.Level,
 		Service:   req.Service,
 		Component: req.Component,
@@ -87,75 +92,15 @@ func (s *LoggingServiceServer) EmitLog(ctx context.Context, req *models.EmitLogR
 		Metadata:  req.Metadata,
 		TraceID:   req.TraceID,
 		SpanID:    req.SpanID,
-		CreatedAt: timestamp,
-	}
+	})
+	s.redis.Publish(r.Context(), "logs:"+req.Service, string(logJSON))
 
-	logJSON, _ := json.Marshal(logEntry)
-	s.redis.Publish(ctx, "logs:"+req.Service, string(logJSON))
-
-	s.notifySSE(logEntry)
-
-	return &models.EmitLogResponse{
-		ID:        id.String(),
-		Timestamp: timestamp.Format(time.RFC3339Nano),
-	}, nil
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"id": id.String()})
 }
 
-func (s *LoggingServiceServer) notifySSE(entry *models.Log) {
-	if s.sseMgr == nil {
-		return
-	}
-}
-
-type LogEmitterImpl struct {
-	server *LoggingServiceServer
-}
-
-func NewLogEmitter(s *LoggingServiceServer) logging.LogEmitter {
-	return &LogEmitterImpl{server: s}
-}
-
-func (e *LogEmitterImpl) Emit(ctx context.Context, level, service, component, message string, metadata map[string]interface{}, traceID, spanID string) error {
-	req := &models.EmitLogRequest{
-		Level:     level,
-		Service:   service,
-		Component: component,
-		Message:   message,
-		Metadata:  metadata,
-		TraceID:   traceID,
-		SpanID:    spanID,
-	}
-	_, err := e.server.EmitLog(ctx, req)
-	return err
-}
-
-type LogWriterImpl struct {
-	emitter logging.LogEmitter
-	service string
-	level   string
-}
-
-func NewLogWriter(emitter logging.LogEmitter, service, level string) *LogWriterImpl {
-	return &LogWriterImpl{emitter: emitter, service: service, level: level}
-}
-
-func (w *LogWriterImpl) Write(p []byte) (n int, err error) {
-	if len(p) == 0 {
-		return 0, nil
-	}
-	ctx := context.Background()
-	metadata := map[string]interface{}{}
-	if json.Valid(p) {
-		var m map[string]interface{}
-		if json.Unmarshal(p, &m) == nil {
-			metadata = m
-		}
-	}
-	err = w.emitter.Emit(ctx, w.level, w.service, "", string(p), metadata, "", "")
-	if err != nil {
-		return 0, err
-	}
-	return len(p), nil
+func (s *LoggingService) HandleHealth(w http.ResponseWriter, r *http.Request) {
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 func main() {
@@ -180,23 +125,14 @@ func main() {
 	}
 	defer redisClient.Close()
 
-	sseMgr := sse.NewManager(redisClient)
+	service := NewLoggingService(db, redisClient)
 
-	server := NewLoggingServiceServer(db, redisClient, sseMgr)
-	emitter := NewLogEmitter(server)
-	logger := logging.NewLogger(emitter)
-	_ = logger
+	http.HandleFunc("GET /health", service.HandleHealth)
+	http.HandleFunc("POST /api/logs", service.HandleEmitLog)
 
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.Server.GRPCPort))
-	if err != nil {
-		log.Fatalf("Failed to listen: %v", err)
-	}
-
-	grpcServer := grpc.NewServer()
-	models.RegisterLoggingServiceServer(grpcServer, server)
-
-	log.Printf("Logging service listening on gRPC port %d", cfg.Server.GRPCPort)
-	if err := grpcServer.Serve(lis); err != nil {
+	addr := cfg.Server.Addr()
+	log.Printf("Logging service listening on %s", addr)
+	if err := http.ListenAndServe(addr, nil); err != nil {
 		log.Fatalf("Failed to serve: %v", err)
 	}
 }
