@@ -22,6 +22,9 @@ const recentSignals = [
   { id: 4, strategy: "Momentum Growth", symbol: "TSLA", action: "BUY", price: "$245.80", time: "Yesterday", confidence: "MEDIUM" },
 ];
 
+const avgWinRate = (strategies.reduce((sum, s) => sum + parseFloat(s.winRate), 0) / strategies.length).toFixed(1);
+const avgSharpe = (strategies.reduce((sum, s) => sum + parseFloat(s.sharpe), 0) / strategies.length).toFixed(2);
+
 export default function StrategyPage() {
   const [strategyList, setStrategyList] = useState([...strategies]);
   const [toast, setToast] = useState<string | null>(null);
