@@ -16,6 +16,14 @@ function fmtPct(v: number): string {
   return (v >= 0 ? "+" : "") + v.toFixed(2) + "%";
 }
 
+function NoDataMessage() {
+  return (
+    <div className="h-full flex items-center justify-center text-on-surface-variant text-sm">
+      No data available
+    </div>
+  );
+}
+
 function MiniChart() {
   return (
     <svg viewBox="0 0 400 120" className="w-full h-full" preserveAspectRatio="none">
@@ -128,7 +136,7 @@ export default function DashboardPage() {
               </div>
             </div>
             <div className="h-[200px] border border-outline-variant/30">
-              <MiniChart />
+              {positions.length > 0 ? <MiniChart /> : <NoDataMessage />}
             </div>
           </PageCell>
 
