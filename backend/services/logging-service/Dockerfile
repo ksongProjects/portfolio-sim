@@ -3,12 +3,13 @@ FROM golang:1.22-alpine AS builder
 
 WORKDIR /app
 
-COPY services/logging-service/go.mod services/logging-service/go.sum ./
+COPY go.mod go.sum ./services/logging-service/
 RUN go mod download
 
-COPY . .
+COPY internal/ ./internal/
+COPY services/logging-service/ ./services/logging-service/
 
-RUN CGO_ENABLED=0 GOOS=linux go build -o /logging-service .
+RUN CGO_ENABLED=0 GOOS=linux go build -o /logging-service ./services/logging-service/
 
 # Runtime stage
 FROM alpine:latest

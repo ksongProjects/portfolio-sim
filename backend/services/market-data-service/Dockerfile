@@ -1,16 +1,15 @@
 # Build stage
 FROM golang:1.22-alpine AS builder
 
-RUN apk add --no-cache git
-
 WORKDIR /app
 
-COPY services/market-data-service/go.mod services/market-data-service/go.sum ./
+COPY go.mod go.sum ./services/market-data-service/
 RUN go mod download
 
-COPY . .
+COPY internal/ ./internal/
+COPY services/market-data-service/ ./services/market-data-service/
 
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /bin/market-data-service .
+RUN CGO_ENABLED=0 GOOS=linux go build -o /bin/market-data-service ./services/market-data-service/
 
 # Runtime stage
 FROM alpine:3.19
