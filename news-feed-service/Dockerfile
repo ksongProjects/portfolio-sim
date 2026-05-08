@@ -20,7 +20,6 @@ RUN apk add --no-cache ca-certificates
 WORKDIR /app
 
 COPY --from=builder /bin/news-feed-service .
-COPY --from=builder /app/config/ ./config/
 
 EXPOSE 8080
 
