@@ -89,8 +89,9 @@ CREATE TABLE raw_option_chains (
     source_id TEXT NOT NULL REFERENCES data_sources(id),
     raw_json JSONB NOT NULL,
     received_at TIMESTAMPTZ NOT NULL,
-    fetched_at TIMESTAMPTZ DEFAULT NOW()
-) PARTITION BY RANGE (received_at);
+    fetched_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (id)
+);
 
 CREATE TABLE option_chains (
     id UUID DEFAULT gen_random_uuid(),
@@ -266,6 +267,5 @@ $$ LANGUAGE plpgsql;
 SELECT create_monthly_partition('raw_price_ticks', CURRENT_DATE);
 SELECT create_monthly_partition('normalized_prices', CURRENT_DATE);
 SELECT create_monthly_partition('intraday_bars', CURRENT_DATE);
-SELECT create_monthly_partition('raw_option_chains', CURRENT_DATE);
 SELECT create_monthly_partition('option_chains', CURRENT_DATE);
 SELECT create_monthly_partition('logs', CURRENT_DATE);

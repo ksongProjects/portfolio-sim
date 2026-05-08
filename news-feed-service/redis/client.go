@@ -27,6 +27,14 @@ func (c *Client) Redis() *redis.Client {
 	return c.rdb
 }
 
+func (c *Client) BRPop(ctx context.Context, timeout int, keys ...string) ([]string, error) {
+	return c.rdb.BRPop(ctx, 0, keys...).Result()
+}
+
+func (c *Client) Publish(ctx context.Context, channel string, message interface{}) error {
+	return c.rdb.Publish(ctx, channel, message).Err()
+}
+
 func (c *Client) Close() error {
 	return c.rdb.Close()
 }

@@ -22,15 +22,5 @@ func NewClient(apiKey string) (*Client, error) {
 }
 
 func (c *Client) GetTranscript(ctx context.Context, videoID string) (string, error) {
-	captions, err := c.svc.Captions.List([]string{"snippet"}, videoID).Do()
-	if err != nil {
-		return "", fmt.Errorf("list captions: %w", err)
-	}
-
-	if len(captions.Items) == 0 {
-		return "", fmt.Errorf("no captions for video %s", videoID)
-	}
-
-	caption := captions.Items[0]
-	track, err := c.svc.Captions.Download(caption.Id).Do()
+	return "", fmt.Errorf("transcript download not implemented - requires OAuth")
 }

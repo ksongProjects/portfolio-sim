@@ -37,5 +37,5 @@ func (c *Client) Summarize(ctx context.Context, text string) (string, error) {
 		return "", fmt.Errorf("no candidates")
 	}
 
-	return resp.Candidates[0].Content.String(), nil
+	return fmt.Sprintf("%v", resp.Candidates[0].Content), nil
 }

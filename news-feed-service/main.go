@@ -19,7 +19,6 @@ import (
 	"github.com/portfolio-sim/news-feed-service/redis"
 	"github.com/portfolio-sim/news-feed-service/sse"
 	"github.com/portfolio-sim/news-feed-service/youtube"
-	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -51,8 +50,8 @@ func main() {
 
 	go feedManager.StartScheduler(context.Background(), time.Duration(cfg.ScrapeIntervalMin)*time.Minute)
 
-	go processScrapeNewsJobs(context.Background(), redisClient.Redis(), feedManager, logWriter)
-	go processTranscribeJobs(context.Background(), redisClient.Redis(), youtubeClient, geminiClient, sseManager, logWriter)
+	go processScrapeNewsJobs(context.Background(), redisClient, feedManager, logWriter)
+	go processTranscribeJobs(context.Background(), redisClient, youtubeClient, geminiClient, sseManager, logWriter)
 
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -84,7 +83,7 @@ func main() {
 
 func processScrapeNewsJobs(ctx context.Context, rdb *redis.Client, mgr *feed.Manager, logWriter *logging.LogWriter) {
 	for {
-		result, err := rdb.BRPop(ctx, 0, "queue:scrape-news").Result()
+		result, err := rdb.BRPop(ctx, 0, "queue:scrape-news")
 		if err != nil {
 			continue
 		}
@@ -99,7 +98,7 @@ type transcribeJob struct {
 
 func processTranscribeJobs(ctx context.Context, rdb *redis.Client, ytClient *youtube.Client, gemClient *gemini.Client, sseMgr *sse.Manager, logWriter *logging.LogWriter) {
 	for {
-		result, err := rdb.BRPop(ctx, 0, "queue:transcribe").Result()
+		result, err := rdb.BRPop(ctx, 0, "queue:transcribe")
 		if err != nil {
 			continue
 		}
