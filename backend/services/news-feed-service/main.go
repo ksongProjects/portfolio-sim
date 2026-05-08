@@ -11,14 +11,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/portfolio-sim/news-feed-service/config"
-	"github.com/portfolio-sim/news-feed-service/database"
-	"github.com/portfolio-sim/news-feed-service/feed"
-	"github.com/portfolio-sim/news-feed-service/gemini"
-	"github.com/portfolio-sim/news-feed-service/logging"
-	"github.com/portfolio-sim/news-feed-service/redis"
-	"github.com/portfolio-sim/news-feed-service/sse"
-	"github.com/portfolio-sim/news-feed-service/youtube"
+	"github.com/portfolio-sim/backend/services/news-feed-service/config"
+	"github.com/portfolio-sim/backend/services/news-feed-service/database"
+	"github.com/portfolio-sim/backend/services/news-feed-service/feed"
+	"github.com/portfolio-sim/backend/services/news-feed-service/gemini"
+	"github.com/portfolio-sim/backend/services/news-feed-service/logging"
+	"github.com/portfolio-sim/backend/services/news-feed-service/redis"
+	"github.com/portfolio-sim/backend/services/news-feed-service/sse"
+	"github.com/portfolio-sim/backend/services/news-feed-service/youtube"
 	"github.com/redis/go-redis/v9"
 )
 
