@@ -50,7 +50,7 @@ services:
   main-api:
     build:
       context: ./backend
-      dockerfile: services/main-api/Dockerfile
+      dockerfile: Dockerfile
     depends_on:
       postgres:
         condition: service_healthy
