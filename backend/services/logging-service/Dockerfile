@@ -3,7 +3,7 @@ FROM golang:1.22-alpine AS builder
 
 WORKDIR /app
 
-COPY go.mod go.sum ./
+COPY services/logging-service/go.mod services/logging-service/go.sum ./
 RUN go mod download
 
 COPY . .

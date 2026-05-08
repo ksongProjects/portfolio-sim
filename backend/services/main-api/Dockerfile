@@ -3,7 +3,7 @@ FROM golang:1.22-alpine AS builder
 
 WORKDIR /app
 
-COPY go.mod go.sum ./
+COPY services/main-api/go.mod services/main-api/go.sum ./
 RUN go mod download
 
 COPY . .
@@ -16,7 +16,6 @@ FROM alpine:3.19
 WORKDIR /app
 
 COPY --from=builder /app/main-api .
-COPY --from=builder /app/config ./config
 
 EXPOSE 8080
 

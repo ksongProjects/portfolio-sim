@@ -5,7 +5,7 @@ RUN apk add --no-cache git
 
 WORKDIR /app
 
-COPY go.mod go.sum* ./
+COPY services/market-data-service/go.mod services/market-data-service/go.sum ./
 RUN go mod download
 
 COPY . .
