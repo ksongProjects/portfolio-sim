@@ -28,7 +28,7 @@ services:
 
   logging-service:
     build:
-      context: ${PWD}/backend
+      context: ${PWD}
       dockerfile: services/logging-service/Dockerfile
     depends_on:
       postgres:
@@ -49,7 +49,7 @@ services:
 
   main-api:
     build:
-      context: ${PWD}/backend
+      context: ${PWD}
       dockerfile: services/main-api/Dockerfile
     depends_on:
       postgres:
@@ -73,7 +73,7 @@ services:
 
   market-data-service:
     build:
-      context: ${PWD}/backend
+      context: ${PWD}
       dockerfile: services/market-data-service/Dockerfile
     depends_on:
       postgres:
@@ -98,7 +98,7 @@ services:
 
   news-feed-service:
     build:
-      context: ${PWD}/backend
+      context: ${PWD}
       dockerfile: services/news-feed-service/Dockerfile
     depends_on:
       postgres:
@@ -122,7 +122,7 @@ services:
 
   analyst-service:
     build:
-      context: ${PWD}/backend
+      context: ${PWD}
       dockerfile: services/analyst-service/Dockerfile
     depends_on:
       postgres:
