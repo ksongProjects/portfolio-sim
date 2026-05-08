@@ -141,7 +141,11 @@ func (s *Server) Start() error {
 	http.HandleFunc("GET /api/signals", s.handleGetSignals)
 	http.HandleFunc("GET /api/providers", s.handleGetProviders)
 	http.HandleFunc("PUT /api/providers", s.handleUpdateProvider)
+	http.HandleFunc("POST /api/providers/validate", s.handleValidateProvider)
 	http.HandleFunc("GET /api/connections", s.handleGetConnections)
+	http.HandleFunc("GET /api/rss-feeds", s.handleGetRSSFeeds)
+	http.HandleFunc("POST /api/rss-feeds", s.handleAddRSSFeed)
+	http.HandleFunc("DELETE /api/rss-feeds", s.handleDeleteRSSFeed)
 
 	s.logger.Info("main api server starting", "port", s.cfg.Server.HTTPPort)
 
@@ -277,8 +281,12 @@ func (s *Server) handleGetSignals(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGetProviders(w http.ResponseWriter, r *http.Request) {
 	providers, err := s.providerSvc.GetProviders(r.Context(), s.db)
-	if err != nil || providers == nil {
-		providers = []services.ProviderConfig{}
+	if err != nil || providers == nil || len(providers) == 0 {
+		providers = []services.ProviderConfig{
+			{ID: "polygon", ProviderID: "polygon", Name: "Polygon.io", Description: "Real-time and historical market data", RateLimit: 60, DocURL: "https://polygon.io/docs"},
+			{ID: "questrade", ProviderID: "questrade", Name: "Questrade", Description: "Questrade market data API", RateLimit: 100, DocURL: "https://www.questrade.com/api"},
+			{ID: "fmp", ProviderID: "fmp", Name: "Financial Modeling Prep", Description: "Financial statements and fundamental data", RateLimit: 250, DocURL: "https://site.financialmodelingprep.com/developers/docs"},
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(providers)
@@ -313,6 +321,91 @@ func (s *Server) handleGetConnections(w http.ResponseWriter, r *http.Request) {
 	statuses, _ := s.providerSvc.CheckConnection(r.Context(), s.db)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(statuses)
+}
+
+func (s *Server) handleValidateProvider(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		ProviderID string `json:"provider_id"`
+		APIKey     string `json:"api_key"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	if req.ProviderID == "" || req.APIKey == "" {
+		http.Error(w, "provider_id and api_key are required", http.StatusBadRequest)
+		return
+	}
+
+	valid, err := s.providerSvc.ValidateProviderKey(r.Context(), s.db, req.ProviderID, req.APIKey)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"valid": false, "error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"valid": valid})
+}
+
+func (s *Server) handleGetRSSFeeds(w http.ResponseWriter, r *http.Request) {
+	feeds, err := s.providerSvc.GetRSSFeeds(r.Context(), s.db)
+	if err != nil {
+		feeds = []services.RSSFeed{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(feeds)
+}
+
+func (s *Server) handleAddRSSFeed(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Name           string `json:"name"`
+		URL            string `json:"url"`
+		ScrapeInterval int    `json:"scrape_interval_min"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	if req.Name == "" || req.URL == "" {
+		http.Error(w, "name and url are required", http.StatusBadRequest)
+		return
+	}
+	if req.ScrapeInterval <= 0 {
+		req.ScrapeInterval = 60
+	}
+	if err := s.providerSvc.AddRSSFeed(r.Context(), s.db, req.Name, req.URL, req.ScrapeInterval); err != nil {
+		http.Error(w, "failed to add feed", http.StatusInternalServerError)
+		return
+	}
+	feeds, _ := s.providerSvc.GetRSSFeeds(r.Context(), s.db)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(feeds)
+}
+
+func (s *Server) handleDeleteRSSFeed(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	feedID := r.URL.Query().Get("id")
+	if feedID == "" {
+		http.Error(w, "feed id is required", http.StatusBadRequest)
+		return
+	}
+	if err := s.providerSvc.DeleteRSSFeed(r.Context(), s.db, feedID); err != nil {
+		http.Error(w, "failed to delete feed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
 }
 
 func main() {

@@ -2,6 +2,10 @@ package services
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -12,6 +16,7 @@ type ProviderConfig struct {
 	ProviderID   string `json:"provider_id"`
 	Name         string `json:"name"`
 	Description  string `json:"description"`
+	Type         string `json:"type"`
 	APIKeySet    bool   `json:"api_key_set"`
 	IsConnected  bool   `json:"is_connected"`
 	RateLimit    int    `json:"rate_limit"`
@@ -51,11 +56,14 @@ func (s *ProviderService) GetProviders(ctx context.Context, db interface {
 
 	providerMeta := map[string]struct {
 		Description string
+		Type        string
 		DocURL      string
 	}{
-		"questrade": {"Questrade market data", "https://www.questrade.com/api"},
-		"polygon":   {"Polygon.io real-time and historical market data", "https://polygon.io/docs"},
-		"fmp":       {"Financial Modeling Prep financial data", "https://site.financialmodelingprep.com/developers/docs"},
+		"questrade": {"Questrade market data", "market_data", "https://www.questrade.com/api"},
+		"polygon":   {"Polygon.io real-time and historical market data", "market_data", "https://polygon.io/docs"},
+		"fmp":       {"Financial Modeling Prep financial data", "market_data", "https://site.financialmodelingprep.com/developers/docs"},
+		"youtube":   {"YouTube Data API for video transcripts", "youtube", "https://developers.google.com/youtube/v3"},
+		"gemini":    {"Google Gemini API for content summarization", "gemini", "https://ai.google.dev/docs"},
 	}
 
 	defaults := map[string]struct {
@@ -65,6 +73,8 @@ func (s *ProviderService) GetProviders(ctx context.Context, db interface {
 		"questrade": {100, "https://www.questrade.com/api"},
 		"polygon":   {60, "https://polygon.io/docs"},
 		"fmp":       {250, "https://site.financialmodelingprep.com/developers/docs"},
+		"youtube":   {0, "https://developers.google.com/youtube/v3"},
+		"gemini":    {0, "https://ai.google.dev/docs"},
 	}
 
 	var results []ProviderConfig
@@ -82,6 +92,7 @@ func (s *ProviderService) GetProviders(ctx context.Context, db interface {
 			ProviderID:  id,
 			Name:        name,
 			Description: meta.Description,
+			Type:        meta.Type,
 			APIKeySet:   hasKey,
 			IsConnected: isConnected,
 			RateLimit:   rateLimit,
@@ -91,9 +102,11 @@ func (s *ProviderService) GetProviders(ctx context.Context, db interface {
 
 	if len(results) == 0 {
 		results = []ProviderConfig{
-			{ID: "polygon", ProviderID: "polygon", Name: "Polygon.io", Description: "Real-time and historical market data", RateLimit: 60, DocURL: "https://polygon.io/docs"},
-			{ID: "questrade", ProviderID: "questrade", Name: "Questrade", Description: "Questrade market data API", RateLimit: 100, DocURL: "https://www.questrade.com/api"},
-			{ID: "fmp", ProviderID: "fmp", Name: "Financial Modeling Prep", Description: "Financial statements and fundamental data", RateLimit: 250, DocURL: "https://site.financialmodelingprep.com/developers/docs"},
+			{ID: "polygon", ProviderID: "polygon", Name: "Polygon.io", Description: "Real-time and historical market data", Type: "market_data", RateLimit: 60, DocURL: "https://polygon.io/docs"},
+			{ID: "questrade", ProviderID: "questrade", Name: "Questrade", Description: "Questrade market data API", Type: "market_data", RateLimit: 100, DocURL: "https://www.questrade.com/api"},
+			{ID: "fmp", ProviderID: "fmp", Name: "Financial Modeling Prep", Description: "Financial statements and fundamental data", Type: "market_data", RateLimit: 250, DocURL: "https://site.financialmodelingprep.com/developers/docs"},
+			{ID: "youtube", ProviderID: "youtube", Name: "YouTube Data API", Description: "YouTube Data API for video transcripts", Type: "youtube", RateLimit: 0, DocURL: "https://developers.google.com/youtube/v3"},
+			{ID: "gemini", ProviderID: "gemini", Name: "Google Gemini", Description: "Gemini API for content summarization", Type: "gemini", RateLimit: 0, DocURL: "https://ai.google.dev/docs"},
 		}
 	}
 	return results, nil
@@ -130,4 +143,152 @@ func (s *ProviderService) CheckConnection(ctx context.Context, db interface {
 		{ID: "websocket", Name: "WebSocket", Type: "streaming", IsUp: true, LatencyMs: 0},
 	}
 	return statuses, nil
+}
+
+func (s *ProviderService) ValidateProviderKey(ctx context.Context, db interface {
+	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
+}, providerID, apiKey string) (bool, error) {
+	switch providerID {
+	case "polygon":
+		return validatePolygonKey(apiKey)
+	case "fmp":
+		return validateFMPKey(apiKey)
+	case "questrade":
+		return validateQuestradeKey(apiKey)
+	case "youtube":
+		return validateYouTubeKey(apiKey)
+	case "gemini":
+		return validateGeminiKey(apiKey)
+	default:
+		return false, fmt.Errorf("unknown provider: %s", providerID)
+	}
+}
+
+func validatePolygonKey(apiKey string) (bool, error) {
+	url := fmt.Sprintf("https://api.polygon.io/v2/aggs/ticker/AAPL/prev?adjusted=true&apiKey=%s", apiKey)
+	resp, err := http.Get(url)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		return true, nil
+	}
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusPaymentRequired {
+		return false, nil
+	}
+	return false, fmt.Errorf("polygon returned status: %d", resp.StatusCode)
+}
+
+func validateFMPKey(apiKey string) (bool, error) {
+	url := fmt.Sprintf("https://financialmodelingprep.com/api/v3/quote/AAPL?apikey=%s", apiKey)
+	resp, err := http.Get(url)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		var result []struct {
+			Symbol string `json:"symbol"`
+		}
+		if json.Unmarshal(body, &result) == nil && len(result) > 0 {
+			return true, nil
+		}
+	}
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusPaymentRequired {
+		return false, nil
+	}
+	return false, fmt.Errorf("fmp returned status: %d", resp.StatusCode)
+}
+
+func validateQuestradeKey(apiKey string) (bool, error) {
+	return false, fmt.Errorf("questrade validation requires refresh token flow - not yet implemented")
+}
+
+func validateYouTubeKey(apiKey string) (bool, error) {
+	url := fmt.Sprintf("https://www.googleapis.com/youtube/v3/channels?part=contentDetails&mine=true&key=%s", apiKey)
+	resp, err := http.Get(url)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		return true, nil
+	}
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusBadRequest {
+		return false, nil
+	}
+	return false, fmt.Errorf("youtube returned status: %d", resp.StatusCode)
+}
+
+func validateGeminiKey(apiKey string) (bool, error) {
+	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models?key=%s", apiKey)
+	resp, err := http.Get(url)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		return true, nil
+	}
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusBadRequest {
+		return false, nil
+	}
+	return false, fmt.Errorf("gemini returned status: %d", resp.StatusCode)
+}
+
+type RSSFeed struct {
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	URL             string `json:"url"`
+	ScrapeInterval  int    `json:"scrape_interval_min"`
+	LastScrapeAt    string `json:"last_scrape_at"`
+	IsActive        bool   `json:"is_active"`
+}
+
+func (s *ProviderService) GetRSSFeeds(ctx context.Context, db interface {
+	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
+}) ([]RSSFeed, error) {
+	query := `
+		SELECT id, name, url, scrape_interval_min,
+			   COALESCE(last_scrape_at::text, ''),
+			   is_active
+		FROM rss_feeds
+		ORDER BY name
+	`
+	rows, err := db.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var feeds []RSSFeed
+	for rows.Next() {
+		var f RSSFeed
+		if err := rows.Scan(&f.ID, &f.Name, &f.URL, &f.ScrapeInterval, &f.LastScrapeAt, &f.IsActive); err != nil {
+			continue
+		}
+		feeds = append(feeds, f)
+	}
+	return feeds, nil
+}
+
+func (s *ProviderService) AddRSSFeed(ctx context.Context, db interface {
+	Exec(ctx context.Context, sql string, args ...interface{}) (int64, error)
+}, name, url string, scrapeInterval int) error {
+	query := `
+		INSERT INTO rss_feeds (id, name, url, scrape_interval_min, is_active)
+		VALUES (gen_random_uuid(), $1, $2, $3, true)
+	`
+	_, err := db.Exec(ctx, query, name, url, scrapeInterval)
+	return err
+}
+
+func (s *ProviderService) DeleteRSSFeed(ctx context.Context, db interface {
+	Exec(ctx context.Context, sql string, args ...interface{}) (int64, error)
+}, feedID string) error {
+	query := `DELETE FROM rss_feeds WHERE id = $1`
+	_, err := db.Exec(ctx, query, feedID)
+	return err
 }

@@ -60,6 +60,14 @@ func (p *Postgres) QueryRow(ctx context.Context, sql string, args ...interface{}
 	return p.pool.QueryRow(ctx, sql, args...), nil
 }
 
+func (p *Postgres) Exec(ctx context.Context, sql string, args ...interface{}) (int64, error) {
+	tag, err := p.pool.Exec(ctx, sql, args...)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 func (p *Postgres) GetPool() *pgxpool.Pool {
 	return p.pool
 }

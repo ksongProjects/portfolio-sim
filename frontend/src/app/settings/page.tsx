@@ -18,17 +18,22 @@ import {
   CheckCircle,
   XCircle,
   ExternalLink,
+  Plus,
+  Trash2,
+  Rss,
 } from "lucide-react";
-import { useProviders, ProviderConfig, ConnectionStatus } from "@/hooks/useProviders";
+import { useProviders, ProviderConfig, ConnectionStatus, RSSFeed } from "@/hooks/useProviders";
 
 type ProviderStatus = "connected" | "disconnected" | "error";
 
 function ProviderCard({
   provider,
   onSave,
+  onValidate,
 }: {
   provider: ProviderConfig;
   onSave: (providerId: string, apiKey: string) => Promise<boolean>;
+  onValidate: (providerId: string, apiKey: string) => Promise<{ valid: boolean; error?: string }>;
 }) {
   const [apiKey, setApiKey] = useState("");
   const [showSecret, setShowSecret] = useState(false);
@@ -46,11 +51,11 @@ function ProviderCard({
   };
 
   const handleTest = async () => {
+    if (!apiKey) return;
     setTesting(true);
     setTestResult(null);
-    await new Promise((r) => setTimeout(r, 1200));
-    const result: ProviderStatus = apiKey ? "connected" : "disconnected";
-    setTestResult(result);
+    const result = await onValidate(provider.provider_id, apiKey);
+    setTestResult(result.valid ? "connected" : "error");
     setTesting(false);
   };
 
@@ -103,7 +108,7 @@ function ProviderCard({
           </div>
         )}
         <div className="flex gap-2">
-          <Button variant="secondary" size="sm" onClick={handleTest} disabled={testing}>
+          <Button variant="secondary" size="sm" onClick={handleTest} disabled={testing || !apiKey}>
             <TestTube className="h-4 w-4" />
             {testing ? "Testing..." : "Test"}
           </Button>
@@ -132,12 +137,99 @@ function ConnectionCard({ conn }: { conn: ConnectionStatus }) {
   );
 }
 
+function RSSFeedCard({
+  feed,
+  onDelete,
+}: {
+  feed: RSSFeed;
+  onDelete: (feedId: string) => Promise<boolean>;
+}) {
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    await onDelete(feed.id);
+    setDeleting(false);
+  };
+
+  return (
+    <div className="flex items-center justify-between p-3 border border-outline-variant/30">
+      <div className="flex items-center gap-3">
+        <Rss className="h-4 w-4 text-on-surface-variant" />
+        <div>
+          <div className="text-sm font-medium">{feed.name}</div>
+          <div className="text-[11px] text-on-surface-variant truncate max-w-[200px]">{feed.url}</div>
+        </div>
+      </div>
+      <Button variant="ghost" size="sm" onClick={handleDelete} disabled={deleting}>
+        <Trash2 className="h-4 w-4 text-error" />
+      </Button>
+    </div>
+  );
+}
+
+function AddRSSFeedForm({ onAdd }: { onAdd: (name: string, url: string, scrapeInterval: number) => Promise<boolean> }) {
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
+  const [scrapeInterval, setScrapeInterval] = useState(60);
+  const [adding, setAdding] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name || !url) return;
+    setAdding(true);
+    await onAdd(name, url, scrapeInterval);
+    setName("");
+    setUrl("");
+    setScrapeInterval(60);
+    setAdding(false);
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="flex gap-2 items-end">
+      <div className="flex-1">
+        <Input
+          label="Name"
+          placeholder="e.g., Yahoo Finance"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+      </div>
+      <div className="flex-[2]">
+        <Input
+          label="Feed URL"
+          placeholder="https://example.com/feed.xml"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+        />
+      </div>
+      <div className="w-24">
+        <Input
+          label="Interval (min)"
+          type="number"
+          min={5}
+          value={scrapeInterval}
+          onChange={(e) => setScrapeInterval(parseInt(e.target.value) || 60)}
+        />
+      </div>
+      <Button type="submit" variant="default" size="sm" disabled={adding || !name || !url}>
+        <Plus className="h-4 w-4" />
+        {adding ? "Adding..." : "Add"}
+      </Button>
+    </form>
+  );
+}
+
 export default function SettingsPage() {
-  const { providers, connections, loading, refresh, saveProviderKey } = useProviders();
+  const { providers, connections, rssFeeds, loading, refresh, saveProviderKey, validateProviderKey, addRSSFeed, deleteRSSFeed } = useProviders();
 
   useEffect(() => { refresh(); }, [refresh]);
 
   const connectedCount = connections.filter((c) => c.is_up).length;
+
+  const marketDataProviders = providers.filter((p) => p.type === "market_data");
+  const youtubeProvider = providers.find((p) => p.type === "youtube");
+  const geminiProvider = providers.find((p) => p.type === "gemini");
 
   return (
     <div className="flex flex-col h-full">
@@ -150,7 +242,7 @@ export default function SettingsPage() {
       </div>
 
       <div className="flex-1 px-6 pb-6 overflow-auto">
-        <PageGrid className="mb-4" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
+        <PageGrid className="mb-4">
           <PageCell>
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 flex items-center justify-center bg-primary/10">
@@ -190,8 +282,8 @@ export default function SettingsPage() {
                 <Bell className="h-5 w-5 text-on-surface-variant" />
               </div>
               <div>
-                <MetricLabel>Notifications</MetricLabel>
-                <MetricValue>Enabled</MetricValue>
+                <MetricLabel>RSS Feeds</MetricLabel>
+                <MetricValue>{rssFeeds.length}</MetricValue>
               </div>
             </div>
           </PageCell>
@@ -199,14 +291,42 @@ export default function SettingsPage() {
 
         <PageGrid style={{ gridTemplateColumns: "2fr 1fr" }}>
           <PageCell>
-            <CardTitle className="mb-4">API Providers</CardTitle>
-            <div className="grid grid-cols-2 gap-3">
-              {providers.map((p) => (
-                <ProviderCard key={p.provider_id} provider={p} onSave={saveProviderKey} />
-              ))}
-              {providers.length === 0 && !loading && (
-                <div className="col-span-2 text-center text-on-surface-variant text-sm py-8">No providers configured</div>
-              )}
+            <div className="space-y-6">
+              <div>
+                <CardTitle className="mb-4">Market Data Providers</CardTitle>
+                <div className="grid grid-cols-2 gap-3">
+                  {marketDataProviders.map((p) => (
+                    <ProviderCard key={p.provider_id} provider={p} onSave={saveProviderKey} onValidate={validateProviderKey} />
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <CardTitle className="mb-4">AI / Video Providers</CardTitle>
+                <div className="grid grid-cols-2 gap-3">
+                  {youtubeProvider && (
+                    <ProviderCard provider={youtubeProvider} onSave={saveProviderKey} onValidate={validateProviderKey} />
+                  )}
+                  {geminiProvider && (
+                    <ProviderCard provider={geminiProvider} onSave={saveProviderKey} onValidate={validateProviderKey} />
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <CardTitle className="mb-4">RSS Feeds</CardTitle>
+                <div className="space-y-3">
+                  {rssFeeds.map((feed) => (
+                    <RSSFeedCard key={feed.id} feed={feed} onDelete={deleteRSSFeed} />
+                  ))}
+                  {rssFeeds.length === 0 && !loading && (
+                    <div className="text-center text-on-surface-variant text-sm py-4">No RSS feeds configured</div>
+                  )}
+                </div>
+                <div className="mt-4 pt-4 border-t border-outline-variant/30">
+                  <AddRSSFeedForm onAdd={addRSSFeed} />
+                </div>
+              </div>
             </div>
           </PageCell>
 
