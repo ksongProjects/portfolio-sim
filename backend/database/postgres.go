@@ -52,11 +52,14 @@ func (p *Postgres) Pool() *pgxpool.Pool {
 	return p.pool
 }
 
-func (p *Postgres) Exec(ctx context.Context, sql string, args ...interface{}) error {
-	_, err := p.pool.Exec(ctx, sql, args...)
-	return err
-}
-
 func (p *Postgres) Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error) {
 	return p.pool.Query(ctx, sql, args...)
+}
+
+func (p *Postgres) QueryRow(ctx context.Context, sql string, args ...interface{}) (pgx.Row, error) {
+	return p.pool.QueryRow(ctx, sql, args...), nil
+}
+
+func (p *Postgres) GetPool() *pgxpool.Pool {
+	return p.pool
 }

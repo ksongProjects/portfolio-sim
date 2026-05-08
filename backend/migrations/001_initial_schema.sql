@@ -18,6 +18,14 @@ INSERT INTO data_sources (id, name, source_priority, rate_limit_per_min) VALUES
     ('polygon', 'Polygon', 2, 60),
     ('fmp', 'Financial Modeling Prep', 3, 250);
 
+CREATE TABLE provider_configurations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    provider_id TEXT NOT NULL UNIQUE REFERENCES data_sources(id),
+    encrypted_key TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE tickers (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     symbol TEXT NOT NULL UNIQUE,

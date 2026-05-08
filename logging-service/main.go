@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -103,6 +104,56 @@ func (s *LoggingService) HandleHealth(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
+func (s *LoggingService) HandleGetLogs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	limit := 50
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 500 {
+			limit = parsed
+		}
+	}
+
+	level := r.URL.Query().Get("level")
+	service := r.URL.Query().Get("service")
+
+	query := `
+		SELECT id, timestamp, level, service, component, message, metadata, trace_id, span_id
+		FROM logs
+		WHERE ($1 = '' OR level = $1)
+		  AND ($2 = '' OR service = $2)
+		ORDER BY timestamp DESC
+		LIMIT $3
+	`
+	rows, err := s.db.Query(r.Context(), query, level, service, limit)
+	if err != nil {
+		log.Printf("Failed to query logs: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	logs := []LogEntry{}
+	for rows.Next() {
+		var le LogEntry
+		var metadata []byte
+		if err := rows.Scan(&le.ID, &le.Timestamp, &le.Level, &le.Service, &le.Component, &le.Message, &metadata, &le.TraceID, &le.SpanID); err != nil {
+			log.Printf("Failed to scan log row: %v", err)
+			continue
+		}
+		if metadata != nil {
+			json.Unmarshal(metadata, &le.Metadata)
+		}
+		logs = append(logs, le)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(logs)
+}
+
 func main() {
 	cfg := config.Load()
 
@@ -128,6 +179,7 @@ func main() {
 	service := NewLoggingService(db, redisClient)
 
 	http.HandleFunc("GET /health", service.HandleHealth)
+	http.HandleFunc("GET /api/logs", service.HandleGetLogs)
 	http.HandleFunc("POST /api/logs", service.HandleEmitLog)
 
 	addr := cfg.Server.Addr()

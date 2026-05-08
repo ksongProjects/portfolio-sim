@@ -1,45 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { PageGrid, PageCell, PageHeader, MetricLabel, MetricValue, MetricSubValue } from "@/components/page-layout";
 import { CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Activity } from "lucide-react";
+import { usePortfolio } from "@/hooks/usePortfolio";
 
-const portfolioSummary = {
-  totalValue: "$1,247,832.40",
-  dayChange: "+$12,458.20",
-  dayChangePercent: "+1.01%",
-  totalGain: "+$247,832.40",
-  totalGainPercent: "+24.78%",
-  totalBalance: "$24,582.40",
-};
-
-const positions = [
-  { id: 1, symbol: "NVDA", name: "NVIDIA Corporation", shares: 150, price: "$875.28", value: "$131,292.00", change: "+2.34%" },
-  { id: 2, symbol: "AAPL", name: "Apple Inc.", shares: 200, price: "$178.42", value: "$35,684.00", change: "+0.87%" },
-  { id: 3, symbol: "MSFT", name: "Microsoft Corporation", shares: 100, price: "$415.20", value: "$41,520.00", change: "+1.12%" },
-  { id: 4, symbol: "GOOGL", name: "Alphabet Inc.", shares: 80, price: "$175.30", value: "$14,024.00", change: "-0.45%" },
-  { id: 5, symbol: "TSLA", name: "Tesla Inc.", shares: 60, price: "$245.80", value: "$14,748.00", change: "+3.21%" },
-];
-
-const recentTrades = [
-  { id: 1, type: "BUY", symbol: "NVDA", shares: 50, price: "$860.00", total: "$43,000.00", time: "10:32 AM" },
-  { id: 2, type: "SELL", symbol: "AAPL", shares: 25, price: "$177.50", total: "$4,437.50", time: "09:15 AM" },
-  { id: 3, type: "BUY", symbol: "TSLA", shares: 30, price: "$240.00", total: "$7,200.00", time: "Yesterday" },
-  { id: 4, type: "BUY", symbol: "MSFT", shares: 20, price: "$410.00", total: "$8,200.00", time: "Yesterday" },
-];
-
-const marketIndices = [
-  { symbol: "SPY", name: "S&P 500 ETF", price: "$523.45", change: "+0.87%", positive: true },
-  { symbol: "DIA", name: "Dow Jones ETF", price: "$398.20", change: "+0.45%", positive: true },
-  { symbol: "QQQ", name: "Nasdaq ETF", price: "$448.30", change: "+1.12%", positive: true },
-  { symbol: "IWM", name: "Russell 2000 ETF", price: "$198.30", change: "-0.23%", positive: false },
-  { symbol: "VIX", name: "Volatility Index", price: "$14.82", change: "-4.12%", positive: false },
-  { symbol: "DXY", name: "US Dollar Index", price: "$104.20", change: "+0.15%", positive: true },
-];
+function fmtCurrency(v: number): string {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(v);
+}
+function fmtPct(v: number): string {
+  return (v >= 0 ? "+" : "") + v.toFixed(2) + "%";
+}
 
 function MiniChart() {
   return (
@@ -67,9 +42,12 @@ function MiniChart() {
 }
 
 export default function DashboardPage() {
+  const { positions, summary, indices, loading, refresh } = usePortfolio();
   const [simRunning, setSimRunning] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [activePeriod, setActivePeriod] = useState("1M");
+
+  useEffect(() => { refresh(); }, [refresh]);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -81,8 +59,15 @@ export default function DashboardPage() {
     showToast("Simulation started...");
     await new Promise((r) => setTimeout(r, 2000));
     setSimRunning(false);
-    showToast("Simulation completed. +1.01% return.");
+    showToast("Simulation completed.");
   };
+
+  const posValue = summary?.TotalValue ?? 0;
+  const posDayChange = summary?.DayChange ?? 0;
+  const posDayPct = summary?.DayChangePct ?? 0;
+  const posTotalGain = summary?.TotalGain ?? 0;
+  const posTotalGainPct = summary?.TotalGainPct ?? 0;
+  const posCash = summary?.CashBalance ?? 0;
 
   return (
     <div className="flex flex-col h-full">
@@ -102,22 +87,22 @@ export default function DashboardPage() {
         <PageGrid className="mb-4" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
           <PageCell>
             <MetricLabel>Total Portfolio Value</MetricLabel>
-            <MetricValue>{portfolioSummary.totalValue}</MetricValue>
-            <MetricSubValue positive>{portfolioSummary.dayChange} ({portfolioSummary.dayChangePercent})</MetricSubValue>
+            <MetricValue>{fmtCurrency(posValue)}</MetricValue>
+            <MetricSubValue positive>{fmtCurrency(posDayChange)} ({fmtPct(posDayPct)})</MetricSubValue>
           </PageCell>
           <PageCell>
             <MetricLabel>Today&apos;s P&amp;L</MetricLabel>
-            <MetricValue highlight>{portfolioSummary.dayChange}</MetricValue>
-            <MetricSubValue positive>{portfolioSummary.dayChangePercent}</MetricSubValue>
+            <MetricValue highlight>{fmtCurrency(posDayChange)}</MetricValue>
+            <MetricSubValue positive>{fmtPct(posDayPct)}</MetricSubValue>
           </PageCell>
           <PageCell>
             <MetricLabel>Total Gain/Loss</MetricLabel>
-            <MetricValue>{portfolioSummary.totalGain}</MetricValue>
-            <MetricSubValue positive>{portfolioSummary.totalGainPercent}</MetricSubValue>
+            <MetricValue>{fmtCurrency(posTotalGain)}</MetricValue>
+            <MetricSubValue positive>{fmtPct(posTotalGainPct)}</MetricSubValue>
           </PageCell>
           <PageCell>
             <MetricLabel>Cash Balance</MetricLabel>
-            <MetricValue>{portfolioSummary.totalBalance}</MetricValue>
+            <MetricValue>{fmtCurrency(posCash)}</MetricValue>
             <MetricSubValue>Buying Power</MetricSubValue>
           </PageCell>
         </PageGrid>
@@ -159,18 +144,23 @@ export default function DashboardPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {positions.map((pos) => (
-                  <TableRow key={pos.id}>
+                {positions.slice(0, 5).map((pos) => (
+                  <TableRow key={pos.ID}>
                     <TableCell>
-                      <span className="font-mono font-semibold">{pos.symbol}</span>
+                      <span className="font-mono font-semibold">{pos.Symbol}</span>
                     </TableCell>
-                    <TableCell className="font-mono">{pos.price}</TableCell>
-                    <TableCell className="font-mono">{pos.value}</TableCell>
-                    <TableCell className={`font-mono ${pos.change.startsWith("+") ? "text-primary" : "text-error"}`}>
-                      {pos.change}
+                    <TableCell className="font-mono">{fmtCurrency(pos.CurrentPrice)}</TableCell>
+                    <TableCell className="font-mono">{fmtCurrency(pos.CurrentValue)}</TableCell>
+                    <TableCell className={`font-mono ${pos.DayChangePct >= 0 ? "text-primary" : "text-error"}`}>
+                      {fmtPct(pos.DayChangePct)}
                     </TableCell>
                   </TableRow>
                 ))}
+                {positions.length === 0 && !loading && (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center text-on-surface-variant text-sm py-8">No positions available</TableCell>
+                  </TableRow>
+                )}
               </TableBody>
             </Table>
           </PageCell>
@@ -189,20 +179,21 @@ export default function DashboardPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {recentTrades.map((trade) => (
-                  <TableRow key={trade.id}>
-                    <TableCell>
-                      <Badge variant={trade.type === "BUY" ? "success" : "error"}>
-                        {trade.type}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="font-mono font-semibold">{trade.symbol}</TableCell>
-                    <TableCell className="font-mono">{trade.shares}</TableCell>
-                    <TableCell className="font-mono">{trade.price}</TableCell>
-                    <TableCell className="font-mono">{trade.total}</TableCell>
-                    <TableCell className="text-on-surface-variant">{trade.time}</TableCell>
+                {positions.slice(0, 4).map((pos) => (
+                  <TableRow key={pos.ID}>
+                    <TableCell><Badge variant="success">BUY</Badge></TableCell>
+                    <TableCell className="font-mono font-semibold">{pos.Symbol}</TableCell>
+                    <TableCell className="font-mono">{pos.Quantity}</TableCell>
+                    <TableCell className="font-mono">{fmtCurrency(pos.AvgCost)}</TableCell>
+                    <TableCell className="font-mono">{fmtCurrency(pos.CurrentValue)}</TableCell>
+                    <TableCell className="text-on-surface-variant">Today</TableCell>
                   </TableRow>
                 ))}
+                {positions.length === 0 && !loading && (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center text-on-surface-variant text-sm py-8">No recent activity</TableCell>
+                  </TableRow>
+                )}
               </TableBody>
             </Table>
           </PageCell>
@@ -210,20 +201,23 @@ export default function DashboardPage() {
           <PageCell className="col-span-1 row-span-1">
             <CardTitle className="mb-4">Market Indices</CardTitle>
             <div className="grid grid-cols-2 gap-2">
-              {marketIndices.map((index) => (
-                <div key={index.symbol} className="flex items-center justify-between p-3 border border-outline-variant/30">
+              {indices.map((index) => (
+                <div key={index.Symbol} className="flex items-center justify-between p-3 border border-outline-variant/30">
                   <div>
-                    <div className="font-mono text-sm font-semibold">{index.symbol}</div>
-                    <div className="text-[11px] text-on-surface-variant">{index.name}</div>
+                    <div className="font-mono text-sm font-semibold">{index.Symbol}</div>
+                    <div className="text-[11px] text-on-surface-variant">{index.Name}</div>
                   </div>
                   <div className="text-right">
-                    <div className="font-mono text-sm">{index.price}</div>
-                    <div className={`text-[11px] font-mono ${index.positive ? "text-primary" : "text-error"}`}>
-                      {index.change}
+                    <div className="font-mono text-sm">{fmtCurrency(index.Price)}</div>
+                    <div className={`text-[11px] font-mono ${index.ChangePct >= 0 ? "text-primary" : "text-error"}`}>
+                      {fmtPct(index.ChangePct)}
                     </div>
                   </div>
                 </div>
               ))}
+              {indices.length === 0 && !loading && (
+                <div className="col-span-2 text-center text-on-surface-variant text-sm py-8">No market data available</div>
+              )}
             </div>
           </PageCell>
         </PageGrid>

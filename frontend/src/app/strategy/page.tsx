@@ -1,49 +1,37 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { PageGrid, PageCell, PageHeader, MetricLabel, MetricValue } from "@/components/page-layout";
 import { CardTitle } from "@/components/ui/card";
 import { Badge, StatusIndicator } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Play, Pause, Plus, Settings, Zap, BarChart3, TrendingUp, Shield } from "lucide-react";
+import { useStrategies } from "@/hooks/useStrategies";
 
-const strategies = [
-  { id: 1, name: "Momentum Growth", status: "active" as const, returns: "+18.4%", sharpe: "1.42", maxDD: "-12.3%", trades: 847, winRate: "64.2%" },
-  { id: 2, name: "Value Scanner", status: "active" as const, returns: "+12.1%", sharpe: "1.18", maxDD: "-8.7%", trades: 423, winRate: "58.9%" },
-  { id: 3, name: "Mean Reversion", status: "paused" as const, returns: "+8.3%", sharpe: "0.95", maxDD: "-15.2%", trades: 612, winRate: "52.1%" },
-  { id: 4, name: "Sector Rotation", status: "active" as const, returns: "+15.7%", sharpe: "1.28", maxDD: "-10.1%", trades: 234, winRate: "61.4%" },
-];
-
-const recentSignals = [
-  { id: 1, strategy: "Momentum Growth", symbol: "NVDA", action: "BUY", price: "$875.28", time: "10:32 AM", confidence: "HIGH" },
-  { id: 2, strategy: "Value Scanner", symbol: "JPM", action: "BUY", price: "$198.50", time: "09:15 AM", confidence: "MEDIUM" },
-  { id: 3, strategy: "Sector Rotation", symbol: "TLT", action: "SELL", price: "$92.45", time: "Yesterday", confidence: "HIGH" },
-  { id: 4, strategy: "Momentum Growth", symbol: "TSLA", action: "BUY", price: "$245.80", time: "Yesterday", confidence: "MEDIUM" },
-];
-
-const avgWinRate = (strategies.reduce((sum, s) => sum + parseFloat(s.winRate), 0) / strategies.length).toFixed(1);
-const avgSharpe = (strategies.reduce((sum, s) => sum + parseFloat(s.sharpe), 0) / strategies.length).toFixed(2);
+function fmtPct(v: number): string {
+  return (v >= 0 ? "+" : "") + v.toFixed(2) + "%";
+}
 
 export default function StrategyPage() {
-  const [strategyList, setStrategyList] = useState([...strategies]);
+  const { strategies, signals, loading, refresh } = useStrategies();
   const [toast, setToast] = useState<string | null>(null);
+
+  useEffect(() => { refresh(); }, [refresh]);
 
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 3000);
   };
 
-  const toggleStrategy = (id: number) => {
-    setStrategyList((prev) =>
-      prev.map((s) => s.id === id ? { ...s, status: s.status === "active" ? ("paused" as const) : ("active" as const) } : s)
-    );
-    const s = strategyList.find((str) => str.id === id);
-    showToast(`${s?.name} ${s?.status === "active" ? "paused" : "started"}`);
+  const toggleStrategy = (strategy: Strategy) => {
+    showToast(`${strategy.Name} toggled`);
   };
 
-  const totalTrades = strategyList.reduce((sum, s) => sum + s.trades, 0);
-  const activeCount = strategyList.filter((s) => s.status === "active").length;
+  const totalTrades = strategies.reduce((sum, s) => sum + s.Trades, 0);
+  const activeCount = strategies.filter((s) => s.Status === "active").length;
+  const avgWinRate = strategies.length > 0 ? (strategies.reduce((sum, s) => sum + s.WinRate, 0) / strategies.length).toFixed(1) : "0.0";
+  const avgSharpe = strategies.length > 0 ? (strategies.reduce((sum, s) => sum + s.Sharpe, 0) / strategies.length).toFixed(2) : "0.00";
 
   return (
     <div className="flex flex-col h-full">
@@ -126,27 +114,32 @@ export default function StrategyPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {strategyList.map((strategy) => (
-                    <TableRow key={strategy.id}>
-                      <TableCell className="font-medium">{strategy.name}</TableCell>
+                  {strategies.map((strategy) => (
+                    <TableRow key={strategy.ID}>
+                      <TableCell className="font-medium">{strategy.Name}</TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
-                          <StatusIndicator active={strategy.status === "active"} />
-                          <span className="text-xs capitalize text-on-surface-variant">{strategy.status}</span>
+                          <StatusIndicator active={strategy.Status === "active"} />
+                          <span className="text-xs capitalize text-on-surface-variant">{strategy.Status}</span>
                         </div>
                       </TableCell>
-                      <TableCell className="text-right font-mono text-primary">{strategy.returns}</TableCell>
-                      <TableCell className="text-right font-mono">{strategy.sharpe}</TableCell>
-                      <TableCell className="text-right font-mono text-error">{strategy.maxDD}</TableCell>
-                      <TableCell className="text-right font-mono">{strategy.trades.toLocaleString()}</TableCell>
-                      <TableCell className="text-right font-mono">{strategy.winRate}</TableCell>
+                      <TableCell className="text-right font-mono text-primary">{fmtPct(strategy.Returns)}</TableCell>
+                      <TableCell className="text-right font-mono">{strategy.Sharpe.toFixed(2)}</TableCell>
+                      <TableCell className="text-right font-mono text-error">{strategy.MaxDD.toFixed(1)}%</TableCell>
+                      <TableCell className="text-right font-mono">{strategy.Trades.toLocaleString()}</TableCell>
+                      <TableCell className="text-right font-mono">{strategy.WinRate.toFixed(1)}%</TableCell>
                       <TableCell className="text-center">
-                        <Button variant="ghost" size="icon" onClick={() => toggleStrategy(strategy.id)}>
-                          {strategy.status === "active" ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                        <Button variant="ghost" size="icon" onClick={() => toggleStrategy(strategy)}>
+                          {strategy.Status === "active" ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
                         </Button>
                       </TableCell>
                     </TableRow>
                   ))}
+                  {strategies.length === 0 && !loading && (
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-center text-on-surface-variant text-sm py-8">No strategies available</TableCell>
+                    </TableRow>
+                  )}
                 </TableBody>
               </Table>
             </div>
@@ -157,21 +150,24 @@ export default function StrategyPage() {
           <PageCell>
             <CardTitle className="mb-4">Recent Signals</CardTitle>
             <div className="grid grid-cols-2 gap-2">
-              {recentSignals.map((signal) => (
-                <div key={signal.id} className="flex items-center justify-between p-4 border border-outline-variant/30">
+              {signals.map((signal) => (
+                <div key={signal.ID} className="flex items-center justify-between p-4 border border-outline-variant/30">
                   <div className="flex items-center gap-3">
-                    <Badge variant={signal.action === "BUY" ? "success" : "error"}>{signal.action}</Badge>
+                    <Badge variant={signal.Action === "BUY" ? "success" : "error"}>{signal.Action}</Badge>
                     <div>
-                      <div className="font-mono text-sm font-semibold">{signal.symbol}</div>
-                      <div className="text-[11px] text-on-surface-variant">{signal.strategy}</div>
+                      <div className="font-mono text-sm font-semibold">{signal.Symbol}</div>
+                      <div className="text-[11px] text-on-surface-variant">{signal.Strategy}</div>
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="font-mono text-sm">{signal.price}</div>
-                    <div className="text-[11px] text-on-surface-variant">{signal.time}</div>
+                    <div className="font-mono text-sm">${signal.Price.toFixed(2)}</div>
+                    <div className="text-[11px] text-on-surface-variant">{signal.Confidence}</div>
                   </div>
                 </div>
               ))}
+              {signals.length === 0 && !loading && (
+                <div className="col-span-2 text-center text-on-surface-variant text-sm py-8">No signals available</div>
+              )}
             </div>
           </PageCell>
         </PageGrid>
