@@ -209,8 +209,10 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGetPositions(w http.ResponseWriter, r *http.Request) {
 	portfolioID := r.URL.Query().Get("portfolio_id")
-	if portfolioID == "" {
-		portfolioID = "default"
+	if portfolioID == "" || portfolioID == "default" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]services.Position{})
+		return
 	}
 	positions, err := s.portfolioSvc.GetPositions(r.Context(), s.db, portfolioID)
 	if err != nil {
@@ -222,8 +224,10 @@ func (s *Server) handleGetPositions(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGetPortfolioSummary(w http.ResponseWriter, r *http.Request) {
 	portfolioID := r.URL.Query().Get("portfolio_id")
-	if portfolioID == "" {
-		portfolioID = "default"
+	if portfolioID == "" || portfolioID == "default" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(&services.PortfolioSummary{})
+		return
 	}
 	summary, err := s.portfolioSvc.GetPortfolioSummary(r.Context(), s.db, portfolioID)
 	if err != nil || summary == nil {
