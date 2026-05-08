@@ -1,4 +1,4 @@
-module github.com/portfolio-sim/backend/services/market-data-service
+module github.com/portfolio-sim/market-data-service
 
 go 1.22
 
@@ -18,5 +18,3 @@ require (
 	golang.org/x/sync v0.1.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 )
-
-replace github.com/portfolio-sim/backend => ../../

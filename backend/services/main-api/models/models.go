@@ -1,70 +1,47 @@
 package models
 
-import (
-	"time"
-)
-
-type User struct {
-	ID        string    `json:"id"`
-	ClerkID   string    `json:"clerk_id"`
-	Email     string    `json:"email"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
+import "time"
 
 type Portfolio struct {
-	ID          string     `json:"id"`
-	ClerkID     string     `json:"clerk_id"`
-	Name        string     `json:"name"`
-	Description string     `json:"description"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
-	Positions   []Position `json:"positions,omitempty"`
+	ID          string    `json:"id"`
+	UserID      string    `json:"user_id"`
+	Name        string    `json:"name"`
+	InitialCash float64   `json:"initial_cash"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 type Position struct {
 	ID          string    `json:"id"`
 	PortfolioID string    `json:"portfolio_id"`
 	TickerID    string    `json:"ticker_id"`
-	Shares      float64   `json:"shares"`
+	Quantity    float64   `json:"quantity"`
 	AvgCost     float64   `json:"avg_cost"`
-	CreatedAt   time.Time `json:"created_at"`
-	Ticker      *Ticker   `json:"ticker,omitempty"`
+	OpenedAt    time.Time `json:"opened_at"`
 }
 
 type Watchlist struct {
 	ID        string    `json:"id"`
-	ClerkID   string    `json:"clerk_id"`
+	UserID    string    `json:"user_id"`
 	Name      string    `json:"name"`
 	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Tickers   []Ticker  `json:"tickers,omitempty"`
 }
 
 type Ticker struct {
-	ID          string    `json:"id"`
-	Symbol      string    `json:"symbol"`
-	Name        string    `json:"name"`
-	Exchange    string    `json:"exchange"`
-	LastPrice   float64   `json:"last_price"`
-	UpdatedAt   time.Time `json:"updated_at"`
-}
-
-type WatchlistTicker struct {
-	ID          string    `json:"id"`
-	WatchlistID string    `json:"watchlist_id"`
-	TickerID    string    `json:"ticker_id"`
-	AddedAt     time.Time `json:"added_at"`
+	ID        string    `json:"id"`
+	Symbol    string    `json:"symbol"`
+	Name      string    `json:"name"`
+	Exchange  string    `json:"exchange"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type Job struct {
-	ID        string    `json:"id"`
-	ClerkID   string    `json:"clerk_id"`
-	Type      string    `json:"type"`
-	Status    string    `json:"status"`
-	Payload   string    `json:"payload"`
-	Result    string    `json:"result"`
-	Error     string    `json:"error"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID          string    `json:"id"`
+	JobType     string    `json:"job_type"`
+	Status      string    `json:"status"`
+	Payload     string    `json:"payload"`
+	Result      string    `json:"result"`
+	Error       string    `json:"error"`
+	StartedAt   time.Time `json:"started_at"`
+	CompletedAt time.Time `json:"completed_at"`
+	CreatedAt   time.Time `json:"created_at"`
 }

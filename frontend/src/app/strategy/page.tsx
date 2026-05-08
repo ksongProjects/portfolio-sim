@@ -1,12 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { PageCell, PageHeader } from "@/components/page-layout";
+import { PageGrid, PageCell, PageHeader, MetricLabel, MetricValue } from "@/components/page-layout";
 import { CardTitle } from "@/components/ui/card";
 import { Badge, StatusIndicator } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Play, Pause, Plus, Settings, TrendingUp, BarChart3, Zap, Shield } from "lucide-react";
+import { Play, Pause, Plus, Settings, Zap, BarChart3, TrendingUp, Shield } from "lucide-react";
 
 const strategies = [
   { id: 1, name: "Momentum Growth", status: "active" as const, returns: "+18.4%", sharpe: "1.42", maxDD: "-12.3%", trades: 847, winRate: "64.2%" },
@@ -36,108 +36,82 @@ export default function StrategyPage() {
 
   const toggleStrategy = (id: number) => {
     setStrategyList((prev) =>
-      prev.map((s) =>
-        s.id === id
-          ? { ...s, status: s.status === "active" ? ("paused" as const) : ("active" as const) }
-          : s
-      )
+      prev.map((s) => s.id === id ? { ...s, status: s.status === "active" ? ("paused" as const) : ("active" as const) } : s)
     );
     const s = strategyList.find((str) => str.id === id);
     showToast(`${s?.name} ${s?.status === "active" ? "paused" : "started"}`);
   };
 
+  const totalTrades = strategyList.reduce((sum, s) => sum + s.trades, 0);
+  const activeCount = strategyList.filter((s) => s.status === "active").length;
+
   return (
-    <div className="flex flex-col h-full bg-surface">
-      <div className="px-6 pt-6">
-        <PageHeader
-          title="Strategy"
-          description="Trading strategies and signal generation"
-        >
+    <div className="flex flex-col h-full">
+      <div className="px-6 pt-6 pb-4">
+        <PageHeader title="Strategy" description="Trading strategies and signal generation">
           <div className="flex gap-3">
             <Button variant="secondary" size="sm" onClick={() => showToast("Strategy configuration coming soon...")}>
-              <Settings className="h-4 w-4" />
-              Configure
+              <Settings className="h-4 w-4" /> Configure
             </Button>
             <Button variant="default" size="sm" onClick={() => showToast("New strategy editor coming soon...")}>
-              <Plus className="h-4 w-4" />
-              New Strategy
+              <Plus className="h-4 w-4" /> New Strategy
             </Button>
           </div>
         </PageHeader>
       </div>
 
       <div className="flex-1 px-6 pb-6 overflow-auto">
-        <div className="grid gap-[1px] bg-outline-variant mb-[1px]">
-          <div className="grid grid-cols-4 gap-[1px] bg-outline-variant">
-            <PageCell>
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 flex items-center justify-center bg-primary/10">
-                  <Zap className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant">
-                    Active Strategies
-                  </div>
-                  <div className="text-[24px] font-medium tracking-[-0.01em] text-on-surface" style={{ fontFamily: "var(--font-work-sans)" }}>
-                    {strategyList.filter((s) => s.status === "active").length}
-                  </div>
-                </div>
-              </div>
-            </PageCell>
-            <PageCell>
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 flex items-center justify-center bg-surface-container-high">
-                  <BarChart3 className="h-5 w-5 text-on-surface-variant" />
-                </div>
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant">
-                    Total Trades
-                  </div>
-                  <div className="text-[24px] font-medium tracking-[-0.01em] text-on-surface" style={{ fontFamily: "var(--font-work-sans)" }}>
-                    {strategyList.reduce((sum, s) => sum + s.trades, 0).toLocaleString()}
-                  </div>
-                </div>
-              </div>
-            </PageCell>
-            <PageCell>
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 flex items-center justify-center bg-surface-container-high">
-                  <TrendingUp className="h-5 w-5 text-on-surface-variant" />
-                </div>
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant">
-                    Avg Win Rate
-                  </div>
-                  <div className="text-[24px] font-medium tracking-[-0.01em] text-on-surface" style={{ fontFamily: "var(--font-work-sans)" }}>
-                    {avgWinRate}%
-                  </div>
-                </div>
-              </div>
-            </PageCell>
-            <PageCell>
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 flex items-center justify-center bg-surface-container-high">
-                  <Shield className="h-5 w-5 text-on-surface-variant" />
-                </div>
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant">
-                    Avg Sharpe
-                  </div>
-                  <div className="text-[24px] font-medium tracking-[-0.01em] text-on-surface" style={{ fontFamily: "var(--font-work-sans)" }}>
-                    {avgSharpe}
-                  </div>
-                </div>
-              </div>
-            </PageCell>
-          </div>
-        </div>
-
-        <div className="grid gap-[1px] bg-outline-variant">
+        <PageGrid className="mb-4" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
           <PageCell>
-            <div className="flex items-center justify-between mb-4">
-              <CardTitle className="text-base font-semibold text-on-surface">Strategies</CardTitle>
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 flex items-center justify-center bg-primary/10">
+                <Zap className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <MetricLabel>Active Strategies</MetricLabel>
+                <MetricValue>{activeCount}</MetricValue>
+              </div>
             </div>
-            <div className="border border-outline-variant">
+          </PageCell>
+          <PageCell>
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 flex items-center justify-center bg-surface-container-high">
+                <BarChart3 className="h-5 w-5 text-on-surface-variant" />
+              </div>
+              <div>
+                <MetricLabel>Total Trades</MetricLabel>
+                <MetricValue>{totalTrades.toLocaleString()}</MetricValue>
+              </div>
+            </div>
+          </PageCell>
+          <PageCell>
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 flex items-center justify-center bg-surface-container-high">
+                <TrendingUp className="h-5 w-5 text-on-surface-variant" />
+              </div>
+              <div>
+                <MetricLabel>Avg Win Rate</MetricLabel>
+                <MetricValue>{avgWinRate}%</MetricValue>
+              </div>
+            </div>
+          </PageCell>
+          <PageCell>
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 flex items-center justify-center bg-surface-container-high">
+                <Shield className="h-5 w-5 text-on-surface-variant" />
+              </div>
+              <div>
+                <MetricLabel>Avg Sharpe</MetricLabel>
+                <MetricValue>{avgSharpe}</MetricValue>
+              </div>
+            </div>
+          </PageCell>
+        </PageGrid>
+
+        <PageGrid style={{ gridTemplateColumns: "1fr" }}>
+          <PageCell>
+            <CardTitle className="mb-4">Strategies</CardTitle>
+            <div className="border border-outline-variant/30">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -154,7 +128,7 @@ export default function StrategyPage() {
                 <TableBody>
                   {strategyList.map((strategy) => (
                     <TableRow key={strategy.id}>
-                      <TableCell className="font-medium text-on-surface">{strategy.name}</TableCell>
+                      <TableCell className="font-medium">{strategy.name}</TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <StatusIndicator active={strategy.status === "active"} />
@@ -162,21 +136,13 @@ export default function StrategyPage() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-mono text-primary">{strategy.returns}</TableCell>
-                      <TableCell className="text-right font-mono text-on-surface">{strategy.sharpe}</TableCell>
+                      <TableCell className="text-right font-mono">{strategy.sharpe}</TableCell>
                       <TableCell className="text-right font-mono text-error">{strategy.maxDD}</TableCell>
-                      <TableCell className="text-right font-mono text-on-surface">{strategy.trades.toLocaleString()}</TableCell>
-                      <TableCell className="text-right font-mono text-on-surface">{strategy.winRate}</TableCell>
+                      <TableCell className="text-right font-mono">{strategy.trades.toLocaleString()}</TableCell>
+                      <TableCell className="text-right font-mono">{strategy.winRate}</TableCell>
                       <TableCell className="text-center">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => toggleStrategy(strategy.id)}
-                        >
-                          {strategy.status === "active" ? (
-                            <Pause className="h-4 w-4" />
-                          ) : (
-                            <Play className="h-4 w-4" />
-                          )}
+                        <Button variant="ghost" size="icon" onClick={() => toggleStrategy(strategy.id)}>
+                          {strategy.status === "active" ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -185,38 +151,34 @@ export default function StrategyPage() {
               </Table>
             </div>
           </PageCell>
-        </div>
+        </PageGrid>
 
-        <div className="mt-[1px] grid gap-[1px] bg-outline-variant">
+        <PageGrid className="mt-px" style={{ gridTemplateColumns: "repeat(2, 1fr)" }}>
           <PageCell>
-            <CardTitle className="text-base font-semibold text-on-surface mb-4">Recent Signals</CardTitle>
-            <div className="grid grid-cols-2 gap-3">
+            <CardTitle className="mb-4">Recent Signals</CardTitle>
+            <div className="grid grid-cols-2 gap-2">
               {recentSignals.map((signal) => (
-                <div key={signal.id} className="flex items-center justify-between p-4 border border-outline-variant">
+                <div key={signal.id} className="flex items-center justify-between p-4 border border-outline-variant/30">
                   <div className="flex items-center gap-3">
-                    <Badge variant={signal.action === "BUY" ? "success" : "error"} className="text-[10px]">
-                      {signal.action}
-                    </Badge>
+                    <Badge variant={signal.action === "BUY" ? "success" : "error"}>{signal.action}</Badge>
                     <div>
-                      <div className="font-mono text-sm font-semibold text-on-surface">{signal.symbol}</div>
+                      <div className="font-mono text-sm font-semibold">{signal.symbol}</div>
                       <div className="text-[11px] text-on-surface-variant">{signal.strategy}</div>
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="font-mono text-sm text-on-surface">{signal.price}</div>
+                    <div className="font-mono text-sm">{signal.price}</div>
                     <div className="text-[11px] text-on-surface-variant">{signal.time}</div>
                   </div>
                 </div>
               ))}
             </div>
           </PageCell>
-        </div>
+        </PageGrid>
       </div>
 
       {toast && (
-        <div className="fixed bottom-6 right-6 z-50 bg-surface-container-highest border border-primary text-on-surface px-4 py-3 text-sm font-medium">
-          {toast}
-        </div>
+        <div className="fixed bottom-6 right-6 z-50 bg-surface-container-highest border border-primary text-on-surface px-4 py-3 text-sm font-medium">{toast}</div>
       )}
     </div>
   );

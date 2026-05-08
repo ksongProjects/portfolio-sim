@@ -1,33 +1,16 @@
 package logging
 
-import (
-	"context"
-	"time"
-)
+import "context"
 
-type LogWriter struct {
-	emitter LogEmitter
-	service string
+type Writer struct {
+	client LogEmitter
 }
 
-func NewLogWriter(emitter LogEmitter, service string) *LogWriter {
-	return &LogWriter{
-		emitter: emitter,
-		service: service,
-	}
+func NewWriter(client LogEmitter) *Writer {
+	return &Writer{client: client}
 }
 
-func (w *LogWriter) Write(p []byte) (n int, err error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	entry := LogEntry{
-		Level:     "info",
-		Message:   string(p),
-		Timestamp: time.Now(),
-		Service:   w.service,
-	}
-
-	_ = w.emitter.Emit(ctx, entry.Level, entry.Message)
+func (w *Writer) Write(p []byte) (n int, err error) {
+	w.client.Emit(context.Background(), "INFO", string(p))
 	return len(p), nil
 }

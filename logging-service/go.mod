@@ -1,4 +1,4 @@
-module github.com/portfolio-sim/backend/services/logging-service
+module github.com/portfolio-sim/logging-service
 
 go 1.22
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { PageCell, PageHeader } from "@/components/page-layout";
+import { PageGrid, PageCell, PageHeader, MetricLabel, MetricValue, MetricSubValue } from "@/components/page-layout";
 import { CardTitle } from "@/components/ui/card";
 import { StatusIndicator } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,11 +13,7 @@ type SortKey = "symbol" | "shares" | "avgCost" | "price" | "value" | "dayChange"
 
 function SortIcon({ col, sortKey, sortAsc }: { col: SortKey; sortKey: SortKey; sortAsc: boolean }) {
   if (sortKey !== col) return <ChevronDown className="h-3 w-3 opacity-30" />;
-  return sortAsc ? (
-    <ChevronUp className="h-3 w-3 text-primary" />
-  ) : (
-    <ChevronDown className="h-3 w-3 text-primary" />
-  );
+  return sortAsc ? <ChevronUp className="h-3 w-3 text-primary" /> : <ChevronDown className="h-3 w-3 text-primary" />;
 }
 
 const portfolioSummary = {
@@ -67,135 +63,78 @@ export default function PortfolioPage() {
   };
 
   const filteredPositions = positions
-    .filter(
-      (p) =>
-        p.symbol.toLowerCase().includes(search.toLowerCase()) ||
-        p.name.toLowerCase().includes(search.toLowerCase())
-    )
+    .filter((p) => p.symbol.toLowerCase().includes(search.toLowerCase()) || p.name.toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => {
-      const aVal = a[sortKey];
-      const bVal = b[sortKey];
-      if (typeof aVal === "string" && typeof bVal === "string") {
-        const aNum = parseFloat(aVal.replace(/[^0-9.-]/g, ""));
-        const bNum = parseFloat(bVal.replace(/[^0-9.-]/g, ""));
-        return sortAsc ? aNum - bNum : bNum - aNum;
-      }
-      return 0;
+      const aVal = a[sortKey] as string;
+      const bVal = b[sortKey] as string;
+      const aNum = parseFloat(aVal.replace(/[^0-9.-]/g, ""));
+      const bNum = parseFloat(bVal.replace(/[^0-9.-]/g, ""));
+      return sortAsc ? aNum - bNum : bNum - aNum;
     });
 
   return (
-    <div className="flex flex-col h-full bg-surface">
-      <div className="px-6 pt-6">
-        <PageHeader
-          title="Portfolio"
-          description="Holdings and position management"
-        >
+    <div className="flex flex-col h-full">
+      <div className="px-6 pt-6 pb-4">
+        <PageHeader title="Portfolio" description="Holdings and position management">
           <div className="flex gap-3">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => showToast("Exporting portfolio as CSV...")}
-            >
-              <Download className="h-4 w-4" />
-              Export
+            <Button variant="secondary" size="sm" onClick={() => showToast("Exporting portfolio as CSV...")}>
+              <Download className="h-4 w-4" /> Export
             </Button>
-            <Button
-              variant="default"
-              size="sm"
-              onClick={() => showToast("Add position modal coming soon...")}
-            >
-              <Plus className="h-4 w-4" />
-              Add Position
+            <Button variant="default" size="sm" onClick={() => showToast("Add position modal coming soon...")}>
+              <Plus className="h-4 w-4" /> Add Position
             </Button>
           </div>
         </PageHeader>
       </div>
 
       <div className="flex-1 px-6 pb-6 overflow-auto">
-        <div className="grid gap-[1px] bg-outline-variant mb-[1px]">
-          <div className="grid grid-cols-5 gap-[1px] bg-outline-variant">
-            <PageCell>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant mb-2">
-                Total Value
-              </div>
-              <div className="text-[24px] font-medium tracking-[-0.01em] text-on-surface" style={{ fontFamily: "var(--font-work-sans)" }}>
-                {portfolioSummary.totalValue}
-              </div>
-              <div className="text-[13px] font-mono text-primary mt-1">
-                {portfolioSummary.dayChangePercent}
-              </div>
-            </PageCell>
-            <PageCell>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant mb-2">
-                Day P&amp;L
-              </div>
-              <div className="text-[24px] font-medium tracking-[-0.01em] text-primary" style={{ fontFamily: "var(--font-work-sans)" }}>
-                {portfolioSummary.dayPNL}
-              </div>
-              <div className="text-[13px] font-mono text-primary mt-1">
-                {portfolioSummary.dayChangePercent}
-              </div>
-            </PageCell>
-            <PageCell>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant mb-2">
-                Total Invested
-              </div>
-              <div className="text-[24px] font-medium tracking-[-0.01em] text-on-surface" style={{ fontFamily: "var(--font-work-sans)" }}>
-                {portfolioSummary.totalInvested}
-              </div>
-              <div className="text-[13px] font-mono text-on-surface-variant mt-1">
-                Cost Basis
-              </div>
-            </PageCell>
-            <PageCell>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant mb-2">
-                Total Gain/Loss
-              </div>
-              <div className="text-[24px] font-medium tracking-[-0.01em] text-on-surface" style={{ fontFamily: "var(--font-work-sans)" }}>
-                {portfolioSummary.totalGain}
-              </div>
-              <div className="text-[13px] font-mono text-primary mt-1">
-                {portfolioSummary.totalGainPercent}
-              </div>
-            </PageCell>
-            <PageCell>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant mb-2">
-                Cash Balance
-              </div>
-              <div className="text-[24px] font-medium tracking-[-0.01em] text-on-surface" style={{ fontFamily: "var(--font-work-sans)" }}>
-                $59,324.40
-              </div>
-              <div className="text-[13px] font-mono text-on-surface-variant mt-1">
-                Buying Power
-              </div>
-            </PageCell>
-          </div>
-        </div>
+        <PageGrid className="mb-4" style={{ gridTemplateColumns: "repeat(5, 1fr)" }}>
+          <PageCell>
+            <MetricLabel>Total Value</MetricLabel>
+            <MetricValue>{portfolioSummary.totalValue}</MetricValue>
+            <MetricSubValue positive>{portfolioSummary.dayChangePercent}</MetricSubValue>
+          </PageCell>
+          <PageCell>
+            <MetricLabel>Day P&amp;L</MetricLabel>
+            <MetricValue highlight>{portfolioSummary.dayPNL}</MetricValue>
+            <MetricSubValue positive>{portfolioSummary.dayChangePercent}</MetricSubValue>
+          </PageCell>
+          <PageCell>
+            <MetricLabel>Total Invested</MetricLabel>
+            <MetricValue>{portfolioSummary.totalInvested}</MetricValue>
+            <MetricSubValue>Cost Basis</MetricSubValue>
+          </PageCell>
+          <PageCell>
+            <MetricLabel>Total Gain/Loss</MetricLabel>
+            <MetricValue>{portfolioSummary.totalGain}</MetricValue>
+            <MetricSubValue positive>{portfolioSummary.totalGainPercent}</MetricSubValue>
+          </PageCell>
+          <PageCell>
+            <MetricLabel>Cash Balance</MetricLabel>
+            <MetricValue>$59,324.40</MetricValue>
+            <MetricSubValue>Buying Power</MetricSubValue>
+          </PageCell>
+        </PageGrid>
 
-        <div className="grid grid-cols-12 gap-[1px] bg-outline-variant">
-          <PageCell className="col-span-8">
+        <PageGrid style={{ gridTemplateColumns: "2fr 1fr" }}>
+          <PageCell>
             <div className="flex items-center justify-between mb-4">
-              <CardTitle className="text-base font-semibold text-on-surface">All Positions</CardTitle>
+              <CardTitle>All Positions</CardTitle>
               <div className="flex gap-3">
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-on-surface-variant" />
-                  <Input
-                    placeholder="Search holdings..."
-                    className="pl-9 w-[200px]"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                  />
+                  <Input placeholder="Search holdings..." className="pl-9 w-[200px]" value={search} onChange={(e) => setSearch(e.target.value)} />
                 </div>
                 <Button variant="ghost" size="icon" onClick={() => showToast("Filter options coming soon...")}>
                   <Filter className="h-4 w-4" />
                 </Button>
               </div>
             </div>
-            <div className="border border-outline-variant">
+            <div className="border border-outline-variant/30">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[100px]">
+                    <TableHead className="w-[90px]">
                       <button onClick={() => handleSort("symbol")} className="flex items-center gap-1 hover:text-on-surface">
                         Symbol <SortIcon col="symbol" sortKey={sortKey} sortAsc={sortAsc} />
                       </button>
@@ -237,23 +176,17 @@ export default function PortfolioPage() {
                 <TableBody>
                   {filteredPositions.map((pos) => (
                     <TableRow key={pos.id}>
+                      <TableCell><span className="font-mono font-semibold">{pos.symbol}</span></TableCell>
                       <TableCell>
-                        <div className="font-mono font-semibold text-sm text-on-surface">{pos.symbol}</div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="text-sm text-on-surface">{pos.name}</div>
+                        <div className="text-sm">{pos.name}</div>
                         <div className="text-[11px] text-on-surface-variant">{pos.sector}</div>
                       </TableCell>
-                      <TableCell className="text-right font-mono text-sm">{pos.shares}</TableCell>
-                      <TableCell className="text-right font-mono text-sm">{pos.avgCost}</TableCell>
-                      <TableCell className="text-right font-mono text-sm">{pos.price}</TableCell>
-                      <TableCell className="text-right font-mono text-sm font-medium">{pos.value}</TableCell>
-                      <TableCell className={`text-right font-mono text-sm ${pos.dayChange.startsWith("+") ? "text-primary" : "text-error"}`}>
-                        {pos.dayChange}
-                      </TableCell>
-                      <TableCell className={`text-right font-mono text-sm ${pos.totalGain.startsWith("+") ? "text-primary" : "text-error"}`}>
-                        {pos.totalGain}
-                      </TableCell>
+                      <TableCell className="text-right font-mono">{pos.shares}</TableCell>
+                      <TableCell className="text-right font-mono">{pos.avgCost}</TableCell>
+                      <TableCell className="text-right font-mono">{pos.price}</TableCell>
+                      <TableCell className="text-right font-mono font-medium">{pos.value}</TableCell>
+                      <TableCell className={`text-right font-mono ${pos.dayChange.startsWith("+") ? "text-primary" : "text-error"}`}>{pos.dayChange}</TableCell>
+                      <TableCell className={`text-right font-mono ${pos.totalGain.startsWith("+") ? "text-primary" : "text-error"}`}>{pos.totalGain}</TableCell>
                       <TableCell className="text-center">
                         <div className="flex items-center justify-center gap-1.5">
                           <StatusIndicator active={pos.status === "active"} />
@@ -267,70 +200,46 @@ export default function PortfolioPage() {
             </div>
           </PageCell>
 
-          <PageCell className="col-span-4">
-            <CardTitle className="text-base font-semibold text-on-surface mb-4">Sector Allocation</CardTitle>
+          <PageCell>
+            <CardTitle className="mb-4">Sector Allocation</CardTitle>
             <div className="space-y-3">
               {sectorAllocation.map((sector) => (
                 <div key={sector.sector}>
                   <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center gap-2">
                       <div className="h-2 w-2" style={{ backgroundColor: sector.color }} />
-                      <span className="text-sm text-on-surface">{sector.sector}</span>
+                      <span className="text-sm">{sector.sector}</span>
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className="text-sm font-mono text-on-surface">{sector.value}</span>
+                      <span className="text-sm font-mono">{sector.value}</span>
                       <span className="text-sm font-mono text-on-surface-variant w-10 text-right">{sector.percent}</span>
                     </div>
                   </div>
-                  <div className="h-1 bg-surface-container-high w-full">
-                    <div
-                      className="h-full transition-all"
-                      style={{ width: sector.percent, backgroundColor: sector.color }}
-                    />
+                  <div className="h-0.5 bg-surface-container-high w-full">
+                    <div className="h-full transition-all" style={{ width: sector.percent, backgroundColor: sector.color }} />
                   </div>
                 </div>
               ))}
             </div>
 
-            <div className="mt-6 pt-6 border-t border-outline-variant">
-              <CardTitle className="text-base font-semibold text-on-surface mb-4">Quick Stats</CardTitle>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="p-3 border border-outline-variant">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant">
-                    Positions
+            <div className="mt-6 pt-5 border-t border-outline-variant/30">
+              <CardTitle className="mb-4">Quick Stats</CardTitle>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { label: "Positions", value: String(positions.length) },
+                  { label: "Avg Cost Basis", value: "$243.21" },
+                  { label: "Day Change", value: "+$7,234.56", highlight: true },
+                  { label: "Wtd. Avg Gain", value: "+18.24%", highlight: true },
+                ].map((stat) => (
+                  <div key={stat.label} className="p-3 border border-outline-variant/30">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant">{stat.label}</div>
+                    <div className={`text-[16px] font-mono font-medium mt-1 ${stat.highlight ? "text-primary" : "text-on-surface"}`}>{stat.value}</div>
                   </div>
-                  <div className="text-[18px] font-mono font-medium text-on-surface mt-1">
-                    {positions.length}
-                  </div>
-                </div>
-                <div className="p-3 border border-outline-variant">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant">
-                    Avg Cost Basis
-                  </div>
-                  <div className="text-[18px] font-mono font-medium text-on-surface mt-1">
-                    $243.21
-                  </div>
-                </div>
-                <div className="p-3 border border-outline-variant">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant">
-                    Day Change
-                  </div>
-                  <div className="text-[18px] font-mono font-medium text-primary mt-1">
-                    +$7,234.56
-                  </div>
-                </div>
-                <div className="p-3 border border-outline-variant">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant">
-                    Wtd. Avg Gain
-                  </div>
-                  <div className="text-[18px] font-mono font-medium text-primary mt-1">
-                    +18.24%
-                  </div>
-                </div>
+                ))}
               </div>
             </div>
           </PageCell>
-        </div>
+        </PageGrid>
       </div>
 
       {toast && (
