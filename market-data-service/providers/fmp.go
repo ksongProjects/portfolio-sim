@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/portfolio-sim/backend/services/market-data-service/config"
+	"github.com/portfolio-sim/market-data-service/config"
 )
 
 type FMPProvider struct {

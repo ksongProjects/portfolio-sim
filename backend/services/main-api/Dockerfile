@@ -1,21 +1,21 @@
 # Build stage
 FROM golang:1.22-alpine AS builder
 
-WORKDIR /app
+WORKDIR /app/services/main-api
 
-COPY go.mod go.sum ./
+COPY services/main-api/go.mod services/main-api/go.sum ./
 RUN go mod download
 
-COPY . .
+COPY services/main-api/ ./
 
-RUN CGO_ENABLED=0 GOOS=linux go build -o main-api ./services/main-api/
+RUN CGO_ENABLED=0 GOOS=linux go build -o main-api .
 
 # Run stage
 FROM alpine:3.19
 
 WORKDIR /app
 
-COPY --from=builder /app/main-api .
+COPY --from=builder /app/services/main-api/main-api .
 
 EXPOSE 8080
 

@@ -9,14 +9,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/portfolio-sim/backend/services/market-data-service/config"
-	"github.com/portfolio-sim/backend/services/market-data-service/database"
-	loggingpkg "github.com/portfolio-sim/backend/services/market-data-service/logging"
-	"github.com/portfolio-sim/backend/services/market-data-service/normalizer"
-	"github.com/portfolio-sim/backend/services/market-data-service/providers"
-	"github.com/portfolio-sim/backend/services/market-data-service/redis"
-	"github.com/portfolio-sim/backend/services/market-data-service/sse"
-	"github.com/portfolio-sim/backend/services/market-data-service/storage"
+	"github.com/portfolio-sim/market-data-service/config"
+	"github.com/portfolio-sim/market-data-service/database"
+	loggingpkg "github.com/portfolio-sim/market-data-service/logging"
+	"github.com/portfolio-sim/market-data-service/normalizer"
+	"github.com/portfolio-sim/market-data-service/providers"
+	"github.com/portfolio-sim/market-data-service/redis"
+	"github.com/portfolio-sim/market-data-service/sse"
+	"github.com/portfolio-sim/market-data-service/storage"
 )
 
 type MarketDataService struct {

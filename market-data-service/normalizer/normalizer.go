@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/portfolio-sim/backend/services/market-data-service/providers"
+	"github.com/portfolio-sim/market-data-service/providers"
 )
 
 type NormalizedPrice struct {

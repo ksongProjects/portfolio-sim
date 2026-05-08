@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/portfolio-sim/backend/services/logging-service/redis"
+	"github.com/portfolio-sim/logging-service/redis"
 )
 
 type Client struct {

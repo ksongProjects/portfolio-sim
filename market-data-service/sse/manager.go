@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/portfolio-sim/backend/services/market-data-service/redis"
+	"github.com/portfolio-sim/market-data-service/redis"
 )
 
 type Manager struct {
