@@ -3,16 +3,16 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const badgeVariants = cva(
-  "inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.08em]",
+  "inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.08em] px-1.5 py-0.5",
   {
     variants: {
       variant: {
         default: "bg-primary text-on-primary",
         secondary: "bg-surface-container text-on-surface-variant",
         outline: "border border-outline text-on-surface-variant",
-        success: "bg-primary text-on-primary",
-        warning: "bg-error-container text-on-error-container",
-        error: "bg-error text-on-error",
+        success: "bg-primary/15 text-primary border border-primary/20",
+        warning: "bg-warning/15 text-warning border border-warning/20",
+        error: "bg-error/15 text-error border border-error/20",
       },
     },
     defaultVariants: {
@@ -39,7 +39,7 @@ function StatusIndicator({
   return (
     <div
       className={cn(
-        "h-2 w-2 shrink-0",
+        "h-1.5 w-1.5 shrink-0 rounded-full",
         active ? "bg-primary" : "bg-outline",
         className
       )}

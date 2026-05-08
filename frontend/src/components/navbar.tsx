@@ -25,13 +25,13 @@ export function Navbar() {
   const pathname = usePathname();
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-outline-variant bg-surface-container-low">
-      <div className="flex h-14 items-center px-6">
+    <header className="sticky top-0 z-50 w-full border-b border-outline-variant/50 bg-surface">
+      <div className="flex h-12 items-center px-6">
         <div className="flex items-center gap-6">
-          <Link href="/" className="flex items-center gap-2">
-            <span className="font-semibold text-on-surface">Portfolio Sim</span>
+          <Link href="/" className="flex items-center gap-2 mr-4">
+            <span className="text-sm font-semibold text-on-surface tracking-tight">Portfolio Sim</span>
           </Link>
-          <nav className="flex items-center gap-1 text-sm font-medium">
+          <nav className="flex items-center gap-0.5 text-sm font-medium">
             {routes.map((route) => {
               const Icon = route.icon;
               const isActive = pathname === route.href;
@@ -40,13 +40,13 @@ export function Navbar() {
                   key={route.href}
                   href={route.href}
                   className={cn(
-                    "flex items-center gap-1.5 px-3 py-2 transition-colors hover:bg-surface-container-high",
+                    "flex items-center gap-1.5 px-3 py-2 text-[13px] transition-colors",
                     isActive
-                      ? "text-primary border-b-2 border-primary"
-                      : "text-on-surface-variant"
+                      ? "text-primary bg-primary/5 border-b border-b-primary"
+                      : "text-on-surface-variant hover:text-on-surface hover:bg-surface-container"
                   )}
                 >
-                  <Icon className="h-4 w-4" />
+                  <Icon className="h-3.5 w-3.5" />
                   {route.label}
                 </Link>
               );

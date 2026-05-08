@@ -33,9 +33,4 @@ func (c *Client) GetTranscript(ctx context.Context, videoID string) (string, err
 
 	caption := captions.Items[0]
 	track, err := c.svc.Captions.Download(caption.Id).Do()
-	if err != nil {
-		return "", fmt.Errorf("download caption: %w", err)
-	}
-
-	return string(track), nil
 }

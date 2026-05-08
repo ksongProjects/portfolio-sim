@@ -12,8 +12,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/portfolio-sim/backend/internal/config"
-	"github.com/portfolio-sim/backend/internal/database"
+	"github.com/portfolio-sim/backend/services/main-api/config"
+	"github.com/portfolio-sim/backend/services/main-api/database"
 	"github.com/portfolio-sim/backend/services/main-api/logging"
 	"github.com/portfolio-sim/backend/services/main-api/redis"
 	"github.com/portfolio-sim/backend/services/main-api/sse"

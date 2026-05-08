@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { PageCell, PageHeader } from "@/components/page-layout";
+import { PageGrid, PageCell, PageHeader, MetricLabel, MetricValue, MetricSubValue } from "@/components/page-layout";
 import { CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -32,6 +32,15 @@ const recentTrades = [
   { id: 4, type: "BUY", symbol: "MSFT", shares: 20, price: "$410.00", total: "$8,200.00", time: "Yesterday" },
 ];
 
+const marketIndices = [
+  { symbol: "SPY", name: "S&P 500 ETF", price: "$523.45", change: "+0.87%", positive: true },
+  { symbol: "DIA", name: "Dow Jones ETF", price: "$398.20", change: "+0.45%", positive: true },
+  { symbol: "QQQ", name: "Nasdaq ETF", price: "$448.30", change: "+1.12%", positive: true },
+  { symbol: "IWM", name: "Russell 2000 ETF", price: "$198.30", change: "-0.23%", positive: false },
+  { symbol: "VIX", name: "Volatility Index", price: "$14.82", change: "-4.12%", positive: false },
+  { symbol: "DXY", name: "US Dollar Index", price: "$104.20", change: "+0.15%", positive: true },
+];
+
 function MiniChart() {
   return (
     <svg viewBox="0 0 400 120" className="w-full h-full" preserveAspectRatio="none">
@@ -60,6 +69,7 @@ function MiniChart() {
 export default function DashboardPage() {
   const [simRunning, setSimRunning] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [activePeriod, setActivePeriod] = useState("1M");
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -75,8 +85,8 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="flex flex-col h-full bg-surface">
-      <div className="px-6 pt-6">
+    <div className="flex flex-col h-full">
+      <div className="px-6 pt-6 pb-4">
         <PageHeader
           title="Dashboard"
           description="Portfolio overview and performance metrics"
@@ -89,172 +99,134 @@ export default function DashboardPage() {
       </div>
 
       <div className="flex-1 px-6 pb-6 overflow-auto">
-        <div className="grid gap-[1px] bg-outline-variant">
-          <div className="grid grid-cols-4 gap-[1px] bg-outline-variant">
-            <PageCell>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant mb-2">
-                Total Portfolio Value
-              </div>
-              <div className="text-[28px] font-medium tracking-[-0.02em] text-on-surface" style={{ fontFamily: "var(--font-work-sans)" }}>
-                {portfolioSummary.totalValue}
-              </div>
-              <div className="text-[13px] font-mono text-primary mt-1">
-                {portfolioSummary.dayChange} ({portfolioSummary.dayChangePercent})
-              </div>
-            </PageCell>
+        <PageGrid className="mb-4" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
+          <PageCell>
+            <MetricLabel>Total Portfolio Value</MetricLabel>
+            <MetricValue>{portfolioSummary.totalValue}</MetricValue>
+            <MetricSubValue positive>{portfolioSummary.dayChange} ({portfolioSummary.dayChangePercent})</MetricSubValue>
+          </PageCell>
+          <PageCell>
+            <MetricLabel>Today&apos;s P&amp;L</MetricLabel>
+            <MetricValue highlight>{portfolioSummary.dayChange}</MetricValue>
+            <MetricSubValue positive>{portfolioSummary.dayChangePercent}</MetricSubValue>
+          </PageCell>
+          <PageCell>
+            <MetricLabel>Total Gain/Loss</MetricLabel>
+            <MetricValue>{portfolioSummary.totalGain}</MetricValue>
+            <MetricSubValue positive>{portfolioSummary.totalGainPercent}</MetricSubValue>
+          </PageCell>
+          <PageCell>
+            <MetricLabel>Cash Balance</MetricLabel>
+            <MetricValue>{portfolioSummary.totalBalance}</MetricValue>
+            <MetricSubValue>Buying Power</MetricSubValue>
+          </PageCell>
+        </PageGrid>
 
-            <PageCell>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant mb-2">
-                Today&apos;s P&amp;L
-              </div>
-              <div className="text-[28px] font-medium tracking-[-0.02em] text-primary" style={{ fontFamily: "var(--font-work-sans)" }}>
-                {portfolioSummary.dayChange}
-              </div>
-              <div className="text-[13px] font-mono text-primary mt-1">
-                {portfolioSummary.dayChangePercent}
-              </div>
-            </PageCell>
-
-            <PageCell>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant mb-2">
-                Total Gain/Loss
-              </div>
-              <div className="text-[28px] font-medium tracking-[-0.02em] text-on-surface" style={{ fontFamily: "var(--font-work-sans)" }}>
-                {portfolioSummary.totalGain}
-              </div>
-              <div className="text-[13px] font-mono text-primary mt-1">
-                {portfolioSummary.totalGainPercent}
-              </div>
-            </PageCell>
-
-            <PageCell>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant mb-2">
-                Cash Balance
-              </div>
-              <div className="text-[28px] font-medium tracking-[-0.02em] text-on-surface" style={{ fontFamily: "var(--font-work-sans)" }}>
-                {portfolioSummary.totalBalance}
-              </div>
-              <div className="text-[13px] font-mono text-on-surface-variant mt-1">
-                Buying Power
-              </div>
-            </PageCell>
-          </div>
-
-          <div className="grid grid-cols-12 gap-[1px] bg-outline-variant">
-            <PageCell className="col-span-7">
-              <div className="flex items-center justify-between mb-4">
-                <CardTitle className="text-base font-semibold text-on-surface">Portfolio Performance</CardTitle>
-                <div className="flex gap-1">
-                  {["1D", "1W", "1M", "3M", "1Y", "ALL"].map((period) => (
-                    <button
-                      key={period}
-                      className={`px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.06em] transition-colors ${
-                        period === "1M"
-                          ? "bg-primary text-on-primary"
-                          : "text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high"
-                      }`}
-                    >
-                      {period}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="h-[220px] border border-outline-variant">
-                <MiniChart />
-              </div>
-            </PageCell>
-
-            <PageCell className="col-span-5">
-              <CardTitle className="text-base font-semibold text-on-surface mb-4">Top Holdings</CardTitle>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Symbol</TableHead>
-                    <TableHead>Price</TableHead>
-                    <TableHead>Value</TableHead>
-                    <TableHead>Change</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {positions.map((pos) => (
-                    <TableRow key={pos.id}>
-                      <TableCell>
-                        <div className="font-mono font-semibold text-sm text-on-surface">{pos.symbol}</div>
-                        <div className="text-[11px] text-on-surface-variant truncate max-w-[120px]">{pos.name}</div>
-                      </TableCell>
-                      <TableCell className="font-mono text-sm">{pos.price}</TableCell>
-                      <TableCell className="font-mono text-sm">{pos.value}</TableCell>
-                      <TableCell className={`font-mono text-sm ${pos.change.startsWith("+") ? "text-primary" : "text-error"}`}>
-                        {pos.change}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </PageCell>
-          </div>
-
-          <div className="grid grid-cols-12 gap-[1px] bg-outline-variant">
-            <PageCell className="col-span-5">
-              <CardTitle className="text-base font-semibold text-on-surface mb-4">Recent Activity</CardTitle>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Symbol</TableHead>
-                    <TableHead>Shares</TableHead>
-                    <TableHead>Price</TableHead>
-                    <TableHead>Total</TableHead>
-                    <TableHead>Time</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {recentTrades.map((trade) => (
-                    <TableRow key={trade.id}>
-                      <TableCell>
-                        <Badge variant={trade.type === "BUY" ? "success" : "error"} className="text-[10px]">
-                          {trade.type}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="font-mono font-semibold text-sm">{trade.symbol}</TableCell>
-                      <TableCell className="font-mono text-sm">{trade.shares}</TableCell>
-                      <TableCell className="font-mono text-sm">{trade.price}</TableCell>
-                      <TableCell className="font-mono text-sm">{trade.total}</TableCell>
-                      <TableCell className="text-sm text-on-surface-variant">{trade.time}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </PageCell>
-
-            <PageCell className="col-span-7">
-              <CardTitle className="text-base font-semibold text-on-surface mb-4">Market Indices</CardTitle>
-              <div className="grid grid-cols-3 gap-4">
-                {[
-                  { symbol: "SPY", name: "S&P 500 ETF", price: "$523.45", change: "+0.87%", positive: true },
-                  { symbol: "DIA", name: "Dow Jones ETF", price: "$398.20", change: "+0.45%", positive: true },
-                  { symbol: "QQQ", name: "Nasdaq ETF", price: "$448.30", change: "+1.12%", positive: true },
-                  { symbol: "IWM", name: "Russell 2000 ETF", price: "$198.30", change: "-0.23%", positive: false },
-                  { symbol: "VIX", name: "Volatility Index", price: "$14.82", change: "-4.12%", positive: false },
-                  { symbol: "DXY", name: "US Dollar Index", price: "$104.20", change: "+0.15%", positive: true },
-                ].map((index) => (
-                  <div key={index.symbol} className="flex items-center justify-between p-3 border border-outline-variant">
-                    <div>
-                      <div className="font-mono text-sm font-semibold text-on-surface">{index.symbol}</div>
-                      <div className="text-[11px] text-on-surface-variant">{index.name}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="font-mono text-sm text-on-surface">{index.price}</div>
-                      <div className={`text-[11px] font-mono ${index.positive ? "text-primary" : "text-error"}`}>
-                        {index.change}
-                      </div>
-                    </div>
-                  </div>
+        <PageGrid style={{ gridTemplateColumns: "7fr 5fr", gridTemplateRows: "1fr 1fr" }}>
+          <PageCell className="col-span-1 row-span-1">
+            <div className="flex items-center justify-between mb-4">
+              <CardTitle>Portfolio Performance</CardTitle>
+              <div className="flex gap-1">
+                {["1D", "1W", "1M", "3M", "1Y", "ALL"].map((period) => (
+                  <button
+                    key={period}
+                    onClick={() => setActivePeriod(period)}
+                    className={`px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.06em] transition-colors ${
+                      period === activePeriod
+                        ? "bg-primary text-on-primary"
+                        : "text-on-surface-variant hover:text-on-surface hover:bg-surface-container"
+                    }`}
+                  >
+                    {period}
+                  </button>
                 ))}
               </div>
-            </PageCell>
-          </div>
-        </div>
+            </div>
+            <div className="h-[200px] border border-outline-variant/30">
+              <MiniChart />
+            </div>
+          </PageCell>
+
+          <PageCell className="col-span-1 row-span-1">
+            <CardTitle className="mb-4">Top Holdings</CardTitle>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Symbol</TableHead>
+                  <TableHead>Price</TableHead>
+                  <TableHead>Value</TableHead>
+                  <TableHead>Change</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {positions.map((pos) => (
+                  <TableRow key={pos.id}>
+                    <TableCell>
+                      <span className="font-mono font-semibold">{pos.symbol}</span>
+                    </TableCell>
+                    <TableCell className="font-mono">{pos.price}</TableCell>
+                    <TableCell className="font-mono">{pos.value}</TableCell>
+                    <TableCell className={`font-mono ${pos.change.startsWith("+") ? "text-primary" : "text-error"}`}>
+                      {pos.change}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </PageCell>
+
+          <PageCell className="col-span-1 row-span-1">
+            <CardTitle className="mb-4">Recent Activity</CardTitle>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Symbol</TableHead>
+                  <TableHead>Shares</TableHead>
+                  <TableHead>Price</TableHead>
+                  <TableHead>Total</TableHead>
+                  <TableHead>Time</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {recentTrades.map((trade) => (
+                  <TableRow key={trade.id}>
+                    <TableCell>
+                      <Badge variant={trade.type === "BUY" ? "success" : "error"}>
+                        {trade.type}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="font-mono font-semibold">{trade.symbol}</TableCell>
+                    <TableCell className="font-mono">{trade.shares}</TableCell>
+                    <TableCell className="font-mono">{trade.price}</TableCell>
+                    <TableCell className="font-mono">{trade.total}</TableCell>
+                    <TableCell className="text-on-surface-variant">{trade.time}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </PageCell>
+
+          <PageCell className="col-span-1 row-span-1">
+            <CardTitle className="mb-4">Market Indices</CardTitle>
+            <div className="grid grid-cols-2 gap-2">
+              {marketIndices.map((index) => (
+                <div key={index.symbol} className="flex items-center justify-between p-3 border border-outline-variant/30">
+                  <div>
+                    <div className="font-mono text-sm font-semibold">{index.symbol}</div>
+                    <div className="text-[11px] text-on-surface-variant">{index.name}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-mono text-sm">{index.price}</div>
+                    <div className={`text-[11px] font-mono ${index.positive ? "text-primary" : "text-error"}`}>
+                      {index.change}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </PageCell>
+        </PageGrid>
       </div>
 
       {toast && (

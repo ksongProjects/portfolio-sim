@@ -1,6 +1,10 @@
 package database
 
-import "github.com/jackc/pgx/v5/pgxpool"
+import (
+	"context"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+)
 
 type Config struct {
 	ConnString string
