@@ -25,13 +25,13 @@ export function Navbar() {
   const pathname = usePathname();
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="container flex h-14 items-center">
-        <div className="mr-4 hidden md:flex">
-          <Link href="/" className="mr-6 flex items-center space-x-2">
-            <span className="hidden font-bold sm:inline-block">Portfolio Sim</span>
+    <header className="sticky top-0 z-50 w-full border-b border-outline-variant bg-surface-container-low">
+      <div className="flex h-14 items-center px-6">
+        <div className="flex items-center gap-6">
+          <Link href="/" className="flex items-center gap-2">
+            <span className="font-semibold text-on-surface">Portfolio Sim</span>
           </Link>
-          <nav className="flex items-center space-x-6 text-sm font-medium">
+          <nav className="flex items-center gap-1 text-sm font-medium">
             {routes.map((route) => {
               const Icon = route.icon;
               const isActive = pathname === route.href;
@@ -40,10 +40,10 @@ export function Navbar() {
                   key={route.href}
                   href={route.href}
                   className={cn(
-                    "flex items-center gap-1.5 text-sm transition-colors hover:text-foreground/80",
+                    "flex items-center gap-1.5 px-3 py-2 transition-colors hover:bg-surface-container-high",
                     isActive
-                      ? "text-foreground font-semibold"
-                      : "text-foreground/60"
+                      ? "text-primary border-b-2 border-primary"
+                      : "text-on-surface-variant"
                   )}
                 >
                   <Icon className="h-4 w-4" />
@@ -52,11 +52,6 @@ export function Navbar() {
               );
             })}
           </nav>
-        </div>
-        <div className="flex md:hidden">
-          <Link href="/" className="mr-4 flex items-center space-x-2">
-            <span className="font-bold">Portfolio Sim</span>
-          </Link>
         </div>
       </div>
     </header>
