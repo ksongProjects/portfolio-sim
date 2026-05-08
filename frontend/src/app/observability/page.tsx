@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { PageCell, PageHeader } from "@/components/page-layout";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { CardTitle } from "@/components/ui/card";
 import { Badge, StatusIndicator } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -59,6 +59,10 @@ const initialLogs: LogEntry[] = [
   { id: 6, level: "INFO", service: "trading-engine", message: "Position closed: AAPL 25 shares @ $177.50", time: "09:15:30 AM" },
 ];
 
+const healthyCount = initialServices.filter((s) => s.status === "healthy").length;
+const warningCount = initialServices.filter((s) => s.status === "warning").length;
+const errorCount = initialServices.filter((s) => s.status === "error").length;
+
 export default function ObservabilityPage() {
   const [metrics, setMetrics] = useState<SystemMetric[]>(initialMetrics);
   const [services, setServices] = useState<Service[]>(initialServices);
@@ -106,32 +110,30 @@ export default function ObservabilityPage() {
     showToast("Metrics updated");
   };
 
-  const healthyCount = services.filter((s) => s.status === "healthy").length;
-  const warningCount = services.filter((s) => s.status === "warning").length;
-  const errorCount = services.filter((s) => s.status === "error").length;
-
   return (
-    <div className="flex flex-col h-full">
-      <PageHeader
-        title="Observability"
-        description="System health and monitoring"
-      >
-        <div className="flex gap-3">
-          <Button variant="secondary" size="sm" onClick={handleRefresh} disabled={refreshing}>
-            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-            {refreshing ? "Refreshing..." : "Refresh"}
-          </Button>
-          <Button variant="default" size="sm" onClick={() => showToast("Live dashboard coming soon...")}>
-            <Activity className="h-4 w-4" />
-            Live Dashboard
-          </Button>
-        </div>
-      </PageHeader>
+    <div className="flex flex-col h-full bg-surface">
+      <div className="px-6 pt-6">
+        <PageHeader
+          title="Observability"
+          description="System health and monitoring"
+        >
+          <div className="flex gap-3">
+            <Button variant="secondary" size="sm" onClick={handleRefresh} disabled={refreshing}>
+              <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+              {refreshing ? "Refreshing..." : "Refresh"}
+            </Button>
+            <Button variant="default" size="sm" onClick={() => showToast("Live dashboard coming soon...")}>
+              <Activity className="h-4 w-4" />
+              Live Dashboard
+            </Button>
+          </div>
+        </PageHeader>
+      </div>
 
-      <div className="flex-1 p-6">
-        <div className="flex flex-col gap-[1px] bg-outline-variant p-[1px]">
-          <PageCell>
-            <div className="grid grid-cols-4 gap-6">
+      <div className="flex-1 px-6 pb-6 overflow-auto">
+        <div className="grid gap-[1px] bg-outline-variant mb-[1px]">
+          <div className="grid grid-cols-4 gap-[1px] bg-outline-variant">
+            <PageCell>
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 flex items-center justify-center bg-primary/10">
                   <CheckCircle className="h-5 w-5 text-primary" />
@@ -140,9 +142,13 @@ export default function ObservabilityPage() {
                   <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant">
                     Healthy
                   </div>
-                  <div className="text-[13px] font-mono font-medium text-on-surface">{healthyCount}</div>
+                  <div className="text-[24px] font-medium tracking-[-0.01em] text-on-surface" style={{ fontFamily: "var(--font-work-sans)" }}>
+                    {healthyCount}
+                  </div>
                 </div>
               </div>
+            </PageCell>
+            <PageCell>
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 flex items-center justify-center bg-warning/10">
                   <AlertTriangle className="h-5 w-5 text-warning" />
@@ -151,9 +157,13 @@ export default function ObservabilityPage() {
                   <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant">
                     Warnings
                   </div>
-                  <div className="text-[13px] font-mono font-medium text-on-surface">{warningCount}</div>
+                  <div className="text-[24px] font-medium tracking-[-0.01em] text-warning" style={{ fontFamily: "var(--font-work-sans)" }}>
+                    {warningCount}
+                  </div>
                 </div>
               </div>
+            </PageCell>
+            <PageCell>
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 flex items-center justify-center bg-error/10">
                   <AlertTriangle className="h-5 w-5 text-error" />
@@ -162,9 +172,13 @@ export default function ObservabilityPage() {
                   <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant">
                     Errors
                   </div>
-                  <div className="text-[13px] font-mono font-medium text-on-surface">{errorCount}</div>
+                  <div className="text-[24px] font-medium tracking-[-0.01em] text-error" style={{ fontFamily: "var(--font-work-sans)" }}>
+                    {errorCount}
+                  </div>
                 </div>
               </div>
+            </PageCell>
+            <PageCell>
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 flex items-center justify-center bg-surface-container-high">
                   <Zap className="h-5 w-5 text-on-surface-variant" />
@@ -173,129 +187,118 @@ export default function ObservabilityPage() {
                   <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant">
                     Avg Response
                   </div>
-                  <div className="text-[13px] font-mono font-medium text-on-surface">
+                  <div className="text-[24px] font-medium tracking-[-0.01em] text-on-surface" style={{ fontFamily: "var(--font-work-sans)" }}>
                     {metrics.find((m) => m.name === "API Response Time")?.value}
                   </div>
                 </div>
               </div>
+            </PageCell>
+          </div>
+        </div>
+
+        <div className="grid gap-[1px] bg-outline-variant mb-[1px]">
+          <PageCell>
+            <CardTitle className="text-base font-semibold text-on-surface mb-4">System Metrics</CardTitle>
+            <div className="border border-outline-variant">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Metric</TableHead>
+                    <TableHead className="text-right">Current Value</TableHead>
+                    <TableHead className="text-right">Threshold</TableHead>
+                    <TableHead className="text-center">Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {metrics.map((metric) => (
+                    <TableRow key={metric.id}>
+                      <TableCell className="font-medium text-on-surface">{metric.name}</TableCell>
+                      <TableCell className="text-right font-mono text-on-surface">{metric.value}</TableCell>
+                      <TableCell className="text-right font-mono text-on-surface-variant">{metric.threshold}</TableCell>
+                      <TableCell className="text-center">
+                        <Badge
+                          variant={metric.status === "healthy" ? "success" : metric.status === "warning" ? "warning" : "error"}
+                          className="text-[10px]"
+                        >
+                          {metric.status}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
           </PageCell>
         </div>
 
-        <div className="mt-[1px] flex gap-[1px] bg-outline-variant p-[1px]">
-          <PageCell className="flex-[2]">
-            <Card className="border-0 bg-transparent">
-              <CardHeader className="px-0 pb-4">
-                <CardTitle className="text-base font-semibold">System Metrics</CardTitle>
-              </CardHeader>
-              <CardContent className="px-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Metric</TableHead>
-                      <TableHead>Current Value</TableHead>
-                      <TableHead>Threshold</TableHead>
-                      <TableHead>Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {metrics.map((metric) => (
-                      <TableRow key={metric.id}>
-                        <TableCell className="font-medium">{metric.name}</TableCell>
-                        <TableCell className="font-mono">{metric.value}</TableCell>
-                        <TableCell className="font-mono text-on-surface-variant">{metric.threshold}</TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={metric.status === "healthy" ? "success" : metric.status === "warning" ? "warning" : "error"}
-                          >
-                            {metric.status}
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </PageCell>
-
-          <PageCell className="flex-1">
-            <Card className="border-0 bg-transparent">
-              <CardHeader className="px-0 pb-4">
-                <CardTitle className="text-base font-semibold">Services</CardTitle>
-              </CardHeader>
-              <CardContent className="px-0">
-                <div className="space-y-3">
-                  {services.map((service) => (
-                    <div key={service.name} className="flex items-center justify-between p-3 border border-outline-variant">
-                      <div className="flex items-center gap-3">
-                        <StatusIndicator
-                          active={service.status === "healthy"}
-                          className={service.status === "warning" ? "bg-warning" : service.status === "error" ? "bg-error" : ""}
-                        />
-                        <div>
-                          <div className="text-sm font-medium text-on-surface">{service.name}</div>
-                          <div className="text-xs text-on-surface-variant">Uptime: {service.uptime}</div>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <Badge
-                          variant={service.status === "healthy" ? "success" : service.status === "warning" ? "warning" : "error"}
-                          className="text-[10px]"
-                        >
-                          {service.status}
-                        </Badge>
-                        <div className="text-xs text-on-surface-variant mt-1">{service.lastCheck}</div>
-                      </div>
+        <div className="grid gap-[1px] bg-outline-variant">
+          <PageCell>
+            <CardTitle className="text-base font-semibold text-on-surface mb-4">Services</CardTitle>
+            <div className="grid grid-cols-3 gap-3">
+              {services.map((service) => (
+                <div key={service.name} className="flex items-center justify-between p-4 border border-outline-variant">
+                  <div className="flex items-center gap-3">
+                    <StatusIndicator
+                      active={service.status === "healthy"}
+                      className={service.status === "warning" ? "bg-warning" : service.status === "error" ? "bg-error" : ""}
+                    />
+                    <div>
+                      <div className="text-sm font-medium text-on-surface">{service.name}</div>
+                      <div className="text-[11px] text-on-surface-variant">Uptime: {service.uptime}</div>
                     </div>
-                  ))}
+                  </div>
+                  <div className="text-right">
+                    <Badge
+                      variant={service.status === "healthy" ? "success" : service.status === "warning" ? "warning" : "error"}
+                      className="text-[10px]"
+                    >
+                      {service.status}
+                    </Badge>
+                    <div className="text-[11px] text-on-surface-variant mt-1">{service.lastCheck}</div>
+                  </div>
                 </div>
-              </CardContent>
-            </Card>
+              ))}
+            </div>
           </PageCell>
         </div>
 
-        <div className="mt-[1px] bg-outline-variant p-[1px]">
+        <div className="mt-[1px] grid gap-[1px] bg-outline-variant">
           <PageCell>
-            <Card className="border-0 bg-transparent">
-              <CardHeader className="px-0 pb-4">
-                <CardTitle className="text-base font-semibold">Recent Logs</CardTitle>
-              </CardHeader>
-              <CardContent className="px-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Level</TableHead>
-                      <TableHead>Service</TableHead>
-                      <TableHead>Message</TableHead>
-                      <TableHead>Time</TableHead>
+            <CardTitle className="text-base font-semibold text-on-surface mb-4">Recent Logs</CardTitle>
+            <div className="border border-outline-variant">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Level</TableHead>
+                    <TableHead>Service</TableHead>
+                    <TableHead>Message</TableHead>
+                    <TableHead>Time</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {logs.map((log) => (
+                    <TableRow key={log.id}>
+                      <TableCell>
+                        <Badge
+                          variant={log.level === "INFO" ? "secondary" : log.level === "WARN" ? "warning" : "error"}
+                          className="text-[10px]"
+                        >
+                          {log.level}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs text-on-surface">{log.service}</TableCell>
+                      <TableCell className="text-sm text-on-surface">{log.message}</TableCell>
+                      <TableCell className="font-mono text-xs text-on-surface-variant">
+                        <div className="flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          {log.time}
+                        </div>
+                      </TableCell>
                     </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {logs.map((log) => (
-                      <TableRow key={log.id}>
-                        <TableCell>
-                          <Badge
-                            variant={log.level === "INFO" ? "secondary" : log.level === "WARN" ? "warning" : "error"}
-                            className="text-[10px]"
-                          >
-                            {log.level}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="font-mono text-xs">{log.service}</TableCell>
-                        <TableCell className="text-sm">{log.message}</TableCell>
-                        <TableCell className="font-mono text-xs text-on-surface-variant">
-                          <div className="flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            {log.time}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           </PageCell>
         </div>
       </div>

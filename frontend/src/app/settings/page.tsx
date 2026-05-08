@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import { PageCell, PageHeader } from "@/components/page-layout";
-import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
+import { CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge, StatusIndicator } from "@/components/ui/badge";
 import {
   Key,
   Plug,
@@ -120,103 +120,101 @@ function ProviderCard({ provider }: { provider: Provider }) {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-start justify-between">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <CardTitle className="text-base font-semibold">{provider.name}</CardTitle>
-              <Badge variant={statusVariant[provider.status]}>
-                {provider.status}
-              </Badge>
-            </div>
-            <CardDescription>{provider.description}</CardDescription>
+    <div className="p-4 border border-outline-variant">
+      <div className="flex items-start justify-between mb-3">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <CardTitle className="text-sm font-semibold text-on-surface">{provider.name}</CardTitle>
+            <Badge variant={statusVariant[provider.status]} className="text-[10px]">
+              {provider.status}
+            </Badge>
           </div>
-          {provider.docsUrl && (
-            <a
-              href={provider.docsUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-on-surface-variant hover:text-primary transition-colors"
+          <div className="text-[11px] text-on-surface-variant">{provider.description}</div>
+        </div>
+        {provider.docsUrl && (
+          <a
+            href={provider.docsUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-on-surface-variant hover:text-primary transition-colors"
+          >
+            <ExternalLink className="h-4 w-4" />
+          </a>
+        )}
+      </div>
+      <div className="space-y-3">
+        {provider.fields.map((field) => (
+          <div key={field.key} className="relative">
+            <Input
+              label={field.label}
+              type={showSecret[field.key] ? "text" : "password"}
+              placeholder={field.placeholder}
+              value={values[field.key] || ""}
+              onChange={(e) =>
+                setValues((prev) => ({ ...prev, [field.key]: e.target.value }))
+              }
+            />
+            <button
+              type="button"
+              onClick={() =>
+                setShowSecret((prev) => ({ ...prev, [field.key]: !prev[field.key] }))
+              }
+              className="absolute right-3 top-[34px] text-on-surface-variant hover:text-on-surface transition-colors"
             >
-              <ExternalLink className="h-4 w-4" />
-            </a>
-          )}
-        </div>
-      </CardHeader>
-      <CardContent className="pt-0">
-        <div className="space-y-4">
-          {provider.fields.map((field) => (
-            <div key={field.key} className="relative">
-              <Input
-                label={field.label}
-                type={showSecret[field.key] ? "text" : "password"}
-                placeholder={field.placeholder}
-                value={values[field.key] || ""}
-                onChange={(e) =>
-                  setValues((prev) => ({ ...prev, [field.key]: e.target.value }))
-                }
-              />
-              <button
-                type="button"
-                onClick={() =>
-                  setShowSecret((prev) => ({ ...prev, [field.key]: !prev[field.key] }))
-                }
-                className="absolute right-3 top-[34px] text-on-surface-variant hover:text-on-surface transition-colors"
-              >
-                {showSecret[field.key] ? (
-                  <EyeOff className="h-4 w-4" />
-                ) : (
-                  <Eye className="h-4 w-4" />
-                )}
-              </button>
-            </div>
-          ))}
-          {testResult && (
-            <div className="flex items-center gap-2 text-sm">
-              {testResult === "connected" ? (
-                <CheckCircle className="h-4 w-4 text-primary" />
+              {showSecret[field.key] ? (
+                <EyeOff className="h-4 w-4" />
               ) : (
-                <XCircle className="h-4 w-4 text-error" />
+                <Eye className="h-4 w-4" />
               )}
-              <span className={testResult === "connected" ? "text-primary" : "text-error"}>
-                {testResult === "connected" ? "Connection successful" : "Connection failed"}
-              </span>
-            </div>
-          )}
-          <div className="flex gap-2">
-            <Button variant="secondary" size="sm" onClick={handleTest} disabled={testing}>
-              <TestTube className="h-4 w-4" />
-              {testing ? "Testing..." : "Test"}
-            </Button>
-            <Button variant="default" size="sm" onClick={handleSave}>
-              <Save className="h-4 w-4" />
-              {saved ? "Saved!" : "Save"}
-            </Button>
+            </button>
           </div>
+        ))}
+        {testResult && (
+          <div className="flex items-center gap-2 text-sm">
+            {testResult === "connected" ? (
+              <CheckCircle className="h-4 w-4 text-primary" />
+            ) : (
+              <XCircle className="h-4 w-4 text-error" />
+            )}
+            <span className={testResult === "connected" ? "text-primary" : "text-error"}>
+              {testResult === "connected" ? "Connection successful" : "Connection failed"}
+            </span>
+          </div>
+        )}
+        <div className="flex gap-2">
+          <Button variant="secondary" size="sm" onClick={handleTest} disabled={testing}>
+            <TestTube className="h-4 w-4" />
+            {testing ? "Testing..." : "Test"}
+          </Button>
+          <Button variant="default" size="sm" onClick={handleSave}>
+            <Save className="h-4 w-4" />
+            {saved ? "Saved!" : "Save"}
+          </Button>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 
 export default function SettingsPage() {
   return (
-    <div className="flex flex-col h-full">
-      <PageHeader
-        title="Settings"
-        description="Manage API keys, connections, and platform configuration"
-      >
-        <Button variant="default" size="sm" onClick={() => {}}>
+    <div className="flex flex-col h-full bg-surface">
+      <div className="px-6 pt-6">
+        <PageHeader
+          title="Settings"
+          description="Manage API keys, connections, and platform configuration"
+        >
+          <Button variant="default" size="sm" onClick={() => {}}>
             <Plug className="h-4 w-4" />
             Test All Connections
           </Button>
-      </PageHeader>
+        </PageHeader>
+      </div>
 
-      <div className="flex-1 p-6">
-        <div className="flex flex-col gap-[1px] bg-outline-variant p-[1px]">
-          <PageCell>
-            <div className="grid grid-cols-4 gap-6">
+      <div className="flex-1 px-6 pb-6 overflow-auto">
+        <div className="grid gap-[1px] bg-outline-variant mb-[1px]">
+          <div className="grid grid-cols-4 gap-[1px] bg-outline-variant">
+            <PageCell>
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 flex items-center justify-center bg-primary/10">
                   <Key className="h-5 w-5 text-primary" />
@@ -225,11 +223,13 @@ export default function SettingsPage() {
                   <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant">
                     Providers
                   </div>
-                  <div className="text-[13px] font-mono font-medium text-on-surface">
+                  <div className="text-[24px] font-medium tracking-[-0.01em] text-on-surface" style={{ fontFamily: "var(--font-work-sans)" }}>
                     {providers.length}
                   </div>
                 </div>
               </div>
+            </PageCell>
+            <PageCell>
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 flex items-center justify-center bg-primary/10">
                   <Plug className="h-5 w-5 text-primary" />
@@ -238,11 +238,13 @@ export default function SettingsPage() {
                   <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant">
                     Connections
                   </div>
-                  <div className="text-[13px] font-mono font-medium text-on-surface">
+                  <div className="text-[24px] font-medium tracking-[-0.01em] text-on-surface" style={{ fontFamily: "var(--font-work-sans)" }}>
                     {connections.filter((c) => c.status === "connected").length}/{connections.length}
                   </div>
                 </div>
               </div>
+            </PageCell>
+            <PageCell>
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 flex items-center justify-center bg-surface-container-high">
                   <Shield className="h-5 w-5 text-on-surface-variant" />
@@ -251,11 +253,13 @@ export default function SettingsPage() {
                   <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant">
                     Security
                   </div>
-                  <div className="text-[13px] font-medium text-on-surface">
+                  <div className="text-[24px] font-medium tracking-[-0.01em] text-on-surface" style={{ fontFamily: "var(--font-work-sans)" }}>
                     Keys encrypted
                   </div>
                 </div>
               </div>
+            </PageCell>
+            <PageCell>
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 flex items-center justify-center bg-surface-container-high">
                   <Bell className="h-5 w-5 text-on-surface-variant" />
@@ -264,39 +268,27 @@ export default function SettingsPage() {
                   <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant">
                     Notifications
                   </div>
-                  <div className="text-[13px] font-medium text-on-surface">
+                  <div className="text-[24px] font-medium tracking-[-0.01em] text-on-surface" style={{ fontFamily: "var(--font-work-sans)" }}>
                     Enabled
                   </div>
                 </div>
               </div>
-            </div>
-          </PageCell>
+            </PageCell>
+          </div>
         </div>
 
-        <div className="mt-[1px] grid grid-cols-3 gap-[1px] bg-outline-variant p-[1px]">
-          <PageCell className="col-span-2">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-base font-semibold text-on-surface">API Providers</h2>
-                <p className="text-sm text-on-surface-variant mt-0.5">
-                  Configure your API keys for market data and news providers
-                </p>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-12 gap-[1px] bg-outline-variant">
+          <PageCell className="col-span-8">
+            <CardTitle className="text-base font-semibold text-on-surface mb-4">API Providers</CardTitle>
+            <div className="grid grid-cols-2 gap-3">
               {providers.map((p) => (
                 <ProviderCard key={p.id} provider={p} />
               ))}
             </div>
           </PageCell>
 
-          <PageCell>
-            <div className="mb-4">
-              <h2 className="text-base font-semibold text-on-surface">Connections</h2>
-              <p className="text-sm text-on-surface-variant mt-0.5">
-                Infrastructure connections status
-              </p>
-            </div>
+          <PageCell className="col-span-4">
+            <CardTitle className="text-base font-semibold text-on-surface mb-4">Connections</CardTitle>
             <div className="space-y-3">
               {connections.map((conn) => (
                 <div
@@ -304,14 +296,15 @@ export default function SettingsPage() {
                   className="flex items-center justify-between p-3 border border-outline-variant"
                 >
                   <div className="flex items-center gap-3">
-                    <StatusIndicator active={conn.status === "connected"} />
+                    <div className={`h-2 w-2 ${conn.status === "connected" ? "bg-primary" : "bg-error"}`} />
                     <div>
                       <div className="text-sm font-medium text-on-surface">{conn.name}</div>
-                      <div className="text-xs text-on-surface-variant">{conn.description}</div>
+                      <div className="text-[11px] text-on-surface-variant">{conn.description}</div>
                     </div>
                   </div>
                   <Badge
                     variant={conn.status === "connected" ? "success" : "error"}
+                    className="text-[10px]"
                   >
                     {conn.status}
                   </Badge>
@@ -320,7 +313,7 @@ export default function SettingsPage() {
             </div>
 
             <div className="mt-6 pt-6 border-t border-outline-variant">
-              <h2 className="text-base font-semibold text-on-surface mb-4">Notifications</h2>
+              <CardTitle className="text-base font-semibold text-on-surface mb-4">Notifications</CardTitle>
               <div className="space-y-3">
                 {[
                   { label: "Trade executed", enabled: true },
