@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import { PageCell, PageHeader } from "@/components/page-layout";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge, StatusIndicator } from "@/components/ui/badge";
@@ -5,7 +8,32 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Activity, AlertTriangle, CheckCircle, Clock, RefreshCw, Zap } from "lucide-react";
 
-const systemMetrics = [
+type ServiceStatus = "healthy" | "warning" | "error";
+
+interface SystemMetric {
+  id: number;
+  name: string;
+  value: string;
+  status: ServiceStatus;
+  threshold: string;
+}
+
+interface LogEntry {
+  id: number;
+  level: "INFO" | "WARN" | "ERROR";
+  service: string;
+  message: string;
+  time: string;
+}
+
+interface Service {
+  name: string;
+  status: ServiceStatus;
+  uptime: string;
+  lastCheck: string;
+}
+
+const initialMetrics: SystemMetric[] = [
   { id: 1, name: "API Response Time", value: "45ms", status: "healthy", threshold: "<100ms" },
   { id: 2, name: "Database Latency", value: "12ms", status: "healthy", threshold: "<50ms" },
   { id: 3, name: "Cache Hit Rate", value: "94.2%", status: "healthy", threshold: ">85%" },
@@ -14,7 +42,15 @@ const systemMetrics = [
   { id: 6, name: "Error Rate", value: "0.12%", status: "healthy", threshold: "<1%" },
 ];
 
-const recentLogs = [
+const initialServices: Service[] = [
+  { name: "Trading Engine", status: "healthy", uptime: "99.98%", lastCheck: "Just now" },
+  { name: "Signal Generator", status: "healthy", uptime: "99.95%", lastCheck: "Just now" },
+  { name: "Data Feed", status: "warning", uptime: "99.12%", lastCheck: "2 min ago" },
+  { name: "Portfolio Manager", status: "healthy", uptime: "99.99%", lastCheck: "Just now" },
+  { name: "Notification Service", status: "error", uptime: "98.45%", lastCheck: "5 min ago" },
+];
+
+const initialLogs: LogEntry[] = [
   { id: 1, level: "INFO", service: "trading-engine", message: "Order executed: NVDA 50 shares @ $860.00", time: "10:32:15 AM" },
   { id: 2, level: "INFO", service: "signal-generator", message: "Strategy signal generated: BUY NVDA", time: "10:32:10 AM" },
   { id: 3, level: "WARN", service: "data-feed", message: "Delayed data for source: BLOOMBERG", time: "10:31:58 AM" },
@@ -23,15 +59,57 @@ const recentLogs = [
   { id: 6, level: "INFO", service: "trading-engine", message: "Position closed: AAPL 25 shares @ $177.50", time: "09:15:30 AM" },
 ];
 
-const services = [
-  { name: "Trading Engine", status: "healthy", uptime: "99.98%", lastCheck: "Just now" },
-  { name: "Signal Generator", status: "healthy", uptime: "99.95%", lastCheck: "Just now" },
-  { name: "Data Feed", status: "warning", uptime: "99.12%", lastCheck: "2 min ago" },
-  { name: "Portfolio Manager", status: "healthy", uptime: "99.99%", lastCheck: "Just now" },
-  { name: "Notification Service", status: "error", uptime: "98.45%", lastCheck: "5 min ago" },
-];
-
 export default function ObservabilityPage() {
+  const [metrics, setMetrics] = useState<SystemMetric[]>(initialMetrics);
+  const [services, setServices] = useState<Service[]>(initialServices);
+  const [logs, setLogs] = useState<LogEntry[]>(initialLogs);
+  const [refreshing, setRefreshing] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    showToast("Refreshing metrics...");
+    await new Promise((r) => setTimeout(r, 1500));
+    setMetrics((prev) =>
+      prev.map((m) => ({
+        ...m,
+        value:
+          m.name === "API Response Time"
+            ? `${Math.floor(Math.random() * 30 + 40)}ms`
+            : m.name === "Cache Hit Rate"
+            ? `${(Math.random() * 5 + 92).toFixed(1)}%`
+            : m.value,
+      }))
+    );
+    setServices((prev) =>
+      prev.map((s) => ({
+        ...s,
+        lastCheck: s.status === "warning" ? "2 min ago" : "Just now",
+      }))
+    );
+    setLogs((prev) => [
+      {
+        id: Date.now(),
+        level: "INFO",
+        service: "system",
+        message: "Metrics refreshed successfully",
+        time: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) + " " + new Date().toLocaleTimeString("en-US", { hour: "numeric", hour12: true }).split(" ")[1],
+      },
+      ...prev,
+    ]);
+    setRefreshing(false);
+    showToast("Metrics updated");
+  };
+
+  const healthyCount = services.filter((s) => s.status === "healthy").length;
+  const warningCount = services.filter((s) => s.status === "warning").length;
+  const errorCount = services.filter((s) => s.status === "error").length;
+
   return (
     <div className="flex flex-col h-full">
       <PageHeader
@@ -39,11 +117,11 @@ export default function ObservabilityPage() {
         description="System health and monitoring"
       >
         <div className="flex gap-3">
-          <Button variant="secondary" size="sm">
-            <RefreshCw className="h-4 w-4" />
-            Refresh
+          <Button variant="secondary" size="sm" onClick={handleRefresh} disabled={refreshing}>
+            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+            {refreshing ? "Refreshing..." : "Refresh"}
           </Button>
-          <Button variant="default" size="sm">
+          <Button variant="default" size="sm" onClick={() => showToast("Live dashboard coming soon...")}>
             <Activity className="h-4 w-4" />
             Live Dashboard
           </Button>
@@ -59,8 +137,10 @@ export default function ObservabilityPage() {
                   <CheckCircle className="h-5 w-5 text-primary" />
                 </div>
                 <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant">Healthy Services</div>
-                  <div className="text-[13px] font-mono font-medium text-on-surface">3</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant">
+                    Healthy
+                  </div>
+                  <div className="text-[13px] font-mono font-medium text-on-surface">{healthyCount}</div>
                 </div>
               </div>
               <div className="flex items-center gap-3">
@@ -68,8 +148,10 @@ export default function ObservabilityPage() {
                   <AlertTriangle className="h-5 w-5 text-warning" />
                 </div>
                 <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant">Warnings</div>
-                  <div className="text-[13px] font-mono font-medium text-on-surface">1</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant">
+                    Warnings
+                  </div>
+                  <div className="text-[13px] font-mono font-medium text-on-surface">{warningCount}</div>
                 </div>
               </div>
               <div className="flex items-center gap-3">
@@ -77,8 +159,10 @@ export default function ObservabilityPage() {
                   <AlertTriangle className="h-5 w-5 text-error" />
                 </div>
                 <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant">Errors</div>
-                  <div className="text-[13px] font-mono font-medium text-on-surface">1</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant">
+                    Errors
+                  </div>
+                  <div className="text-[13px] font-mono font-medium text-on-surface">{errorCount}</div>
                 </div>
               </div>
               <div className="flex items-center gap-3">
@@ -86,8 +170,12 @@ export default function ObservabilityPage() {
                   <Zap className="h-5 w-5 text-on-surface-variant" />
                 </div>
                 <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant">Avg Response</div>
-                  <div className="text-[13px] font-mono font-medium text-on-surface">45ms</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant">
+                    Avg Response
+                  </div>
+                  <div className="text-[13px] font-mono font-medium text-on-surface">
+                    {metrics.find((m) => m.name === "API Response Time")?.value}
+                  </div>
                 </div>
               </div>
             </div>
@@ -111,7 +199,7 @@ export default function ObservabilityPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {systemMetrics.map((metric) => (
+                    {metrics.map((metric) => (
                       <TableRow key={metric.id}>
                         <TableCell className="font-medium">{metric.name}</TableCell>
                         <TableCell className="font-mono">{metric.value}</TableCell>
@@ -184,13 +272,11 @@ export default function ObservabilityPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {recentLogs.map((log) => (
+                    {logs.map((log) => (
                       <TableRow key={log.id}>
                         <TableCell>
                           <Badge
-                            variant={
-                              log.level === "INFO" ? "secondary" : log.level === "WARN" ? "warning" : "error"
-                            }
+                            variant={log.level === "INFO" ? "secondary" : log.level === "WARN" ? "warning" : "error"}
                             className="text-[10px]"
                           >
                             {log.level}
@@ -213,6 +299,12 @@ export default function ObservabilityPage() {
           </PageCell>
         </div>
       </div>
+
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-50 bg-surface-container-highest border border-primary text-on-surface px-4 py-3 text-sm font-medium">
+          {toast}
+        </div>
+      )}
     </div>
   );
 }

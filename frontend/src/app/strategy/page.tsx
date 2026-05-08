@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import { PageCell, PageHeader } from "@/components/page-layout";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge, StatusIndicator } from "@/components/ui/badge";
@@ -6,10 +9,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Play, Pause, Plus, Settings, TrendingUp, BarChart3, Zap, Shield } from "lucide-react";
 
 const strategies = [
-  { id: 1, name: "Momentum Growth", status: "active", returns: "+18.4%", sharpe: "1.42", maxDD: "-12.3%", trades: 847, winRate: "64.2%" },
-  { id: 2, name: "Value Scanner", status: "active", returns: "+12.1%", sharpe: "1.18", maxDD: "-8.7%", trades: 423, winRate: "58.9%" },
-  { id: 3, name: "Mean Reversion", status: "paused", returns: "+8.3%", sharpe: "0.95", maxDD: "-15.2%", trades: 612, winRate: "52.1%" },
-  { id: 4, name: "Sector Rotation", status: "active", returns: "+15.7%", sharpe: "1.28", maxDD: "-10.1%", trades: 234, winRate: "61.4%" },
+  { id: 1, name: "Momentum Growth", status: "active" as const, returns: "+18.4%", sharpe: "1.42", maxDD: "-12.3%", trades: 847, winRate: "64.2%" },
+  { id: 2, name: "Value Scanner", status: "active" as const, returns: "+12.1%", sharpe: "1.18", maxDD: "-8.7%", trades: 423, winRate: "58.9%" },
+  { id: 3, name: "Mean Reversion", status: "paused" as const, returns: "+8.3%", sharpe: "0.95", maxDD: "-15.2%", trades: 612, winRate: "52.1%" },
+  { id: 4, name: "Sector Rotation", status: "active" as const, returns: "+15.7%", sharpe: "1.28", maxDD: "-10.1%", trades: 234, winRate: "61.4%" },
 ];
 
 const recentSignals = [
@@ -20,6 +23,26 @@ const recentSignals = [
 ];
 
 export default function StrategyPage() {
+  const [strategyList, setStrategyList] = useState([...strategies]);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const toggleStrategy = (id: number) => {
+    setStrategyList((prev) =>
+      prev.map((s) =>
+        s.id === id
+          ? { ...s, status: s.status === "active" ? ("paused" as const) : ("active" as const) }
+          : s
+      )
+    );
+    const s = strategyList.find((str) => str.id === id);
+    showToast(`${s?.name} ${s?.status === "active" ? "paused" : "started"}`);
+  };
+
   return (
     <div className="flex flex-col h-full">
       <PageHeader
@@ -27,11 +50,11 @@ export default function StrategyPage() {
         description="Trading strategies and signal generation"
       >
         <div className="flex gap-3">
-          <Button variant="secondary" size="sm">
+          <Button variant="secondary" size="sm" onClick={() => showToast("Strategy configuration coming soon...")}>
             <Settings className="h-4 w-4" />
             Configure
           </Button>
-          <Button variant="default" size="sm">
+          <Button variant="default" size="sm" onClick={() => showToast("New strategy editor coming soon...")}>
             <Plus className="h-4 w-4" />
             New Strategy
           </Button>
@@ -48,7 +71,9 @@ export default function StrategyPage() {
                 </div>
                 <div>
                   <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant">Active Strategies</div>
-                  <div className="text-[13px] font-mono font-medium text-on-surface">3</div>
+                  <div className="text-[13px] font-mono font-medium text-on-surface">
+                    {strategyList.filter((s) => s.status === "active").length}
+                  </div>
                 </div>
               </div>
               <div className="flex items-center gap-3">
@@ -57,7 +82,9 @@ export default function StrategyPage() {
                 </div>
                 <div>
                   <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant">Total Trades</div>
-                  <div className="text-[13px] font-mono font-medium text-on-surface">2,116</div>
+                  <div className="text-[13px] font-mono font-medium text-on-surface">
+                    {strategyList.reduce((sum, s) => sum + s.trades, 0)}
+                  </div>
                 </div>
               </div>
               <div className="flex items-center gap-3">
@@ -66,7 +93,9 @@ export default function StrategyPage() {
                 </div>
                 <div>
                   <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant">Avg Win Rate</div>
-                  <div className="text-[13px] font-mono font-medium text-on-surface">59.1%</div>
+                  <div className="text-[13px] font-mono font-medium text-on-surface">
+                    {(strategyList.reduce((sum, s) => sum + parseFloat(s.winRate), 0) / strategyList.length).toFixed(1)}%
+                  </div>
                 </div>
               </div>
               <div className="flex items-center gap-3">
@@ -75,7 +104,9 @@ export default function StrategyPage() {
                 </div>
                 <div>
                   <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant">Avg Sharpe</div>
-                  <div className="text-[13px] font-mono font-medium text-on-surface">1.21</div>
+                  <div className="text-[13px] font-mono font-medium text-on-surface">
+                    {(strategyList.reduce((sum, s) => sum + parseFloat(s.sharpe), 0) / strategyList.length).toFixed(2)}
+                  </div>
                 </div>
               </div>
             </div>
@@ -103,7 +134,7 @@ export default function StrategyPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {strategies.map((strategy) => (
+                    {strategyList.map((strategy) => (
                       <TableRow key={strategy.id}>
                         <TableCell className="font-medium">{strategy.name}</TableCell>
                         <TableCell>
@@ -118,7 +149,11 @@ export default function StrategyPage() {
                         <TableCell className="font-mono">{strategy.trades}</TableCell>
                         <TableCell className="font-mono">{strategy.winRate}</TableCell>
                         <TableCell>
-                          <Button variant="ghost" size="icon">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => toggleStrategy(strategy.id)}
+                          >
                             {strategy.status === "active" ? (
                               <Pause className="h-4 w-4" />
                             ) : (
@@ -164,6 +199,12 @@ export default function StrategyPage() {
           </PageCell>
         </div>
       </div>
+
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-50 bg-surface-container-highest border border-primary text-on-surface px-4 py-3 text-sm font-medium">
+          {toast}
+        </div>
+      )}
     </div>
   );
 }

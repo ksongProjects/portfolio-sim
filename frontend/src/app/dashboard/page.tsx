@@ -1,4 +1,7 @@
-import { PageGrid, PageCell, PageHeader, MetricCard } from "@/components/page-layout";
+"use client";
+
+import { useState } from "react";
+import { PageCell, PageHeader, MetricCard } from "@/components/page-layout";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,20 +32,36 @@ const recentTrades = [
 ];
 
 export default function DashboardPage() {
+  const [simRunning, setSimRunning] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const handleRunSimulation = async () => {
+    setSimRunning(true);
+    showToast("Simulation started...");
+    await new Promise((r) => setTimeout(r, 2000));
+    setSimRunning(false);
+    showToast("Simulation completed. +1.01% return.");
+  };
+
   return (
     <div className="flex flex-col h-full">
       <PageHeader
         title="Dashboard"
         description="Portfolio overview and performance metrics"
       >
-        <Button variant="default" size="sm">
+        <Button variant="default" size="sm" onClick={handleRunSimulation} disabled={simRunning}>
           <Activity className="h-4 w-4" />
-          Run Simulation
+          {simRunning ? "Running..." : "Run Simulation"}
         </Button>
       </PageHeader>
 
       <div className="flex-1 p-6">
-        <PageGrid className="h-full" style={{ gridTemplateColumns: "1fr 1fr 1fr", gridTemplateRows: "auto 1fr 1fr" }}>
+        <div className="grid gap-[1px] bg-outline-variant p-[1px]" style={{ gridTemplateColumns: "1fr 1fr 1fr", gridTemplateRows: "auto 1fr 1fr" }}>
           <PageCell className="col-span-3">
             <div className="grid grid-cols-4 gap-6">
               <MetricCard
@@ -155,8 +174,14 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
           </PageCell>
-        </PageGrid>
+        </div>
       </div>
+
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-50 bg-surface-container-highest border border-primary text-on-surface px-4 py-3 text-sm font-medium">
+          {toast}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import { PageCell, PageHeader, MetricCard } from "@/components/page-layout";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { StatusIndicator } from "@/components/ui/badge";
@@ -33,6 +36,20 @@ const sectorAllocation = [
 ];
 
 export default function PortfolioPage() {
+  const [search, setSearch] = useState("");
+  const [toast, setToast] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const filteredPositions = positions.filter(
+    (p) =>
+      p.symbol.toLowerCase().includes(search.toLowerCase()) ||
+      p.name.toLowerCase().includes(search.toLowerCase())
+  );
+
   return (
     <div className="flex flex-col h-full">
       <PageHeader
@@ -40,11 +57,19 @@ export default function PortfolioPage() {
         description="Holdings and position management"
       >
         <div className="flex gap-3">
-          <Button variant="secondary" size="sm">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => showToast("Exporting portfolio as CSV...")}
+          >
             <Download className="h-4 w-4" />
             Export
           </Button>
-          <Button variant="default" size="sm">
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => showToast("Add position modal coming soon...")}
+          >
             <Plus className="h-4 w-4" />
             Add Position
           </Button>
@@ -66,16 +91,21 @@ export default function PortfolioPage() {
 
         <div className="mt-[1px] flex gap-[1px] bg-outline-variant p-[1px]">
           <PageCell className="flex-[2]">
-            <Card className="border-0 bg-transparent">
+            <Card className="h-full border-0 bg-transparent">
               <CardHeader className="px-0 pb-4">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-base font-semibold">All Positions</CardTitle>
                   <div className="flex gap-3">
                     <div className="relative">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-on-surface-variant" />
-                      <Input placeholder="Search holdings..." className="pl-9 w-[200px]" />
+                      <Input
+                        placeholder="Search holdings..."
+                        className="pl-9 w-[200px]"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                      />
                     </div>
-                    <Button variant="ghost" size="icon">
+                    <Button variant="ghost" size="icon" onClick={() => showToast("Filter options coming soon...")}>
                       <Filter className="h-4 w-4" />
                     </Button>
                   </div>
@@ -97,7 +127,7 @@ export default function PortfolioPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {positions.map((pos) => (
+                    {filteredPositions.map((pos) => (
                       <TableRow key={pos.id}>
                         <TableCell className="font-mono font-medium">{pos.symbol}</TableCell>
                         <TableCell className="text-on-surface-variant">{pos.name}</TableCell>
@@ -150,6 +180,12 @@ export default function PortfolioPage() {
           </PageCell>
         </div>
       </div>
+
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-50 bg-surface-container-highest border border-primary text-on-surface px-4 py-3 text-sm font-medium">
+          {toast}
+        </div>
+      )}
     </div>
   );
 }

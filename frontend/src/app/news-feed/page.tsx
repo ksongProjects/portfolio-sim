@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import { PageCell, PageHeader } from "@/components/page-layout";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +35,27 @@ const marketIndices = [
 ];
 
 export default function NewsFeedPage() {
+  const [search, setSearch] = useState("");
+  const [saved, setSaved] = useState<number[]>([]);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const toggleSaved = (id: number) => {
+    setSaved((prev) =>
+      prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]
+    );
+    showToast(saved.includes(id) ? "Removed from saved" : "Added to saved");
+  };
+
+  const filteredNews = newsItems.filter((n) =>
+    n.title.toLowerCase().includes(search.toLowerCase()) ||
+    n.source.toLowerCase().includes(search.toLowerCase())
+  );
+
   return (
     <div className="flex flex-col h-full">
       <PageHeader
@@ -39,11 +63,15 @@ export default function NewsFeedPage() {
         description="Real-time market news and sentiment analysis"
       >
         <div className="flex gap-3">
-          <Button variant="secondary" size="sm">
+          <Button
+            variant={saved.length > 0 ? "default" : "secondary"}
+            size="sm"
+            onClick={() => showToast(`Saved articles: ${saved.length}`)}
+          >
             <Bookmark className="h-4 w-4" />
-            Saved
+            Saved ({saved.length})
           </Button>
-          <Button variant="default" size="sm">
+          <Button variant="default" size="sm" onClick={() => showToast("Market summary coming soon...")}>
             <TrendingUp className="h-4 w-4" />
             Market Summary
           </Button>
@@ -60,9 +88,14 @@ export default function NewsFeedPage() {
                   <div className="flex gap-3">
                     <div className="relative">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-on-surface-variant" />
-                      <Input placeholder="Search news..." className="pl-9 w-[200px]" />
+                      <Input
+                        placeholder="Search news..."
+                        className="pl-9 w-[200px]"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                      />
                     </div>
-                    <Button variant="ghost" size="icon">
+                    <Button variant="ghost" size="icon" onClick={() => showToast("Filter options coming soon...")}>
                       <Filter className="h-4 w-4" />
                     </Button>
                   </div>
@@ -70,7 +103,7 @@ export default function NewsFeedPage() {
               </CardHeader>
               <CardContent className="px-0">
                 <div className="space-y-4">
-                  {newsItems.map((news) => (
+                  {(search ? filteredNews : newsItems).map((news) => (
                     <div
                       key={news.id}
                       className="flex items-start gap-4 p-4 border border-outline-variant hover:bg-surface-container-low transition-colors cursor-pointer"
@@ -98,7 +131,20 @@ export default function NewsFeedPage() {
                           ))}
                         </div>
                       </div>
-                      <ExternalLink className="h-4 w-4 text-on-surface-variant shrink-0 mt-1" />
+                      <div className="flex flex-col items-end gap-2">
+                        <ExternalLink className="h-4 w-4 text-on-surface-variant shrink-0 mt-1" />
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleSaved(news.id);
+                          }}
+                          className="text-on-surface-variant hover:text-primary transition-colors"
+                        >
+                          <Bookmark
+                            className={`h-4 w-4 ${saved.includes(news.id) ? "fill-primary text-primary" : ""}`}
+                          />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -156,6 +202,12 @@ export default function NewsFeedPage() {
           </PageCell>
         </div>
       </div>
+
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-50 bg-surface-container-highest border border-primary text-on-surface px-4 py-3 text-sm font-medium">
+          {toast}
+        </div>
+      )}
     </div>
   );
 }
