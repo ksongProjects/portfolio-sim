@@ -11,8 +11,10 @@ from pydantic import BaseModel
 from scipy.stats import norm
 
 import config
+from src.quant_platform.api.routes import router as quant_router
 
 app = FastAPI(title="Analyst Service")
+app.include_router(quant_router)
 
 redis_client: redis.Redis = None
 pg_pool: asyncpg.Pool = None
