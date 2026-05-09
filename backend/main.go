@@ -155,6 +155,8 @@ func (s *Server) Start() error {
 	http.HandleFunc("GET /api/providers", s.handleGetProviders)
 	http.HandleFunc("PUT /api/providers", s.handleUpdateProvider)
 	http.HandleFunc("POST /api/providers/validate", s.handleValidateProvider)
+	http.HandleFunc("PUT /api/providers/questrade/oauth", s.handleSaveQuestradeOAuth)
+	http.HandleFunc("GET /api/providers/questrade/oauth", s.handleGetQuestradeOAuth)
 	http.HandleFunc("GET /api/connections", s.handleGetConnections)
 	http.HandleFunc("GET /api/rss-feeds", s.handleGetRSSFeeds)
 	http.HandleFunc("POST /api/rss-feeds", s.handleAddRSSFeed)
@@ -362,6 +364,14 @@ func (s *Server) handleValidateProvider(w http.ResponseWriter, r *http.Request) 
 		json.NewEncoder(w).Encode(map[string]interface{}{"valid": false, "error": err.Error()})
 		return
 	}
+
+	if valid && req.ProviderID == "questrade" {
+		refreshToken, apiServer, err := s.providerSvc.ExchangeQuestradeToken(req.APIKey)
+		if err == nil && refreshToken != "" {
+			s.providerSvc.SaveQuestradeOAuth(r.Context(), s.db, req.ProviderID, refreshToken, apiServer, 3600)
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"valid": valid})
 }
@@ -421,6 +431,40 @@ func (s *Server) handleDeleteRSSFeed(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+}
+
+func (s *Server) handleGetQuestradeOAuth(w http.ResponseWriter, r *http.Request) {
+	refreshToken, apiServer := s.providerSvc.GetQuestradeOAuth(r.Context(), s.db, "questrade")
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"refresh_token": refreshToken,
+		"api_server":    apiServer,
+	})
+}
+
+func (s *Server) handleSaveQuestradeOAuth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		RefreshToken string `json:"refresh_token"`
+		APIServer    string `json:"api_server"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	if req.RefreshToken == "" {
+		http.Error(w, "refresh_token is required", http.StatusBadRequest)
+		return
+	}
+	if err := s.providerSvc.SaveQuestradeOAuth(r.Context(), s.db, "questrade", req.RefreshToken, req.APIServer, 3600); err != nil {
+		http.Error(w, "failed to save", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "saved"})
 }
 
 func main() {

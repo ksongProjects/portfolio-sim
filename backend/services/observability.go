@@ -28,10 +28,10 @@ func NewObservabilityService() *ObservabilityService {
 	return &ObservabilityService{
 		checks: []ServiceCheck{
 			{Name: "main-api", HealthURL: "http://localhost:8080/health", Timeout: 2 * time.Second},
-			{Name: "logging-service", HealthURL: "http://localhost:9090/health", Timeout: 2 * time.Second},
-			{Name: "market-data-service", HealthURL: "http://localhost:8081/health", Timeout: 2 * time.Second},
-			{Name: "news-feed-service", HealthURL: "http://localhost:8082/health", Timeout: 2 * time.Second},
-			{Name: "analyst-service", HealthURL: "http://localhost:8083/health", Timeout: 2 * time.Second},
+			{Name: "logging-service", HealthURL: "http://logging-service:9090/health", Timeout: 2 * time.Second},
+			{Name: "market-data-service", HealthURL: "http://market-data-service:8080/health", Timeout: 2 * time.Second},
+			{Name: "news-feed-service", HealthURL: "http://news-feed-service:8080/health", Timeout: 2 * time.Second},
+			{Name: "analyst-service", HealthURL: "http://analyst-service:8080/health", Timeout: 2 * time.Second},
 		},
 	}
 }

@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -69,6 +71,7 @@ func NewMarketDataService(cfg *config.Config) *MarketDataService {
 func (s *MarketDataService) Start() error {
 	s.setupProviders()
 	go s.handleBackfillQueue()
+	go s.startHTTPServer()
 
 	s.logger.Info("market data service starting")
 	s.runPriceFetchers()
@@ -81,6 +84,65 @@ func (s *MarketDataService) Start() error {
 	s.redis.Close()
 	s.db.Close()
 	return nil
+}
+
+func (s *MarketDataService) startHTTPServer() {
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	})
+	http.HandleFunc("/api/questrade/oauth/save", s.handleSaveQuestradeOAuth)
+
+	addr := fmt.Sprintf(":%d", s.cfg.Server.HTTPPort)
+	s.logger.Info("HTTP server starting", "addr", addr)
+	if err := http.ListenAndServe(addr, nil); err != nil {
+		s.logger.Error("HTTP server error", "error", err)
+	}
+}
+
+func (s *MarketDataService) handleSaveQuestradeOAuth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		RefreshToken string `json:"refresh_token"`
+		APIServer    string `json:"api_server"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if req.RefreshToken == "" {
+		http.Error(w, "refresh_token is required", http.StatusBadRequest)
+		return
+	}
+
+	for _, p := range s.providers {
+		if qp, ok := p.(*providers.QuestradeProvider); ok {
+			qp.SetOAuthTokens(req.RefreshToken, req.APIServer)
+		}
+	}
+
+	backendURL := os.Getenv("BACKEND_API_URL")
+	if backendURL == "" {
+		backendURL = "http://localhost:8080"
+	}
+
+	backendReq, _ := http.NewRequest("PUT", backendURL+"/api/providers/questrade/oauth", r.Body)
+	backendReq.Header.Set("Content-Type", "application/json")
+	backendResp, err := http.DefaultClient.Do(backendReq)
+	if err != nil {
+		s.logger.Warn("failed to save OAuth to backend", "error", err)
+	} else {
+		backendResp.Body.Close()
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "saved"})
 }
 
 func (s *MarketDataService) setupProviders() {

@@ -69,6 +69,18 @@ func (p *QuestradeProvider) refreshToken() error {
 	return nil
 }
 
+func (p *QuestradeProvider) SetOAuthTokens(refreshToken, apiServer string) {
+	p.cfg.RefreshToken = refreshToken
+	if apiServer != "" {
+		p.baseURL = apiServer
+	}
+	p.token = ""
+}
+
+func (p *QuestradeProvider) GetOAuthTokens() (refreshToken, apiServer string) {
+	return p.cfg.RefreshToken, p.baseURL
+}
+
 func (p *QuestradeProvider) doRequest(endpoint string) ([]byte, error) {
 	p.rateLimiter.Wait()
 
