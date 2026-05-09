@@ -27,7 +27,7 @@ export function useNews() {
       const res = await fetch(`${API_BASE}/api/news?limit=${limit}`);
       if (!res.ok) throw new Error("Failed to fetch news");
       const data = await res.json();
-      setArticles(data);
+      setArticles(Array.isArray(data) ? data : []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {

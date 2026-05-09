@@ -36,7 +36,7 @@ export function useStrategies() {
       const res = await fetch(`${API_BASE}/api/strategies`);
       if (!res.ok) throw new Error("Failed to fetch strategies");
       const data = await res.json();
-      setStrategies(data);
+      setStrategies(Array.isArray(data) ? data : []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     }
@@ -47,7 +47,7 @@ export function useStrategies() {
       const res = await fetch(`${API_BASE}/api/signals?limit=${limit}`);
       if (!res.ok) throw new Error("Failed to fetch signals");
       const data = await res.json();
-      setSignals(data);
+      setSignals(Array.isArray(data) ? data : []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     }
