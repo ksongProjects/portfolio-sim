@@ -84,7 +84,7 @@ func (s *MarketDataService) Start() error {
 }
 
 func (s *MarketDataService) setupProviders() {
-	if s.cfg.Questrade.APIKey != "" {
+	if s.cfg.Questrade.RefreshToken != "" {
 		s.providers = append(s.providers, providers.NewQuestradeProvider(s.cfg.Questrade))
 	}
 	if s.cfg.Polygon.APIKey != "" {

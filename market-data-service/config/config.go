@@ -34,9 +34,8 @@ type RedisConfig struct {
 }
 
 type QuestradeConfig struct {
-	APIKey       string
-	APISecret    string
 	RefreshToken string
+	APIURL       string
 	AccountID    string
 	RateLimitMin int
 }
@@ -70,9 +69,8 @@ func Load() *Config {
 			Password: getEnv("REDIS_PASSWORD", ""),
 		},
 		Questrade: QuestradeConfig{
-			APIKey:       getEnv("QUESTRADE_API_KEY", ""),
-			APISecret:    getEnv("QUESTRADE_API_SECRET", ""),
 			RefreshToken: getEnv("QUESTRADE_REFRESH_TOKEN", ""),
+			APIURL:       getEnv("QUESTRADE_API_URL", "https://login.questrade.com/oauth2/token"),
 			AccountID:    getEnv("QUESTRADE_ACCOUNT_ID", ""),
 			RateLimitMin: getEnvInt("QUESTRADE_RATE_LIMIT", 100),
 		},
