@@ -441,11 +441,39 @@ func (s *MarketDataService) handleIntradayBars(w http.ResponseWriter, r *http.Re
 		json.NewEncoder(w).Encode([]interface{}{})
 		return
 	}
-	if bars == nil {
+
+	if len(bars) == 0 {
+		s.logger.Info("no intraday data for ticker, triggering backfill", "symbol", symbol)
+		s.triggerBackfill(symbol, "intraday_bars", "1min")
+		s.triggerTickerSubscribe(symbol)
 		bars = []storage.IntradayBarRecord{}
+	} else {
+		oldest := bars[len(bars)-1].Timestamp
+		if time.Since(oldest) > 5*time.Minute {
+			s.logger.Info("intraday data stale for ticker, triggering refresh", "symbol", symbol)
+			s.triggerBackfill(symbol, "intraday_bars", "1min")
+		}
 	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(bars)
+}
+
+func (s *MarketDataService) triggerBackfill(ticker, dataType, interval string) {
+	req := sse.BackfillRequest{
+		Ticker:   ticker,
+		DataType: dataType,
+		Interval: interval,
+		Source:   "polygon",
+	}
+	data, _ := json.Marshal(req)
+	s.redis.LPush(context.Background(), "queue:backfill", string(data))
+}
+
+func (s *MarketDataService) triggerTickerSubscribe(symbol string) {
+	req := map[string]string{"symbol": symbol, "action": "subscribe"}
+	data, _ := json.Marshal(req)
+	s.redis.LPush(context.Background(), "queue:ticker:subscribe", string(data))
 }
 
 func (s *MarketDataService) handleFinancialRatios(w http.ResponseWriter, r *http.Request) {

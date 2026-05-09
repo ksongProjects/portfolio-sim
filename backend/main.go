@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -104,6 +105,7 @@ type Server struct {
 	obsService   *services.ObservabilityService
 	portfolioSvc *services.PortfolioService
 	providerSvc  *services.ProviderService
+	tickerSvc    *services.TickerService
 }
 
 func NewServer(cfg *Config) (*Server, error) {
@@ -142,6 +144,7 @@ func NewServer(cfg *Config) (*Server, error) {
 		obsService:   services.NewObservabilityService(),
 		portfolioSvc: services.NewPortfolioService(),
 		providerSvc:  services.NewProviderService(),
+		tickerSvc:    services.NewTickerService(os.Getenv("MARKET_DATA_SERVICE_URL")),
 	}, nil
 }
 
@@ -178,6 +181,8 @@ func (s *Server) Start() error {
 	http.HandleFunc("GET /api/rss-feeds", s.middleware.WrapHandlerFunc(s.handleGetRSSFeeds))
 	http.HandleFunc("POST /api/rss-feeds", s.middleware.WrapHandlerFunc(s.handleAddRSSFeed))
 	http.HandleFunc("DELETE /api/rss-feeds", s.middleware.WrapHandlerFunc(s.handleDeleteRSSFeed))
+	http.HandleFunc("GET /api/tickers/search", s.middleware.WrapHandlerFunc(s.handleSearchTickers))
+	http.HandleFunc("GET /api/tickers/", s.middleware.WrapHandlerFunc(s.handleGetTickerDetails))
 	http.HandleFunc("GET /api/stream/market", s.handleMarketStream)
 
 	s.logger.Info("main api server starting", "port", s.cfg.Server.HTTPPort)
@@ -609,6 +614,95 @@ func (s *Server) handleSaveQuestradeOAuth(w http.ResponseWriter, r *http.Request
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "saved"})
+}
+
+func (s *Server) handleSearchTickers(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query().Get("q")
+	if query == "" {
+		http.Error(w, "q parameter required", http.StatusBadRequest)
+		return
+	}
+	results, err := s.tickerSvc.SearchTickers(r.Context(), query)
+	if err != nil {
+		s.logger.Error("search tickers failed", "error", err)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]interface{}{})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(results)
+}
+
+func (s *Server) handleGetTickerDetails(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+	if !strings.HasSuffix(path, "/details") {
+		http.NotFound(w, r)
+		return
+	}
+	symbol := strings.TrimSuffix(strings.TrimPrefix(path, "/api/tickers/"), "/details")
+	if symbol == "" {
+		http.Error(w, "symbol required", http.StatusBadRequest)
+		return
+	}
+
+	var details struct {
+		Symbol      string  `json:"symbol"`
+		Name        string  `json:"name"`
+		Exchange    string  `json:"exchange"`
+		Sector      string  `json:"sector"`
+		Industry    string  `json:"industry"`
+		Price       float64 `json:"price"`
+		Change      float64 `json:"change"`
+		ChangePct   float64 `json:"changePct"`
+		Volume      int64   `json:"volume"`
+		AvgVolume   int64   `json:"avgVolume"`
+		MarketCap   float64 `json:"marketCap"`
+		PeRatio     float64 `json:"peRatio"`
+		Eps         float64 `json:"eps"`
+		DividendYield float64 `json:"dividendYield"`
+		Week52High  float64 `json:"week52High"`
+		Week52Low   float64 `json:"week52Low"`
+	}
+	details, err = *s.tickerSvc.GetTickerDetails(r.Context(), symbol)
+	if err != nil {
+		s.logger.Error("get ticker details failed", "symbol", symbol, "error", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "ticker not found"})
+		return
+	}
+
+	intraday, _ := s.tickerSvc.GetIntradayBars(r.Context(), symbol)
+	ratios, _ := s.tickerSvc.GetFinancialRatios(r.Context(), symbol)
+
+	response := map[string]interface{}{
+		"symbol":      details.Symbol,
+		"name":        details.Name,
+		"exchange":    details.Exchange,
+		"sector":      details.Sector,
+		"industry":    details.Industry,
+		"price":       details.Price,
+		"change":      details.Change,
+		"changePct":   details.ChangePct,
+		"volume":      details.Volume,
+		"avgVolume":   details.AvgVolume,
+		"marketCap":   details.MarketCap,
+		"peRatio":     details.PeRatio,
+		"eps":         details.Eps,
+		"dividendYield": details.DividendYield,
+		"week52High":  details.Week52High,
+		"week52Low":   details.Week52Low,
+	}
+
+	if len(intraday) > 0 {
+		response["intraday"] = intraday
+	}
+	if len(ratios) > 0 {
+		response["ratios"] = ratios
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 func main() {
