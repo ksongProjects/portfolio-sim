@@ -29,7 +29,7 @@ type Client struct {
 
 func NewClient(serviceName string, logURL string) *Client {
 	if logURL == "" {
-		logURL = "http://logging-service:9090/api/logs"
+		logURL = "http://main-api:8080/api/logs"
 	}
 	return &Client{
 		serviceName: serviceName,
