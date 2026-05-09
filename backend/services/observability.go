@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -27,52 +28,58 @@ type ServiceCheck struct {
 func NewObservabilityService() *ObservabilityService {
 	return &ObservabilityService{
 		checks: []ServiceCheck{
-			{Name: "main-api", HealthURL: "http://localhost:8080/health", Timeout: 2 * time.Second},
-			{Name: "market-data-service", HealthURL: "http://market-data-service:8080/health", Timeout: 2 * time.Second},
-			{Name: "news-feed-service", HealthURL: "http://news-feed-service:8080/health", Timeout: 2 * time.Second},
-			{Name: "analyst-service", HealthURL: "http://analyst-service:8080/health", Timeout: 2 * time.Second},
+			{Name: "main-api", HealthURL: "http://localhost:8080/health", Timeout: 500 * time.Millisecond},
+			{Name: "market-data-service", HealthURL: "http://market-data-service:8080/health", Timeout: 500 * time.Millisecond},
+			{Name: "news-feed-service", HealthURL: "http://news-feed-service:8080/health", Timeout: 500 * time.Millisecond},
+			{Name: "analyst-service", HealthURL: "http://analyst-service:8080/health", Timeout: 500 * time.Millisecond},
 		},
 	}
 }
 
 func (s *ObservabilityService) CheckServices(ctx context.Context) []ServiceHealth {
-	results := make([]ServiceHealth, 0, len(s.checks))
+	results := make([]ServiceHealth, len(s.checks))
 	now := time.Now()
+	var wg sync.WaitGroup
 
-	for _, check := range s.checks {
-		status := "error"
-		uptime := "0%"
+	for i, check := range s.checks {
+		wg.Add(1)
+		go func(idx int, check ServiceCheck) {
+			defer wg.Done()
+			status := "error"
+			uptime := "0%"
 
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, check.HealthURL, nil)
-		if err == nil {
-			client := &http.Client{Timeout: check.Timeout}
-			resp, err := client.Do(req)
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, check.HealthURL, nil)
 			if err == nil {
-				defer resp.Body.Close()
-				if resp.StatusCode == http.StatusOK {
-					body, _ := io.ReadAll(resp.Body)
-					if len(body) > 0 && (string(body) == "ok" || string(body) == `"ok"` || contains(body, `"status":"ok"`)) {
-						status = "healthy"
-						uptime = "100%"
-					} else if string(body) == "ok" || resp.StatusCode == http.StatusOK {
-						status = "healthy"
-						uptime = "100%"
+				client := &http.Client{Timeout: check.Timeout}
+				resp, err := client.Do(req)
+				if err == nil {
+					defer resp.Body.Close()
+					if resp.StatusCode == http.StatusOK {
+						body, _ := io.ReadAll(resp.Body)
+						if len(body) > 0 && (string(body) == "ok" || string(body) == `"ok"` || contains(body, `"status":"ok"`)) {
+							status = "healthy"
+							uptime = "100%"
+						} else {
+							status = "healthy"
+							uptime = "100%"
+						}
+					} else {
+						status = "warning"
+						uptime = "50%"
 					}
-				} else {
-					status = "warning"
-					uptime = "50%"
 				}
 			}
-		}
 
-		results = append(results, ServiceHealth{
-			Name:     check.Name,
-			Status:   status,
-			Uptime:   uptime,
-			LastCheck: formatTimeAgo(now),
-		})
+			results[idx] = ServiceHealth{
+				Name:      check.Name,
+				Status:    status,
+				Uptime:    uptime,
+				LastCheck: formatTimeAgo(now),
+			}
+		}(i, check)
 	}
 
+	wg.Wait()
 	return results
 }
 

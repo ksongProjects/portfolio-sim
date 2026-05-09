@@ -73,15 +73,14 @@ func (c *Client) send(ctx context.Context, entry LogEntry) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
+	go func() {
+		resp, err := c.client.Do(req)
+		if err != nil {
+			return
+		}
+		defer resp.Body.Close()
+	}()
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("logging server returned %d", resp.StatusCode)
-	}
 	return nil
 }
 
