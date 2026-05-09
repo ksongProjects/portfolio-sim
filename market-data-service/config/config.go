@@ -69,10 +69,8 @@ func Load() *Config {
 			Password: getEnv("REDIS_PASSWORD", ""),
 		},
 		Questrade: QuestradeConfig{
-			RefreshToken: getEnv("QUESTRADE_REFRESH_TOKEN", ""),
-			APIURL:       getEnv("QUESTRADE_API_URL", "https://login.questrade.com/oauth2/token"),
-			AccountID:    getEnv("QUESTRADE_ACCOUNT_ID", ""),
-			RateLimitMin: getEnvInt("QUESTRADE_RATE_LIMIT", 100),
+			APIURL:       "https://login.questrade.com/oauth2/token",
+			RateLimitMin: 100,
 		},
 		Polygon: PolygonConfig{
 			APIKey:       getEnv("POLYGON_API_KEY", ""),

@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/portfolio-sim/market-data-service/config"
+	"github.com/portfolio-sim/market-data-service/storage"
 )
 
 type QuestradeProvider struct {
@@ -18,14 +20,16 @@ type QuestradeProvider struct {
 	baseURL     string
 	token       string
 	rateLimiter *RateLimiter
+	storage     *storage.Storage
 }
 
-func NewQuestradeProvider(cfg config.QuestradeConfig) *QuestradeProvider {
+func NewQuestradeProvider(cfg config.QuestradeConfig, storage *storage.Storage) *QuestradeProvider {
 	return &QuestradeProvider{
 		cfg:         cfg,
 		client:      &http.Client{Timeout: 30 * time.Second},
 		baseURL:     cfg.APIURL,
 		rateLimiter: NewRateLimiter(20, 15000),
+		storage:     storage,
 	}
 }
 
@@ -34,12 +38,24 @@ func (p *QuestradeProvider) Name() string {
 }
 
 func (p *QuestradeProvider) refreshToken() error {
-	if p.cfg.RefreshToken == "" {
-		return nil
+	refreshToken := p.cfg.RefreshToken
+	apiServer := p.baseURL
+
+	if refreshToken == "" && p.storage != nil {
+		tokens, err := p.storage.GetQuestradeTokens(context.Background())
+		if err == nil && tokens.RefreshToken != "" {
+			refreshToken = tokens.RefreshToken
+			apiServer = tokens.APIServer
+			p.token = tokens.AccessToken
+		}
+	}
+
+	if refreshToken == "" {
+		return fmt.Errorf("no refresh token available")
 	}
 
 	tokenURL := fmt.Sprintf("%s?grant_type=refresh_token&refresh_token=%s",
-		p.baseURL, url.QueryEscape(p.cfg.RefreshToken))
+		apiServer, url.QueryEscape(refreshToken))
 	resp, err := http.Get(tokenURL)
 	if err != nil {
 		return err
@@ -66,6 +82,11 @@ func (p *QuestradeProvider) refreshToken() error {
 	if result.APIServer != "" {
 		p.baseURL = result.APIServer
 	}
+
+	if p.storage != nil {
+		_ = p.storage.UpdateQuestradeTokens(context.Background(), result.AccessToken, result.RefreshToken, result.APIServer, result.ExpiresIn)
+	}
+
 	return nil
 }
 

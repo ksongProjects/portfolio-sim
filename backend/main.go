@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/portfolio-sim/backend/database"
+	"github.com/portfolio-sim/backend/logging"
 	"github.com/portfolio-sim/backend/services"
 )
 
@@ -95,12 +96,13 @@ func getEnvDuration(key string, defaultVal time.Duration) time.Duration {
 }
 
 type Server struct {
-	cfg           *Config
-	logger        *slog.Logger
-	db            *database.Postgres
-	obsService    *services.ObservabilityService
-	portfolioSvc  *services.PortfolioService
-	providerSvc   *services.ProviderService
+	cfg          *Config
+	logger       *slog.Logger
+	middleware   *logging.Middleware
+	db           *database.Postgres
+	obsService   *services.ObservabilityService
+	portfolioSvc *services.PortfolioService
+	providerSvc  *services.ProviderService
 }
 
 func NewServer(cfg *Config) (*Server, error) {
@@ -119,9 +121,16 @@ func NewServer(cfg *Config) (*Server, error) {
 		return nil, fmt.Errorf("connect database: %w", err)
 	}
 
+	logURL := os.Getenv("LOGGING_SERVICE_URL")
+	if logURL == "" {
+		logURL = "http://logging-service:9090/api/logs"
+	}
+	loggingMiddleware := logging.NewMiddleware("main-api", logURL, logger)
+
 	return &Server{
 		cfg:          cfg,
 		logger:       logger,
+		middleware:   loggingMiddleware,
 		db:           db,
 		obsService:   services.NewObservabilityService(),
 		portfolioSvc: services.NewPortfolioService(),
@@ -144,23 +153,23 @@ func (s *Server) Start() error {
 	}
 
 	http.HandleFunc("GET /health", s.handleHealth)
-	http.HandleFunc("GET /api/observability/services", s.handleGetServices)
-	http.HandleFunc("GET /api/observability/logs", s.handleGetLogs)
-	http.HandleFunc("GET /api/portfolio/positions", s.handleGetPositions)
-	http.HandleFunc("GET /api/portfolio/summary", s.handleGetPortfolioSummary)
-	http.HandleFunc("GET /api/market/indices", s.handleGetMarketIndices)
-	http.HandleFunc("GET /api/news", s.handleGetNews)
-	http.HandleFunc("GET /api/strategies", s.handleGetStrategies)
-	http.HandleFunc("GET /api/signals", s.handleGetSignals)
-	http.HandleFunc("GET /api/providers", s.handleGetProviders)
-	http.HandleFunc("PUT /api/providers", s.handleUpdateProvider)
-	http.HandleFunc("POST /api/providers/validate", s.handleValidateProvider)
-	http.HandleFunc("PUT /api/providers/questrade/oauth", s.handleSaveQuestradeOAuth)
-	http.HandleFunc("GET /api/providers/questrade/oauth", s.handleGetQuestradeOAuth)
-	http.HandleFunc("GET /api/connections", s.handleGetConnections)
-	http.HandleFunc("GET /api/rss-feeds", s.handleGetRSSFeeds)
-	http.HandleFunc("POST /api/rss-feeds", s.handleAddRSSFeed)
-	http.HandleFunc("DELETE /api/rss-feeds", s.handleDeleteRSSFeed)
+	http.HandleFunc("GET /api/observability/services", s.middleware.WrapHandlerFunc(s.handleGetServices))
+	http.HandleFunc("GET /api/observability/logs", s.middleware.WrapHandlerFunc(s.handleGetLogs))
+	http.HandleFunc("GET /api/portfolio/positions", s.middleware.WrapHandlerFunc(s.handleGetPositions))
+	http.HandleFunc("GET /api/portfolio/summary", s.middleware.WrapHandlerFunc(s.handleGetPortfolioSummary))
+	http.HandleFunc("GET /api/market/indices", s.middleware.WrapHandlerFunc(s.handleGetMarketIndices))
+	http.HandleFunc("GET /api/news", s.middleware.WrapHandlerFunc(s.handleGetNews))
+	http.HandleFunc("GET /api/strategies", s.middleware.WrapHandlerFunc(s.handleGetStrategies))
+	http.HandleFunc("GET /api/signals", s.middleware.WrapHandlerFunc(s.handleGetSignals))
+	http.HandleFunc("GET /api/providers", s.middleware.WrapHandlerFunc(s.handleGetProviders))
+	http.HandleFunc("PUT /api/providers", s.middleware.WrapHandlerFunc(s.handleUpdateProvider))
+	http.HandleFunc("POST /api/providers/validate", s.middleware.WrapHandlerFunc(s.handleValidateProvider))
+	http.HandleFunc("PUT /api/providers/questrade/oauth", s.middleware.WrapHandlerFunc(s.handleSaveQuestradeOAuth))
+	http.HandleFunc("GET /api/providers/questrade/oauth", s.middleware.WrapHandlerFunc(s.handleGetQuestradeOAuth))
+	http.HandleFunc("GET /api/connections", s.middleware.WrapHandlerFunc(s.handleGetConnections))
+	http.HandleFunc("GET /api/rss-feeds", s.middleware.WrapHandlerFunc(s.handleGetRSSFeeds))
+	http.HandleFunc("POST /api/rss-feeds", s.middleware.WrapHandlerFunc(s.handleAddRSSFeed))
+	http.HandleFunc("DELETE /api/rss-feeds", s.middleware.WrapHandlerFunc(s.handleDeleteRSSFeed))
 
 	s.logger.Info("main api server starting", "port", s.cfg.Server.HTTPPort)
 
@@ -366,9 +375,9 @@ func (s *Server) handleValidateProvider(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if valid && req.ProviderID == "questrade" {
-		refreshToken, apiServer, err := s.providerSvc.ExchangeQuestradeToken(req.APIKey)
+		accessToken, refreshToken, apiServer, expiresIn, err := s.providerSvc.ExchangeQuestradeToken(req.APIKey)
 		if err == nil && refreshToken != "" {
-			s.providerSvc.SaveQuestradeOAuth(r.Context(), s.db, req.ProviderID, refreshToken, apiServer, 3600)
+			s.providerSvc.SaveQuestradeOAuth(r.Context(), s.db, req.ProviderID, accessToken, refreshToken, apiServer, expiresIn)
 		}
 	}
 
@@ -434,9 +443,10 @@ func (s *Server) handleDeleteRSSFeed(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetQuestradeOAuth(w http.ResponseWriter, r *http.Request) {
-	refreshToken, apiServer := s.providerSvc.GetQuestradeOAuth(r.Context(), s.db, "questrade")
+	accessToken, refreshToken, apiServer := s.providerSvc.GetQuestradeOAuth(r.Context(), s.db, "questrade")
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
+		"access_token":  accessToken,
 		"refresh_token": refreshToken,
 		"api_server":    apiServer,
 	})
@@ -448,6 +458,7 @@ func (s *Server) handleSaveQuestradeOAuth(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var req struct {
+		AccessToken  string `json:"access_token"`
 		RefreshToken string `json:"refresh_token"`
 		APIServer    string `json:"api_server"`
 	}
@@ -459,7 +470,7 @@ func (s *Server) handleSaveQuestradeOAuth(w http.ResponseWriter, r *http.Request
 		http.Error(w, "refresh_token is required", http.StatusBadRequest)
 		return
 	}
-	if err := s.providerSvc.SaveQuestradeOAuth(r.Context(), s.db, "questrade", req.RefreshToken, req.APIServer, 3600); err != nil {
+	if err := s.providerSvc.SaveQuestradeOAuth(r.Context(), s.db, "questrade", req.AccessToken, req.RefreshToken, req.APIServer, 3600); err != nil {
 		http.Error(w, "failed to save", http.StatusInternalServerError)
 		return
 	}

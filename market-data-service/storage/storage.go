@@ -117,3 +117,39 @@ func (s *Storage) StoreRawPriceTick(ctx context.Context, tickerID uuid.UUID, sou
 	`, tickerID, sourceID, rawJSON, price, bid, ask, volume, receivedAt, timestamp)
 	return err
 }
+
+type QuestradeTokens struct {
+	AccessToken  string
+	RefreshToken string
+	APIServer    string
+	ExpiresAt    time.Time
+}
+
+func (s *Storage) GetQuestradeTokens(ctx context.Context) (*QuestradeTokens, error) {
+	var accessToken, refreshToken, apiServer string
+	var expiresAt *time.Time
+	err := s.pool.QueryRow(ctx, `
+		SELECT access_token, refresh_token, api_server, token_expires_at
+		FROM provider_configurations
+		WHERE provider_id = 'questrade'
+	`).Scan(&accessToken, &refreshToken, &apiServer, &expiresAt)
+	if err != nil {
+		return nil, err
+	}
+	return &QuestradeTokens{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		APIServer:    apiServer,
+		ExpiresAt:    time.Now(),
+	}, nil
+}
+
+func (s *Storage) UpdateQuestradeTokens(ctx context.Context, accessToken, refreshToken, apiServer string, expiresIn int) error {
+	expiresAt := time.Now().Add(time.Duration(expiresIn) * time.Second)
+	_, err := s.pool.Exec(ctx, `
+		UPDATE provider_configurations
+		SET access_token = $1, refresh_token = $2, api_server = $3, token_expires_at = $4, updated_at = NOW()
+		WHERE provider_id = 'questrade'
+	`, accessToken, refreshToken, apiServer, expiresAt)
+	return err
+}

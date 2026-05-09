@@ -56,13 +56,17 @@ func NewMarketDataService(cfg *config.Config) *MarketDataService {
 		os.Exit(1)
 	}
 
+	logURL := os.Getenv("LOGGING_SERVICE_URL")
+	if logURL == "" {
+		logURL = "http://localhost:9090/api/logs"
+	}
 	return &MarketDataService{
 		cfg:       cfg,
 		db:        db,
 		redis:     redisClient,
 		logger:    logger,
 		storage:   storage.NewStorage(db.Pool()),
-		logClient: loggingpkg.NewClient("market-data-service"),
+		logClient: loggingpkg.NewClient("market-data-service", logURL),
 		sseMgr:    sse.NewManager(redisClient),
 		normalizer: normalizer.NewNormalizer(),
 	}
@@ -92,13 +96,47 @@ func (s *MarketDataService) startHTTPServer() {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
 	})
-	http.HandleFunc("/api/questrade/oauth/save", s.handleSaveQuestradeOAuth)
+	http.HandleFunc("/api/questrade/oauth/save", loggingMiddleware(s.logClient, s.handleSaveQuestradeOAuth))
 
 	addr := fmt.Sprintf(":%d", s.cfg.Server.HTTPPort)
 	s.logger.Info("HTTP server starting", "addr", addr)
 	if err := http.ListenAndServe(addr, nil); err != nil {
 		s.logger.Error("HTTP server error", "error", err)
 	}
+}
+
+func loggingMiddleware(logClient *loggingpkg.Client, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		ctx := r.Context()
+
+		logClient.InfoWithMeta(ctx, fmt.Sprintf("API Request: %s %s", r.Method, r.URL.Path), map[string]interface{}{
+			"method": r.Method,
+			"path":   r.URL.Path,
+			"query":  r.URL.RawQuery,
+		})
+
+		wrapper := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+		next(wrapper, r)
+
+		duration := time.Since(start)
+		logClient.InfoWithMeta(ctx, fmt.Sprintf("API Response: %s %s %d", r.Method, r.URL.Path, wrapper.statusCode), map[string]interface{}{
+			"method":   r.Method,
+			"path":     r.URL.Path,
+			"status":   wrapper.statusCode,
+			"duration": duration.Milliseconds(),
+		})
+	}
+}
+
+type responseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (rw *responseWriter) WriteHeader(code int) {
+	rw.statusCode = code
+	rw.ResponseWriter.WriteHeader(code)
 }
 
 func (s *MarketDataService) handleSaveQuestradeOAuth(w http.ResponseWriter, r *http.Request) {
@@ -147,7 +185,7 @@ func (s *MarketDataService) handleSaveQuestradeOAuth(w http.ResponseWriter, r *h
 
 func (s *MarketDataService) setupProviders() {
 	if s.cfg.Questrade.RefreshToken != "" {
-		s.providers = append(s.providers, providers.NewQuestradeProvider(s.cfg.Questrade))
+		s.providers = append(s.providers, providers.NewQuestradeProvider(s.cfg.Questrade, s.storage))
 	}
 	if s.cfg.Polygon.APIKey != "" {
 		s.providers = append(s.providers, providers.NewPolygonProvider(s.cfg.Polygon))
@@ -236,7 +274,7 @@ func (s *MarketDataService) processBackfill(req *sse.BackfillRequest) {
 	case "fmp":
 		provider = providers.NewFMPProvider(s.cfg.FMP)
 	default:
-		provider = providers.NewQuestradeProvider(s.cfg.Questrade)
+		provider = providers.NewQuestradeProvider(s.cfg.Questrade, s.storage)
 	}
 
 	switch req.DataType {

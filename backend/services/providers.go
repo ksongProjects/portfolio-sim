@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -140,51 +139,48 @@ func (s *ProviderService) SaveProviderKey(ctx context.Context, db interface {
 func (s *ProviderService) SaveQuestradeOAuth(ctx context.Context, db interface {
 	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
 	Exec(ctx context.Context, sql string, args ...interface{}) (int64, error)
-}, providerID, refreshToken, apiServer string, expiresIn int) error {
+}, providerID, accessToken, refreshToken, apiServer string, expiresIn int) error {
 	expiresAt := time.Now().Add(time.Duration(expiresIn) * time.Second)
 	query := `
-		INSERT INTO provider_configurations (id, provider_id, encrypted_key, refresh_token, api_server, token_expires_at, created_at, updated_at)
-		VALUES (gen_random_uuid(), $1, '', $2, $3, $4, NOW(), NOW())
-		ON CONFLICT (provider_id) DO UPDATE SET refresh_token = $2, api_server = $3, token_expires_at = $4, updated_at = NOW()
+		INSERT INTO provider_configurations (id, provider_id, encrypted_key, access_token, refresh_token, api_server, token_expires_at, created_at, updated_at)
+		VALUES (gen_random_uuid(), $1, '', $2, $3, $4, $5, NOW(), NOW())
+		ON CONFLICT (provider_id) DO UPDATE SET access_token = $2, refresh_token = $3, api_server = $4, token_expires_at = $5, updated_at = NOW()
 	`
-	_, err := db.Exec(ctx, query, providerID, refreshToken, apiServer, expiresAt)
+	_, err := db.Exec(ctx, query, providerID, accessToken, refreshToken, apiServer, expiresAt)
 	return err
 }
 
 func (s *ProviderService) GetQuestradeOAuth(ctx context.Context, db interface {
 	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
 	QueryRow(ctx context.Context, sql string, args ...interface{}) (pgx.Row, error)
-}, providerID string) (refreshToken, apiServer string) {
+}, providerID string) (accessToken, refreshToken, apiServer string) {
 	query := `
-		SELECT COALESCE(refresh_token, ''), COALESCE(api_server, '')
+		SELECT COALESCE(access_token, ''), COALESCE(refresh_token, ''), COALESCE(api_server, '')
 		FROM provider_configurations
 		WHERE provider_id = $1
 	`
 	row, _ := db.QueryRow(ctx, query, providerID)
-	row.Scan(&refreshToken, &apiServer)
+	row.Scan(&accessToken, &refreshToken, &apiServer)
 	return
 }
 
-func (s *ProviderService) ExchangeQuestradeToken(initialRefreshToken string) (newRefreshToken, apiServer string, err error) {
-	qtAPI := os.Getenv("QUESTRADE_API_URL")
-	if qtAPI == "" {
-		qtAPI = "https://login.questrade.com/oauth2/token"
-	}
+func (s *ProviderService) ExchangeQuestradeToken(initialRefreshToken string) (accessToken, newRefreshToken, apiServer string, expiresIn int, err error) {
+	const qtAPI = "https://login.questrade.com/oauth2/token"
 	tokenURL := fmt.Sprintf("%s?grant_type=refresh_token&refresh_token=%s", qtAPI, url.QueryEscape(initialRefreshToken))
 	resp, err := http.Get(tokenURL)
 	if err != nil {
-		return "", "", err
+		return "", "", "", 0, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusBadRequest {
-		return "", "", fmt.Errorf("questrade refresh token is expired or invalid")
+		return "", "", "", 0, fmt.Errorf("questrade refresh token is expired or invalid")
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
-		return "", "", fmt.Errorf("questrade unauthorized")
+		return "", "", "", 0, fmt.Errorf("questrade unauthorized")
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", "", fmt.Errorf("questrade token exchange failed: %d", resp.StatusCode)
+		return "", "", "", 0, fmt.Errorf("questrade token exchange failed: %d", resp.StatusCode)
 	}
 
 	var result struct {
@@ -194,9 +190,9 @@ func (s *ProviderService) ExchangeQuestradeToken(initialRefreshToken string) (ne
 		APIServer    string `json:"api_server"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", "", err
+		return "", "", "", 0, err
 	}
-	return result.RefreshToken, result.APIServer, nil
+	return result.AccessToken, result.RefreshToken, result.APIServer, result.ExpiresIn, nil
 }
 
 func (s *ProviderService) CheckConnection(ctx context.Context, db interface {
@@ -278,10 +274,7 @@ func validateFMPKey(apiKey string) (bool, error) {
 }
 
 func validateQuestradeKey(apiKey string) (bool, error) {
-	qtAPI := os.Getenv("QUESTRADE_API_URL")
-	if qtAPI == "" {
-		qtAPI = "https://login.questrade.com/oauth2/token"
-	}
+	const qtAPI = "https://login.questrade.com/oauth2/token"
 	tokenURL := fmt.Sprintf("%s?grant_type=refresh_token&refresh_token=%s", qtAPI, url.QueryEscape(apiKey))
 	resp, err := http.Get(tokenURL)
 	if err != nil {
