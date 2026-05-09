@@ -7,7 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strings"
+	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -216,8 +216,12 @@ func validateFMPKey(apiKey string) (bool, error) {
 }
 
 func validateQuestradeKey(apiKey string) (bool, error) {
-	body := strings.NewReader("grant_type=refresh_token&refresh_token=" + url.QueryEscape(apiKey))
-	resp, err := http.Post("https://api.questrade.com/oauth2/token", "application/x-www-form-urlencoded", body)
+	qtAPI := os.Getenv("QUESTRADE_API_URL")
+	if qtAPI == "" {
+		qtAPI = "https://login.questrade.com/oauth2/token"
+	}
+	tokenURL := fmt.Sprintf("%s?grant_type=refresh_token&refresh_token=%s", qtAPI, url.QueryEscape(apiKey))
+	resp, err := http.Get(tokenURL)
 	if err != nil {
 		return false, err
 	}
@@ -225,16 +229,24 @@ func validateQuestradeKey(apiKey string) (bool, error) {
 
 	if resp.StatusCode == http.StatusOK {
 		var result struct {
-			AccessToken  string `json:"access_token"`
-			TokenType    string `json:"token_type"`
-			ExpiresIn    int    `json:"expires_in"`
-			RefreshToken string `json:"refresh_token"`
+			AccessToken string `json:"access_token"`
+			TokenType   string `json:"token_type"`
+			ExpiresIn   int    `json:"expires_in"`
+			APIServer   string `json:"api_server"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 			return false, err
 		}
-		if result.AccessToken != "" {
-			return true, nil
+		if result.AccessToken != "" && result.APIServer != "" {
+			marketsURL := result.APIServer + "/v1/markets"
+			req, _ := http.NewRequest("GET", marketsURL, nil)
+			req.Header.Set("Authorization", "Bearer "+result.AccessToken)
+			marketsResp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return false, err
+			}
+			defer marketsResp.Body.Close()
+			return marketsResp.StatusCode == http.StatusOK, nil
 		}
 	}
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusBadRequest {
