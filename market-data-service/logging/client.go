@@ -23,7 +23,7 @@ type Client struct {
 
 func NewClient(serviceName string, logURL string) *Client {
 	if logURL == "" {
-		logURL = "http://localhost:9090/api/logs"
+		logURL = "http://backend:8080/api/logs"
 	}
 	return &Client{
 		serviceName: serviceName,
@@ -93,7 +93,7 @@ func (c *Client) send(ctx context.Context, entry LogEntry) error {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusCreated {
 		return fmt.Errorf("logging server returned %d", resp.StatusCode)
 	}
 	return nil

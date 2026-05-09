@@ -94,11 +94,9 @@ type Strategy struct {
 
 type Signal struct {
 	ID        string
-	Strategy  string
-	Symbol    string
-	Action    string
-	Price     float64
-	Confidence string
+	Message   string
+	Service   string
+	Level     string
 	Timestamp time.Time
 }
 
@@ -414,11 +412,6 @@ func (s *PortfolioService) GetSignals(ctx context.Context, db interface {
 	defer rows.Close()
 
 	var signals []Signal
-	i := 0
-	strategyNames := []string{"Momentum Growth", "Value Scanner", "Sector Rotation"}
-	symbols := []string{"NVDA", "AAPL", "MSFT", "GOOGL", "TSLA", "JPM"}
-	actions := []string{"BUY", "SELL"}
-	confidences := []string{"HIGH", "MEDIUM", "LOW"}
 	for rows.Next() {
 		var id, message, service, level string
 		var timestamp time.Time
@@ -426,16 +419,13 @@ func (s *PortfolioService) GetSignals(ctx context.Context, db interface {
 			continue
 		}
 		signal := Signal{
-			ID:          id,
-			Strategy:    strategyNames[i%len(strategyNames)],
-			Symbol:      symbols[i%len(symbols)],
-			Action:      actions[i%len(actions)],
-			Price:       100.0 + float64(i)*10,
-			Confidence: confidences[i%len(confidences)],
-			Timestamp:   timestamp,
+			ID:        id,
+			Message:   message,
+			Service:   service,
+			Level:     level,
+			Timestamp: timestamp,
 		}
 		signals = append(signals, signal)
-		i++
 	}
 
 	return signals, nil

@@ -17,11 +17,9 @@ export interface Strategy {
 
 export interface Signal {
   ID: string;
-  Strategy: string;
-  Symbol: string;
-  Action: string;
-  Price: number;
-  Confidence: string;
+  Message: string;
+  Service: string;
+  Level: string;
   Timestamp: string;
 }
 

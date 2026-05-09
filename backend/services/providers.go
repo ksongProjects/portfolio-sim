@@ -278,39 +278,34 @@ func validateQuestradeKey(apiKey string) (bool, error) {
 	tokenURL := fmt.Sprintf("%s?grant_type=refresh_token&refresh_token=%s", qtAPI, url.QueryEscape(apiKey))
 	resp, err := http.Get(tokenURL)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("oauth request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusOK {
-		var result struct {
-			AccessToken string `json:"access_token"`
-			TokenType   string `json:"token_type"`
-			ExpiresIn   int    `json:"expires_in"`
-			APIServer   string `json:"api_server"`
+	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusBadRequest {
+			return false, fmt.Errorf("questrade refresh token is expired or invalid")
 		}
-		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-			return false, err
+		if resp.StatusCode == http.StatusUnauthorized {
+			return false, fmt.Errorf("questrade unauthorized")
 		}
-		if result.AccessToken != "" && result.APIServer != "" {
-			marketsURL := result.APIServer + "/v1/markets"
-			req, _ := http.NewRequest("GET", marketsURL, nil)
-			req.Header.Set("Authorization", "Bearer "+result.AccessToken)
-			marketsResp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				return false, err
-			}
-			defer marketsResp.Body.Close()
-			return marketsResp.StatusCode == http.StatusOK, nil
-		}
+		body, _ := io.ReadAll(resp.Body)
+		return false, fmt.Errorf("questrade returned status %d: %s", resp.StatusCode, string(body))
 	}
-	if resp.StatusCode == http.StatusBadRequest {
-		return false, fmt.Errorf("questrade refresh token is expired or invalid")
+
+	var result struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresIn    int    `json:"expires_in"`
+		APIServer    string `json:"api_server"`
 	}
-	if resp.StatusCode == http.StatusUnauthorized {
-		return false, fmt.Errorf("questrade unauthorized")
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return false, fmt.Errorf("failed to parse oauth response: %w", err)
 	}
-	return false, fmt.Errorf("questrade returned status: %d", resp.StatusCode)
+	if result.AccessToken == "" || result.RefreshToken == "" || result.APIServer == "" {
+		return false, fmt.Errorf("oauth response missing required fields")
+	}
+	return true, nil
 }
 
 func validateYouTubeKey(apiKey string) (bool, error) {

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -22,15 +23,16 @@ import (
 )
 
 type MarketDataService struct {
-	cfg       *config.Config
-	db        *database.Postgres
-	redis     *redis.Client
-	logger    *slog.Logger
-	storage   *storage.Storage
-	logClient *loggingpkg.Client
-	sseMgr    *sse.Manager
-	normalizer *normalizer.Normalizer
-	providers []providers.Provider
+	cfg            *config.Config
+	db             *database.Postgres
+	redis          *redis.Client
+	logger         *slog.Logger
+	storage        *storage.Storage
+	logClient      *loggingpkg.Client
+	sseMgr         *sse.Manager
+	normalizer     *normalizer.Normalizer
+	providers      []providers.Provider
+	fetcherRegistry sync.Map
 }
 
 func NewMarketDataService(cfg *config.Config) *MarketDataService {
@@ -58,7 +60,7 @@ func NewMarketDataService(cfg *config.Config) *MarketDataService {
 
 	logURL := os.Getenv("LOGGING_SERVICE_URL")
 	if logURL == "" {
-		logURL = "http://localhost:9090/api/logs"
+		logURL = "http://backend:8080/api/logs"
 	}
 	return &MarketDataService{
 		cfg:       cfg,
@@ -75,6 +77,7 @@ func NewMarketDataService(cfg *config.Config) *MarketDataService {
 func (s *MarketDataService) Start() error {
 	s.setupProviders()
 	go s.handleBackfillQueue()
+	go s.handleTickerSubscribe()
 	go s.startHTTPServer()
 
 	s.logger.Info("market data service starting")
@@ -148,6 +151,8 @@ func (s *MarketDataService) handleSaveQuestradeOAuth(w http.ResponseWriter, r *h
 	var req struct {
 		RefreshToken string `json:"refresh_token"`
 		APIServer    string `json:"api_server"`
+		AccessToken  string `json:"access_token"`
+		ExpiresIn    int    `json:"expires_in"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request: "+err.Error(), http.StatusBadRequest)
@@ -159,34 +164,14 @@ func (s *MarketDataService) handleSaveQuestradeOAuth(w http.ResponseWriter, r *h
 		return
 	}
 
-	for _, p := range s.providers {
-		if qp, ok := p.(*providers.QuestradeProvider); ok {
-			qp.SetOAuthTokens(req.RefreshToken, req.APIServer)
-		}
-	}
-
-	backendURL := os.Getenv("BACKEND_API_URL")
-	if backendURL == "" {
-		backendURL = "http://localhost:8080"
-	}
-
-	backendReq, _ := http.NewRequest("PUT", backendURL+"/api/providers/questrade/oauth", r.Body)
-	backendReq.Header.Set("Content-Type", "application/json")
-	backendResp, err := http.DefaultClient.Do(backendReq)
-	if err != nil {
-		s.logger.Warn("failed to save OAuth to backend", "error", err)
-	} else {
-		backendResp.Body.Close()
-	}
+	_ = s.storage.UpdateQuestradeTokens(r.Context(), req.AccessToken, req.RefreshToken, req.APIServer, req.ExpiresIn)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "saved"})
 }
 
 func (s *MarketDataService) setupProviders() {
-	if s.cfg.Questrade.RefreshToken != "" {
-		s.providers = append(s.providers, providers.NewQuestradeProvider(s.cfg.Questrade, s.storage))
-	}
+	s.providers = append(s.providers, providers.NewQuestradeProvider(s.cfg.Questrade, s.storage))
 	if s.cfg.Polygon.APIKey != "" {
 		s.providers = append(s.providers, providers.NewPolygonProvider(s.cfg.Polygon))
 	}
@@ -195,17 +180,43 @@ func (s *MarketDataService) setupProviders() {
 	}
 }
 
-func (s *MarketDataService) runPriceFetchers() {
-	tickers := []string{"AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"}
+func (s *MarketDataService) fetcherKey(ticker string, provider providers.Provider) string {
+	return ticker + ":" + provider.Name()
+}
 
-	for _, ticker := range tickers {
+func (s *MarketDataService) registerFetcher(ticker string, provider providers.Provider) bool {
+	key := s.fetcherKey(ticker, provider)
+	_, loaded := s.fetcherRegistry.LoadOrStore(key, true)
+	return !loaded
+}
+
+func (s *MarketDataService) unregisterFetcher(ticker string, provider providers.Provider) {
+	key := s.fetcherKey(ticker, provider)
+	s.fetcherRegistry.Delete(key)
+}
+
+func (s *MarketDataService) runPriceFetchers() {
+	tickerSymbols := s.storage.GetActiveTickers(context.Background())
+	if len(tickerSymbols) == 0 {
+		s.logger.Info("no tickers to fetch")
+		return
+	}
+	for _, ticker := range tickerSymbols {
 		for _, provider := range s.providers {
-			go s.fetchPriceLoop(ticker, provider)
+			if s.registerFetcher(ticker, provider) {
+				go s.fetchPriceLoop(ticker, provider)
+			}
 		}
 	}
 }
 
 func (s *MarketDataService) fetchPriceLoop(ticker string, provider providers.Provider) {
+	if !s.registerFetcher(ticker, provider) {
+		s.logger.Info("fetcher already running, skipping", "ticker", ticker, "provider", provider.Name())
+		return
+	}
+	defer s.unregisterFetcher(ticker, provider)
+
 	tickerID, err := s.storage.GetTickerID(context.Background(), ticker)
 	if err != nil {
 		s.logger.Warn("ticker not found", "ticker", ticker)
@@ -235,6 +246,45 @@ func (s *MarketDataService) fetchPriceLoop(ticker string, provider providers.Pro
 		s.sseMgr.PublishTick(ticker, normPrice)
 
 		time.Sleep(time.Second)
+	}
+}
+
+func (s *MarketDataService) handleTickerSubscribe() {
+	for {
+		result, err := s.redis.BRPop(context.Background(), 0, "queue:ticker:subscribe")
+		if err != nil {
+			continue
+		}
+		if len(result) < 2 {
+			continue
+		}
+
+		var req struct {
+			Symbol string `json:"symbol"`
+			Action string `json:"action"`
+		}
+		if err := json.Unmarshal([]byte(result[1]), &req); err != nil {
+			s.logger.Error("failed to unmarshal ticker subscription", "error", err)
+			continue
+		}
+
+		tickerID, err := s.storage.GetTickerID(context.Background(), req.Symbol)
+		if err != nil {
+			s.logger.Warn("ticker not found", "ticker", req.Symbol)
+			continue
+		}
+		_ = tickerID // validated that ticker exists
+
+		if req.Action == "subscribe" {
+			for _, provider := range s.providers {
+				if s.registerFetcher(req.Symbol, provider) {
+					go s.fetchPriceLoop(req.Symbol, provider)
+					s.logger.Info("started price fetcher for ticker", "ticker", req.Symbol, "provider", provider.Name())
+				} else {
+					s.logger.Info("fetcher already running, skipping", "ticker", req.Symbol, "provider", provider.Name())
+				}
+			}
+		}
 	}
 }
 

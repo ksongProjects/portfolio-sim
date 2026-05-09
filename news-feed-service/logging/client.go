@@ -1,32 +1,116 @@
 package logging
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/google/uuid"
 )
 
+type LogEntry struct {
+	ID        string                 `json:"id"`
+	Timestamp string                 `json:"timestamp"`
+	Level     string                 `json:"level"`
+	Service   string                 `json:"service"`
+	Component string                 `json:"component,omitempty"`
+	Message   string                 `json:"message"`
+	Metadata  map[string]interface{} `json:"metadata,omitempty"`
+	TraceID   string                 `json:"trace_id,omitempty"`
+	SpanID    string                 `json:"span_id,omitempty"`
+}
+
 type Client struct {
-	pool *pgxpool.Pool
+	serviceName string
+	logURL      string
+	client      *http.Client
 }
 
-func NewClient(pool *pgxpool.Pool) *Client {
-	return &Client{pool: pool}
+func NewClient(serviceName string, logURL string) *Client {
+	if logURL == "" {
+		logURL = "http://backend:8080/api/logs"
+	}
+	return &Client{
+		serviceName: serviceName,
+		logURL:      logURL,
+		client:      &http.Client{Timeout: 5 * time.Second},
+	}
 }
 
-func (c *Client) Log(ctx context.Context, entry LogEntry) error {
-	_, err := c.pool.Exec(ctx, `
-		INSERT INTO logs (timestamp, level, service, component, message, metadata, trace_id, span_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, entry.Timestamp, entry.Level, entry.Service, entry.Component, entry.Message, entry.Metadata, entry.TraceID, entry.SpanID)
-	return err
+func (c *Client) Emit(ctx context.Context, level string, msg string) error {
+	entry := LogEntry{
+		ID:        uuid.New().String(),
+		Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+		Level:     level,
+		Service:   c.serviceName,
+		Message:   msg,
+	}
+	return c.send(ctx, entry)
 }
 
-func (c *Client) LogAsync(entry LogEntry) {
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = c.Log(ctx, entry)
-	}()
+func (c *Client) EmitWithMetadata(ctx context.Context, level string, msg string, metadata map[string]interface{}) error {
+	entry := LogEntry{
+		ID:        uuid.New().String(),
+		Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+		Level:     level,
+		Service:   c.serviceName,
+		Message:   msg,
+		Metadata:  metadata,
+	}
+	return c.send(ctx, entry)
+}
+
+func (c *Client) send(ctx context.Context, entry LogEntry) error {
+	body, err := json.Marshal(entry)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.logURL, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("logging server returned %d", resp.StatusCode)
+	}
+	return nil
+}
+
+func (c *Client) Info(ctx context.Context, msg string) error {
+	return c.Emit(ctx, "INFO", msg)
+}
+
+func (c *Client) Error(ctx context.Context, msg string) error {
+	return c.Emit(ctx, "ERROR", msg)
+}
+
+func (c *Client) Warn(ctx context.Context, msg string) error {
+	return c.Emit(ctx, "WARN", msg)
+}
+
+func (c *Client) Debug(ctx context.Context, msg string) error {
+	return c.Emit(ctx, "DEBUG", msg)
+}
+
+func (c *Client) InfoWithMeta(ctx context.Context, msg string, meta map[string]interface{}) error {
+	return c.EmitWithMetadata(ctx, "INFO", msg, meta)
+}
+
+func (c *Client) ErrorWithMeta(ctx context.Context, msg string, meta map[string]interface{}) error {
+	return c.EmitWithMetadata(ctx, "ERROR", msg, meta)
+}
+
+func (c *Client) WarnWithMeta(ctx context.Context, msg string, meta map[string]interface{}) error {
+	return c.EmitWithMetadata(ctx, "WARN", msg, meta)
 }

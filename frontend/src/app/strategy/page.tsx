@@ -151,15 +151,14 @@ export default function StrategyPage() {
               {signals.map((signal) => (
                 <div key={signal.ID} className="flex items-center justify-between p-4 border border-outline-variant/30">
                   <div className="flex items-center gap-3">
-                    <Badge variant={signal.Action === "BUY" ? "success" : "error"}>{signal.Action}</Badge>
+                    <Badge variant={signal.Level === "ERROR" || signal.Level === "FATAL" ? "error" : signal.Level === "WARN" ? "warning" : "secondary"}>{signal.Level}</Badge>
                     <div>
-                      <div className="font-mono text-sm font-semibold">{signal.Symbol}</div>
-                      <div className="text-[11px] text-on-surface-variant">{signal.Strategy}</div>
+                      <div className="text-sm font-medium">{signal.Service}</div>
+                      <div className="text-[11px] text-on-surface-variant">{signal.Message}</div>
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="font-mono text-sm">${signal.Price.toFixed(2)}</div>
-                    <div className="text-[11px] text-on-surface-variant">{signal.Confidence}</div>
+                    <div className="text-[11px] text-on-surface-variant">{signal.Timestamp ? new Date(signal.Timestamp).toLocaleString() : ""}</div>
                   </div>
                 </div>
               ))}

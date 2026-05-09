@@ -38,24 +38,20 @@ func (p *QuestradeProvider) Name() string {
 }
 
 func (p *QuestradeProvider) refreshToken() error {
-	refreshToken := p.cfg.RefreshToken
-	apiServer := p.baseURL
-
-	if refreshToken == "" && p.storage != nil {
-		tokens, err := p.storage.GetQuestradeTokens(context.Background())
-		if err == nil && tokens.RefreshToken != "" {
-			refreshToken = tokens.RefreshToken
-			apiServer = tokens.APIServer
-			p.token = tokens.AccessToken
-		}
+	if p.storage == nil {
+		return fmt.Errorf("no storage configured")
 	}
 
-	if refreshToken == "" {
+	tokens, err := p.storage.GetQuestradeTokens(context.Background())
+	if err != nil {
+		return fmt.Errorf("failed to get tokens from storage: %w", err)
+	}
+	if tokens.RefreshToken == "" {
 		return fmt.Errorf("no refresh token available")
 	}
 
 	tokenURL := fmt.Sprintf("%s?grant_type=refresh_token&refresh_token=%s",
-		apiServer, url.QueryEscape(refreshToken))
+		tokens.APIServer, url.QueryEscape(tokens.RefreshToken))
 	resp, err := http.Get(tokenURL)
 	if err != nil {
 		return err
@@ -78,28 +74,13 @@ func (p *QuestradeProvider) refreshToken() error {
 	}
 
 	p.token = result.AccessToken
-	p.cfg.RefreshToken = result.RefreshToken
 	if result.APIServer != "" {
 		p.baseURL = result.APIServer
 	}
 
-	if p.storage != nil {
-		_ = p.storage.UpdateQuestradeTokens(context.Background(), result.AccessToken, result.RefreshToken, result.APIServer, result.ExpiresIn)
-	}
+	_ = p.storage.UpdateQuestradeTokens(context.Background(), result.AccessToken, result.RefreshToken, result.APIServer, result.ExpiresIn)
 
 	return nil
-}
-
-func (p *QuestradeProvider) SetOAuthTokens(refreshToken, apiServer string) {
-	p.cfg.RefreshToken = refreshToken
-	if apiServer != "" {
-		p.baseURL = apiServer
-	}
-	p.token = ""
-}
-
-func (p *QuestradeProvider) GetOAuthTokens() (refreshToken, apiServer string) {
-	return p.cfg.RefreshToken, p.baseURL
 }
 
 func (p *QuestradeProvider) doRequest(endpoint string) ([]byte, error) {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -153,6 +152,7 @@ func (s *Server) Start() error {
 	}
 
 	http.HandleFunc("GET /health", s.handleHealth)
+	http.HandleFunc("POST /api/logs", s.handleIngestLog)
 	http.HandleFunc("GET /api/observability/services", s.middleware.WrapHandlerFunc(s.handleGetServices))
 	http.HandleFunc("GET /api/observability/logs", s.middleware.WrapHandlerFunc(s.handleGetLogs))
 	http.HandleFunc("GET /api/portfolio/positions", s.middleware.WrapHandlerFunc(s.handleGetPositions))
@@ -208,31 +208,97 @@ func (s *Server) handleGetServices(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(services)
 }
 
-func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
-	loggingURL := "http://localhost:9090/api/logs"
-	limit := r.URL.Query().Get("limit")
-	if limit != "" {
-		loggingURL += "?limit=" + limit
+func (s *Server) handleIngestLog(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var entry struct {
+		ID        string                 `json:"id"`
+		Timestamp string                 `json:"timestamp"`
+		Level     string                 `json:"level"`
+		Service   string                 `json:"service"`
+		Component string                 `json:"component,omitempty"`
+		Message   string                 `json:"message"`
+		Metadata  map[string]interface{} `json:"metadata,omitempty"`
+		TraceID   string                 `json:"trace_id,omitempty"`
+		SpanID    string                 `json:"span_id,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&entry); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	if entry.Level == "" || entry.Service == "" || entry.Message == "" {
+		http.Error(w, "level, service, and message are required", http.StatusBadRequest)
+		return
 	}
 
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, loggingURL, nil)
+	metadataJSON, _ := json.Marshal(entry.Metadata)
+	_, err := s.db.Exec(r.Context(), `
+		INSERT INTO logs (id, timestamp, level, service, component, message, metadata, trace_id, span_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`, entry.ID, entry.Timestamp, entry.Level, entry.Service, entry.Component, entry.Message, metadataJSON, entry.TraceID, entry.SpanID)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
 
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Do(req)
+func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
+	limitStr := r.URL.Query().Get("limit")
+	limit := 50
+	if limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 500 {
+			limit = l
+		}
+	}
+	level := r.URL.Query().Get("level")
+	service := r.URL.Query().Get("service")
+
+	query := `
+		SELECT id, timestamp, level, service, component, message, metadata, trace_id, span_id
+		FROM logs
+		WHERE ($1 = '' OR level = $1)
+		  AND ($2 = '' OR service = $2)
+		ORDER BY timestamp DESC
+		LIMIT $3
+	`
+	rows, err := s.db.Query(r.Context(), query, level, service, limit)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode([]interface{}{})
 		return
 	}
-	defer resp.Body.Close()
+	defer rows.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	type LogEntry struct {
+		ID        string                 `json:"id"`
+		Timestamp string                 `json:"timestamp"`
+		Level     string                 `json:"level"`
+		Service   string                 `json:"service"`
+		Component string                 `json:"component,omitempty"`
+		Message   string                 `json:"message"`
+		Metadata  map[string]interface{} `json:"metadata,omitempty"`
+		TraceID   string                 `json:"trace_id,omitempty"`
+		SpanID    string                 `json:"span_id,omitempty"`
+	}
+
+	logs := []LogEntry{}
+	for rows.Next() {
+		var le LogEntry
+		var metadata []byte
+		if err := rows.Scan(&le.ID, &le.Timestamp, &le.Level, &le.Service, &le.Component, &le.Message, &metadata, &le.TraceID, &le.SpanID); err != nil {
+			continue
+		}
+		if metadata != nil {
+			json.Unmarshal(metadata, &le.Metadata)
+		}
+		logs = append(logs, le)
+	}
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(body)
+	json.NewEncoder(w).Encode(logs)
 }
 
 func (s *Server) handleGetPositions(w http.ResponseWriter, r *http.Request) {

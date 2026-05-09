@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/portfolio-sim/news-feed-service/config"
-	"github.com/portfolio-sim/news-feed-service/database"
 	"github.com/portfolio-sim/news-feed-service/feed"
 	"github.com/portfolio-sim/news-feed-service/gemini"
 	"github.com/portfolio-sim/news-feed-service/logging"
@@ -27,19 +26,17 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
-	db, err := database.New(cfg.DatabaseURL)
-	if err != nil {
-		log.Fatalf("connect db: %v", err)
-	}
-	defer db.Close()
-
 	redisClient, err := redis.NewClient(cfg.RedisAddr)
 	if err != nil {
 		log.Fatalf("connect redis: %v", err)
 	}
 	defer redisClient.Close()
 
-	logClient := logging.NewClient(db.Pool)
+	logURL := os.Getenv("LOGGING_SERVICE_URL")
+	if logURL == "" {
+		logURL = "http://backend:8080/api/logs"
+	}
+	logClient := logging.NewClient("news-feed-service", logURL)
 	logWriter := logging.NewLogWriter(logClient)
 
 	geminiClient := gemini.NewClient(cfg.GeminiAPIKey)

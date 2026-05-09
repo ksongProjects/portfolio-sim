@@ -118,6 +118,31 @@ func (s *Storage) StoreRawPriceTick(ctx context.Context, tickerID uuid.UUID, sou
 	return err
 }
 
+func (s *Storage) GetActiveTickers(ctx context.Context) []string {
+	rows, err := s.pool.Query(ctx, `
+		SELECT DISTINCT t.symbol
+		FROM tickers t
+		WHERE t.is_active = true
+		AND (
+			EXISTS (SELECT 1 FROM positions p WHERE p.ticker_id = t.id)
+			OR EXISTS (SELECT 1 FROM watchlist_tickers wt WHERE wt.ticker_id = t.id)
+		)
+	`)
+	if err != nil {
+		return []string{}
+	}
+	defer rows.Close()
+
+	var symbols []string
+	for rows.Next() {
+		var symbol string
+		if err := rows.Scan(&symbol); err == nil {
+			symbols = append(symbols, symbol)
+		}
+	}
+	return symbols
+}
+
 type QuestradeTokens struct {
 	AccessToken  string
 	RefreshToken string

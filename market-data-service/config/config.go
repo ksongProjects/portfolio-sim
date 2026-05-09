@@ -34,9 +34,7 @@ type RedisConfig struct {
 }
 
 type QuestradeConfig struct {
-	RefreshToken string
 	APIURL       string
-	AccountID    string
 	RateLimitMin int
 }
 
