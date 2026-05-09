@@ -6,7 +6,7 @@ import { CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Skeleton, TableSkeleton, MetricSkeleton } from "@/components/ui/skeleton";
+import { Skeleton, MetricSkeleton } from "@/components/ui/skeleton";
 import { Activity } from "lucide-react";
 import { usePortfolio } from "@/hooks/usePortfolio";
 
@@ -93,13 +93,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="flex-1 px-6 pb-6 overflow-auto">
-        <PageGrid className="mb-4" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
-          <style>{`
-            @media (max-width: 767px) {
-              .kpi-grid { grid-template-columns: 1fr !important; }
-            }
-          `}</style>
-          <div className="kpi-grid grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-px bg-outline-variant">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-px bg-outline-variant mb-4">
           {[1, 2, 3, 4].map((i) => (
             <PageCell key={i}>
               {loading ? <MetricSkeleton /> : (
@@ -113,8 +107,7 @@ export default function DashboardPage() {
               )}
             </PageCell>
           ))}
-          </div>
-        </PageGrid>
+        </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-[7fr_5fr] gap-px bg-outline-variant mb-px">
           <PageCell>
