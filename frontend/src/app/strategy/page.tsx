@@ -49,7 +49,7 @@ export default function StrategyPage() {
       </div>
 
       <div className="flex-1 px-6 pb-6 overflow-auto">
-        <PageGrid className="mb-4" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-outline-variant mb-4">
           <PageCell>
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 flex items-center justify-center bg-primary/10">
@@ -94,62 +94,60 @@ export default function StrategyPage() {
               </div>
             </div>
           </PageCell>
-        </PageGrid>
+        </div>
 
-        <PageGrid style={{ gridTemplateColumns: "1fr" }}>
-          <PageCell>
-            <CardTitle className="mb-4">Strategies</CardTitle>
-            <div className="border border-outline-variant/30">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Returns</TableHead>
-                    <TableHead className="text-right">Sharpe</TableHead>
-                    <TableHead className="text-right">Max DD</TableHead>
-                    <TableHead className="text-right">Trades</TableHead>
-                    <TableHead className="text-right">Win Rate</TableHead>
-                    <TableHead className="text-center">Actions</TableHead>
+        <PageCell className="mb-px">
+          <CardTitle className="mb-4">Strategies</CardTitle>
+          <div className="border border-outline-variant/30 overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Returns</TableHead>
+                  <TableHead className="text-right">Sharpe</TableHead>
+                  <TableHead className="text-right">Max DD</TableHead>
+                  <TableHead className="text-right">Trades</TableHead>
+                  <TableHead className="text-right">Win Rate</TableHead>
+                  <TableHead className="text-center">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {strategies.map((strategy) => (
+                  <TableRow key={strategy.ID}>
+                    <TableCell className="font-medium">{strategy.Name}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <StatusIndicator active={strategy.Status === "active"} />
+                        <span className="text-xs capitalize text-on-surface-variant">{strategy.Status}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-primary">{fmtPct(strategy.Returns)}</TableCell>
+                    <TableCell className="text-right font-mono">{strategy.Sharpe.toFixed(2)}</TableCell>
+                    <TableCell className="text-right font-mono text-error">{strategy.MaxDD.toFixed(1)}%</TableCell>
+                    <TableCell className="text-right font-mono">{strategy.Trades.toLocaleString()}</TableCell>
+                    <TableCell className="text-right font-mono">{strategy.WinRate.toFixed(1)}%</TableCell>
+                    <TableCell className="text-center">
+                      <Button variant="ghost" size="icon" onClick={() => toggleStrategy(strategy)}>
+                        {strategy.Status === "active" ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                      </Button>
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {strategies.map((strategy) => (
-                    <TableRow key={strategy.ID}>
-                      <TableCell className="font-medium">{strategy.Name}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <StatusIndicator active={strategy.Status === "active"} />
-                          <span className="text-xs capitalize text-on-surface-variant">{strategy.Status}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right font-mono text-primary">{fmtPct(strategy.Returns)}</TableCell>
-                      <TableCell className="text-right font-mono">{strategy.Sharpe.toFixed(2)}</TableCell>
-                      <TableCell className="text-right font-mono text-error">{strategy.MaxDD.toFixed(1)}%</TableCell>
-                      <TableCell className="text-right font-mono">{strategy.Trades.toLocaleString()}</TableCell>
-                      <TableCell className="text-right font-mono">{strategy.WinRate.toFixed(1)}%</TableCell>
-                      <TableCell className="text-center">
-                        <Button variant="ghost" size="icon" onClick={() => toggleStrategy(strategy)}>
-                          {strategy.Status === "active" ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {strategies.length === 0 && !loading && (
-                    <TableRow>
-                      <TableCell colSpan={8} className="text-center text-on-surface-variant text-sm py-8">No strategies available</TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          </PageCell>
-        </PageGrid>
+                ))}
+                {strategies.length === 0 && !loading && (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center text-on-surface-variant text-sm py-8">No strategies available</TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </PageCell>
 
-        <PageGrid className="mt-px" style={{ gridTemplateColumns: "repeat(2, 1fr)" }}>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-outline-variant mt-px">
           <PageCell>
             <CardTitle className="mb-4">Recent Signals</CardTitle>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {signals.map((signal) => (
                 <div key={signal.ID} className="flex items-center justify-between p-4 border border-outline-variant/30">
                   <div className="flex items-center gap-3">
@@ -170,7 +168,7 @@ export default function StrategyPage() {
               )}
             </div>
           </PageCell>
-        </PageGrid>
+        </div>
       </div>
 
       {toast && (

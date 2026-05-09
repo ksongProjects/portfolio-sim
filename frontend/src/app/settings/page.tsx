@@ -186,8 +186,8 @@ function AddRSSFeedForm({ onAdd }: { onAdd: (name: string, url: string, scrapeIn
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex gap-2 items-end">
-      <div className="flex-1">
+    <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-2 items-end">
+      <div className="flex-1 w-full">
         <Input
           label="Name"
           placeholder="e.g., Yahoo Finance"
@@ -195,7 +195,7 @@ function AddRSSFeedForm({ onAdd }: { onAdd: (name: string, url: string, scrapeIn
           onChange={(e) => setName(e.target.value)}
         />
       </div>
-      <div className="flex-[2]">
+      <div className="flex-[2] w-full">
         <Input
           label="Feed URL"
           placeholder="https://example.com/feed.xml"
@@ -203,7 +203,7 @@ function AddRSSFeedForm({ onAdd }: { onAdd: (name: string, url: string, scrapeIn
           onChange={(e) => setUrl(e.target.value)}
         />
       </div>
-      <div className="w-24">
+      <div className="w-full sm:w-24">
         <Input
           label="Interval (min)"
           type="number"
@@ -242,7 +242,7 @@ export default function SettingsPage() {
       </div>
 
       <div className="flex-1 px-6 pb-6 overflow-auto">
-        <PageGrid className="mb-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-outline-variant mb-4">
           <PageCell>
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 flex items-center justify-center bg-primary/10">
@@ -287,14 +287,14 @@ export default function SettingsPage() {
               </div>
             </div>
           </PageCell>
-        </PageGrid>
+        </div>
 
-        <PageGrid style={{ gridTemplateColumns: "2fr 1fr" }}>
-          <PageCell>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-px bg-outline-variant">
+          <PageCell className="lg:col-span-2">
             <div className="space-y-6">
               <div>
                 <CardTitle className="mb-4">Market Data Providers</CardTitle>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {marketDataProviders.map((p) => (
                     <ProviderCard key={p.provider_id} provider={p} onSave={saveProviderKey} onValidate={validateProviderKey} />
                   ))}
@@ -303,7 +303,7 @@ export default function SettingsPage() {
 
               <div>
                 <CardTitle className="mb-4">AI / Video Providers</CardTitle>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {youtubeProvider && (
                     <ProviderCard provider={youtubeProvider} onSave={saveProviderKey} onValidate={validateProviderKey} />
                   )}
@@ -363,7 +363,7 @@ export default function SettingsPage() {
               </div>
             </div>
           </PageCell>
-        </PageGrid>
+        </div>
       </div>
     </div>
   );

@@ -6,6 +6,7 @@ import { CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Skeleton, TableSkeleton, MetricSkeleton } from "@/components/ui/skeleton";
 import { Activity } from "lucide-react";
 import { usePortfolio } from "@/hooks/usePortfolio";
 
@@ -93,30 +94,30 @@ export default function DashboardPage() {
 
       <div className="flex-1 px-6 pb-6 overflow-auto">
         <PageGrid className="mb-4" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
-          <PageCell>
-            <MetricLabel>Total Portfolio Value</MetricLabel>
-            <MetricValue>{fmtCurrency(posValue)}</MetricValue>
-            <MetricSubValue positive>{fmtCurrency(posDayChange)} ({fmtPct(posDayPct)})</MetricSubValue>
-          </PageCell>
-          <PageCell>
-            <MetricLabel>Today&apos;s P&amp;L</MetricLabel>
-            <MetricValue highlight>{fmtCurrency(posDayChange)}</MetricValue>
-            <MetricSubValue positive>{fmtPct(posDayPct)}</MetricSubValue>
-          </PageCell>
-          <PageCell>
-            <MetricLabel>Total Gain/Loss</MetricLabel>
-            <MetricValue>{fmtCurrency(posTotalGain)}</MetricValue>
-            <MetricSubValue positive>{fmtPct(posTotalGainPct)}</MetricSubValue>
-          </PageCell>
-          <PageCell>
-            <MetricLabel>Cash Balance</MetricLabel>
-            <MetricValue>{fmtCurrency(posCash)}</MetricValue>
-            <MetricSubValue>Buying Power</MetricSubValue>
-          </PageCell>
+          <style>{`
+            @media (max-width: 767px) {
+              .kpi-grid { grid-template-columns: 1fr !important; }
+            }
+          `}</style>
+          <div className="kpi-grid grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-px bg-outline-variant">
+          {[1, 2, 3, 4].map((i) => (
+            <PageCell key={i}>
+              {loading ? <MetricSkeleton /> : (
+                <>
+                  <MetricLabel>{i === 1 ? "Total Portfolio Value" : i === 2 ? "Today's P&L" : i === 3 ? "Total Gain/Loss" : "Cash Balance"}</MetricLabel>
+                  <MetricValue>{i === 1 ? fmtCurrency(posValue) : i === 2 ? fmtCurrency(posDayChange) : i === 3 ? fmtCurrency(posTotalGain) : fmtCurrency(posCash)}</MetricValue>
+                  <MetricSubValue positive>
+                    {i === 1 ? `${fmtCurrency(posDayChange)} (${fmtPct(posDayPct)})` : i === 2 ? fmtPct(posDayPct) : i === 3 ? fmtPct(posTotalGainPct) : "Buying Power"}
+                  </MetricSubValue>
+                </>
+              )}
+            </PageCell>
+          ))}
+          </div>
         </PageGrid>
 
-        <PageGrid style={{ gridTemplateColumns: "7fr 5fr", gridTemplateRows: "1fr 1fr" }}>
-          <PageCell className="col-span-1 row-span-1">
+        <div className="grid grid-cols-1 lg:grid-cols-[7fr_5fr] gap-px bg-outline-variant mb-px">
+          <PageCell>
             <div className="flex items-center justify-between mb-4">
               <CardTitle>Portfolio Performance</CardTitle>
               <div className="flex gap-1">
@@ -136,12 +137,13 @@ export default function DashboardPage() {
               </div>
             </div>
             <div className="h-[200px] border border-outline-variant/30">
-              {positions.length > 0 ? <MiniChart /> : <NoDataMessage />}
+              {loading ? <div className="h-full flex items-center justify-center"><Skeleton className="h-full w-full" /></div> : positions.length > 0 ? <MiniChart /> : <NoDataMessage />}
             </div>
           </PageCell>
 
-          <PageCell className="col-span-1 row-span-1">
+          <PageCell>
             <CardTitle className="mb-4">Top Holdings</CardTitle>
+            <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -151,30 +153,47 @@ export default function DashboardPage() {
                   <TableHead>Change</TableHead>
                 </TableRow>
               </TableHeader>
-              <TableBody>
-                {positions.slice(0, 5).map((pos) => (
-                  <TableRow key={pos.ID}>
-                    <TableCell>
-                      <span className="font-mono font-semibold">{pos.Symbol}</span>
-                    </TableCell>
-                    <TableCell className="font-mono">{fmtCurrency(pos.CurrentPrice)}</TableCell>
-                    <TableCell className="font-mono">{fmtCurrency(pos.CurrentValue)}</TableCell>
-                    <TableCell className={`font-mono ${pos.DayChangePct >= 0 ? "text-primary" : "text-error"}`}>
-                      {fmtPct(pos.DayChangePct)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {positions.length === 0 && !loading && (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center text-on-surface-variant text-sm py-8">No positions available</TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
+              {loading ? (
+                <TableBody>
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <TableRow key={i}>
+                      <TableCell><Skeleton className="h-4 w-12" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-14" /></TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              ) : (
+                <TableBody>
+                  {positions.slice(0, 5).map((pos) => (
+                    <TableRow key={pos.ID}>
+                      <TableCell>
+                        <span className="font-mono font-semibold">{pos.Symbol}</span>
+                      </TableCell>
+                      <TableCell className="font-mono">{fmtCurrency(pos.CurrentPrice)}</TableCell>
+                      <TableCell className="font-mono">{fmtCurrency(pos.CurrentValue)}</TableCell>
+                      <TableCell className={`font-mono ${pos.DayChangePct >= 0 ? "text-primary" : "text-error"}`}>
+                        {fmtPct(pos.DayChangePct)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {positions.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-center text-on-surface-variant text-sm py-8">No positions available</TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              )}
             </Table>
+            </div>
           </PageCell>
+        </div>
 
-          <PageCell className="col-span-1 row-span-1">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-outline-variant mb-px">
+          <PageCell>
             <CardTitle className="mb-4">Recent Activity</CardTitle>
+            <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -186,29 +205,45 @@ export default function DashboardPage() {
                   <TableHead>Time</TableHead>
                 </TableRow>
               </TableHeader>
-              <TableBody>
-                {positions.slice(0, 4).map((pos) => (
-                  <TableRow key={pos.ID}>
-                    <TableCell><Badge variant="success">BUY</Badge></TableCell>
-                    <TableCell className="font-mono font-semibold">{pos.Symbol}</TableCell>
-                    <TableCell className="font-mono">{pos.Quantity}</TableCell>
-                    <TableCell className="font-mono">{fmtCurrency(pos.AvgCost)}</TableCell>
-                    <TableCell className="font-mono">{fmtCurrency(pos.CurrentValue)}</TableCell>
-                    <TableCell className="text-on-surface-variant">Today</TableCell>
-                  </TableRow>
-                ))}
-                {positions.length === 0 && !loading && (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center text-on-surface-variant text-sm py-8">No recent activity</TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
+              {loading ? (
+                <TableBody>
+                  {[1, 2, 3, 4].map((i) => (
+                    <TableRow key={i}>
+                      <TableCell><Skeleton className="h-5 w-12" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-14" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-12" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-12" /></TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              ) : (
+                <TableBody>
+                  {positions.slice(0, 4).map((pos) => (
+                    <TableRow key={pos.ID}>
+                      <TableCell><Badge variant="success">BUY</Badge></TableCell>
+                      <TableCell className="font-mono font-semibold">{pos.Symbol}</TableCell>
+                      <TableCell className="font-mono">{pos.Quantity}</TableCell>
+                      <TableCell className="font-mono">{fmtCurrency(pos.AvgCost)}</TableCell>
+                      <TableCell className="font-mono">{fmtCurrency(pos.CurrentValue)}</TableCell>
+                      <TableCell className="text-on-surface-variant">Today</TableCell>
+                    </TableRow>
+                  ))}
+                  {positions.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center text-on-surface-variant text-sm py-8">No recent activity</TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              )}
             </Table>
+            </div>
           </PageCell>
 
-          <PageCell className="col-span-1 row-span-1">
+          <PageCell>
             <CardTitle className="mb-4">Market Indices</CardTitle>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {indices.map((index) => (
                 <div key={index.Symbol} className="flex items-center justify-between p-3 border border-outline-variant/30">
                   <div>
@@ -228,7 +263,7 @@ export default function DashboardPage() {
               )}
             </div>
           </PageCell>
-        </PageGrid>
+        </div>
       </div>
 
       {toast && (
