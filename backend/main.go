@@ -14,6 +14,7 @@ import (
 
 	"github.com/portfolio-sim/backend/database"
 	"github.com/portfolio-sim/backend/logging"
+	"github.com/portfolio-sim/backend/redis"
 	"github.com/portfolio-sim/backend/services"
 )
 
@@ -99,6 +100,7 @@ type Server struct {
 	logger       *slog.Logger
 	middleware   *logging.Middleware
 	db           *database.Postgres
+	redisClient  *redis.Client
 	obsService   *services.ObservabilityService
 	portfolioSvc *services.PortfolioService
 	providerSvc  *services.ProviderService
@@ -122,15 +124,21 @@ func NewServer(cfg *Config) (*Server, error) {
 
 	logURL := os.Getenv("LOGGING_SERVICE_URL")
 	if logURL == "" {
-		logURL = "http://logging-service:9090/api/logs"
+		logURL = "http://backend:8080/api/logs"
 	}
 	loggingMiddleware := logging.NewMiddleware("main-api", logURL, logger)
+
+	redisClient, err := redis.NewClient(cfg.Redis.Host, cfg.Redis.Port, cfg.Redis.Password)
+	if err != nil {
+		return nil, fmt.Errorf("connect redis: %w", err)
+	}
 
 	return &Server{
 		cfg:          cfg,
 		logger:       logger,
 		middleware:   loggingMiddleware,
 		db:           db,
+		redisClient:  redisClient,
 		obsService:   services.NewObservabilityService(),
 		portfolioSvc: services.NewPortfolioService(),
 		providerSvc:  services.NewProviderService(),
@@ -170,6 +178,7 @@ func (s *Server) Start() error {
 	http.HandleFunc("GET /api/rss-feeds", s.middleware.WrapHandlerFunc(s.handleGetRSSFeeds))
 	http.HandleFunc("POST /api/rss-feeds", s.middleware.WrapHandlerFunc(s.handleAddRSSFeed))
 	http.HandleFunc("DELETE /api/rss-feeds", s.middleware.WrapHandlerFunc(s.handleDeleteRSSFeed))
+	http.HandleFunc("GET /api/stream/market", s.handleMarketStream)
 
 	s.logger.Info("main api server starting", "port", s.cfg.Server.HTTPPort)
 
@@ -299,6 +308,68 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(logs)
+}
+
+func (s *Server) handleMarketStream(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	ctx := r.Context()
+
+	symbols := r.URL.Query()["symbols"]
+	streamStreams := make([]string, 0)
+	if len(symbols) > 0 {
+		for _, sym := range symbols {
+			streamStreams = append(streamStreams, fmt.Sprintf("stream:market:ticks:%s", sym))
+		}
+	} else {
+		streamStreams = []string{"stream:market:ticks:*"}
+	}
+
+	lastIDs := make(map[string]string)
+	for _, stream := range streamStreams {
+		lastIDs[stream] = "$"
+	}
+
+	s.logger.Info("SSE market stream connected", "symbols", symbols)
+
+	for {
+		select {
+		case <-ctx.Done():
+			s.logger.Info("SSE market stream disconnected")
+			return
+		default:
+		}
+
+		streams := make([]string, 0, len(streamStreams)*2)
+		for stream := range lastIDs {
+			streams = append(streams, stream, lastIDs[stream])
+		}
+
+		results, err := s.redisClient.XRead(ctx, streams, 10)
+		if err != nil {
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+
+		for _, result := range results {
+			for _, msg := range result.Messages {
+				lastIDs[result.Stream] = msg.ID
+				if data, ok := msg.Values["data"].(string); ok {
+					fmt.Fprintf(w, "data: %s\n\n", data)
+					flusher.Flush()
+				}
+			}
+		}
+	}
 }
 
 func (s *Server) handleGetPositions(w http.ResponseWriter, r *http.Request) {

@@ -9,12 +9,13 @@ import (
 )
 
 type NormalizedPrice struct {
-	TickerID uuid.UUID
-	Price    float64
-	Bid      float64
-	Ask      float64
-	Volume   int64
-	SourceID string
+	TickerID  uuid.UUID
+	Symbol    string
+	Price     float64
+	Bid       float64
+	Ask       float64
+	Volume    int64
+	SourceID  string
 	Timestamp time.Time
 }
 
@@ -55,12 +56,13 @@ func NewNormalizer() *Normalizer {
 
 func (n *Normalizer) NormalizePrice(price *providers.Price, tickerID uuid.UUID) (*NormalizedPrice, error) {
 	return &NormalizedPrice{
-		TickerID: tickerID,
-		Price:    price.Price,
-		Bid:      price.Bid,
-		Ask:      price.Ask,
-		Volume:   price.Volume,
-		SourceID: price.Source,
+		TickerID:  tickerID,
+		Symbol:    price.Ticker,
+		Price:     price.Price,
+		Bid:       price.Bid,
+		Ask:       price.Ask,
+		Volume:    price.Volume,
+		SourceID:  price.Source,
 		Timestamp: price.Timestamp,
 	}, nil
 }

@@ -31,18 +31,6 @@ func (c *Client) Publish(ctx context.Context, channel string, message interface{
 	return c.rdb.Publish(ctx, channel, message).Err()
 }
 
-func (c *Client) Subscribe(ctx context.Context, channels ...string) *redis.PubSub {
-	return c.rdb.Subscribe(ctx, channels...)
-}
-
-func (c *Client) LPush(ctx context.Context, key string, values ...interface{}) error {
-	return c.rdb.LPush(ctx, key, values...).Err()
-}
-
-func (c *Client) BRPop(ctx context.Context, timeout int, keys ...string) ([]string, error) {
-	return c.rdb.BRPop(ctx, 0, keys...).Result()
-}
-
 func (c *Client) XAdd(ctx context.Context, stream string, values ...interface{}) error {
 	return c.rdb.XAdd(ctx, &redis.XAddArgs{
 		Stream: stream,
@@ -74,4 +62,8 @@ func (c *Client) XLen(ctx context.Context, stream string) (int64, error) {
 
 func (c *Client) CreateGroup(ctx context.Context, stream string, group string) error {
 	return c.rdb.XGroupCreate(ctx, stream, group, "0").Err()
+}
+
+func (c *Client) Subscribe(ctx context.Context, channels ...string) *redis.PubSub {
+	return c.rdb.Subscribe(ctx, channels...)
 }

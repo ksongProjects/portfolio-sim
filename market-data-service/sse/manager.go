@@ -19,14 +19,14 @@ func NewManager(r *redis.Client) *Manager {
 
 func (m *Manager) PublishTick(ticker string, data interface{}) error {
 	ctx := context.Background()
-	channel := fmt.Sprintf("market:ticks:%s", ticker)
+	stream := fmt.Sprintf("stream:market:ticks:%s", ticker)
 
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		return err
 	}
 
-	return m.redis.Publish(ctx, channel, jsonData)
+	return m.redis.XAdd(ctx, stream, "data", string(jsonData))
 }
 
 func (m *Manager) PublishOptionChain(ticker string, data interface{}) error {
