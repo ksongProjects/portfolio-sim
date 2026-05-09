@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -214,7 +216,31 @@ func validateFMPKey(apiKey string) (bool, error) {
 }
 
 func validateQuestradeKey(apiKey string) (bool, error) {
-	return false, fmt.Errorf("questrade validation requires refresh token flow - not yet implemented")
+	body := strings.NewReader("grant_type=refresh_token&refresh_token=" + url.QueryEscape(apiKey))
+	resp, err := http.Post("https://api.questrade.com/oauth2/token", "application/x-www-form-urlencoded", body)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		var result struct {
+			AccessToken  string `json:"access_token"`
+			TokenType    string `json:"token_type"`
+			ExpiresIn    int    `json:"expires_in"`
+			RefreshToken string `json:"refresh_token"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return false, err
+		}
+		if result.AccessToken != "" {
+			return true, nil
+		}
+	}
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusBadRequest {
+		return false, nil
+	}
+	return false, fmt.Errorf("questrade returned status: %d", resp.StatusCode)
 }
 
 func validateYouTubeKey(apiKey string) (bool, error) {
