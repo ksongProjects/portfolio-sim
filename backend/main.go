@@ -130,6 +130,19 @@ func NewServer(cfg *Config) (*Server, error) {
 }
 
 func (s *Server) Start() error {
+	corsMiddleware := func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+			h.ServeHTTP(w, r)
+		})
+	}
+
 	http.HandleFunc("GET /health", s.handleHealth)
 	http.HandleFunc("GET /api/observability/services", s.handleGetServices)
 	http.HandleFunc("GET /api/observability/logs", s.handleGetLogs)
@@ -151,7 +164,7 @@ func (s *Server) Start() error {
 
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", s.cfg.Server.HTTPPort),
-		Handler:      http.DefaultServeMux,
+		Handler:      corsMiddleware(http.DefaultServeMux),
 		ReadTimeout:  s.cfg.Server.ReadTimeout,
 		WriteTimeout: s.cfg.Server.WriteTimeout,
 	}
@@ -283,9 +296,11 @@ func (s *Server) handleGetProviders(w http.ResponseWriter, r *http.Request) {
 	providers, err := s.providerSvc.GetProviders(r.Context(), s.db)
 	if err != nil || providers == nil || len(providers) == 0 {
 		providers = []services.ProviderConfig{
-			{ID: "polygon", ProviderID: "polygon", Name: "Polygon.io", Description: "Real-time and historical market data", RateLimit: 60, DocURL: "https://polygon.io/docs"},
-			{ID: "questrade", ProviderID: "questrade", Name: "Questrade", Description: "Questrade market data API", RateLimit: 100, DocURL: "https://www.questrade.com/api"},
-			{ID: "fmp", ProviderID: "fmp", Name: "Financial Modeling Prep", Description: "Financial statements and fundamental data", RateLimit: 250, DocURL: "https://site.financialmodelingprep.com/developers/docs"},
+			{ID: "polygon", ProviderID: "polygon", Name: "Polygon.io", Description: "Real-time and historical market data", Type: "market_data", RateLimit: 60, DocURL: "https://polygon.io/docs"},
+			{ID: "questrade", ProviderID: "questrade", Name: "Questrade", Description: "Questrade market data API", Type: "market_data", RateLimit: 100, DocURL: "https://www.questrade.com/api"},
+			{ID: "fmp", ProviderID: "fmp", Name: "Financial Modeling Prep", Description: "Financial statements and fundamental data", Type: "market_data", RateLimit: 250, DocURL: "https://site.financialmodelingprep.com/developers/docs"},
+			{ID: "youtube", ProviderID: "youtube", Name: "YouTube Data API", Description: "YouTube Data API for video transcripts", Type: "youtube", RateLimit: 0, DocURL: "https://developers.google.com/youtube/v3"},
+			{ID: "gemini", ProviderID: "gemini", Name: "Google Gemini", Description: "Gemini API for content summarization", Type: "gemini", RateLimit: 0, DocURL: "https://ai.google.dev/docs"},
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")

@@ -108,6 +108,17 @@ func (s *ProviderService) GetProviders(ctx context.Context, db interface {
 			{ID: "youtube", ProviderID: "youtube", Name: "YouTube Data API", Description: "YouTube Data API for video transcripts", Type: "youtube", RateLimit: 0, DocURL: "https://developers.google.com/youtube/v3"},
 			{ID: "gemini", ProviderID: "gemini", Name: "Google Gemini", Description: "Gemini API for content summarization", Type: "gemini", RateLimit: 0, DocURL: "https://ai.google.dev/docs"},
 		}
+	} else {
+		seen := make(map[string]bool)
+		for _, p := range results {
+			seen[p.ID] = true
+		}
+		if !seen["youtube"] {
+			results = append(results, ProviderConfig{ID: "youtube", ProviderID: "youtube", Name: "YouTube Data API", Description: "YouTube Data API for video transcripts", Type: "youtube", RateLimit: 0, DocURL: "https://developers.google.com/youtube/v3"})
+		}
+		if !seen["gemini"] {
+			results = append(results, ProviderConfig{ID: "gemini", ProviderID: "gemini", Name: "Google Gemini", Description: "Gemini API for content summarization", Type: "gemini", RateLimit: 0, DocURL: "https://ai.google.dev/docs"})
+		}
 	}
 	return results, nil
 }

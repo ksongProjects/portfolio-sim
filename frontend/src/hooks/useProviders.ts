@@ -71,7 +71,7 @@ export function useProviders() {
       const res = await fetch(`${API_BASE}/api/rss-feeds`);
       if (!res.ok) throw new Error("Failed to fetch RSS feeds");
       const data = await res.json();
-      setRssFeeds(data);
+      setRssFeeds(Array.isArray(data) ? data : []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     }

@@ -7,7 +7,7 @@ import { Badge, StatusIndicator } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Play, Pause, Plus, Settings, Zap, BarChart3, TrendingUp, Shield } from "lucide-react";
-import { useStrategies } from "@/hooks/useStrategies";
+import { useStrategies, Strategy } from "@/hooks/useStrategies";
 
 function fmtPct(v: number): string {
   return (v >= 0 ? "+" : "") + v.toFixed(2) + "%";

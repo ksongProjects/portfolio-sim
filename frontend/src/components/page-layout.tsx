@@ -3,11 +3,12 @@ import { cn } from "@/lib/utils";
 interface PageGridProps {
   children: React.ReactNode;
   className?: string;
+  style?: React.CSSProperties;
 }
 
-export function PageGrid({ children, className }: PageGridProps) {
+export function PageGrid({ children, className, style }: PageGridProps) {
   return (
-    <div className={cn("grid gap-px bg-outline-variant", className)}>
+    <div className={cn("grid gap-px bg-outline-variant", className)} style={style}>
       {children}
     </div>
   );
@@ -43,9 +44,10 @@ interface MetricValueProps {
   children: React.ReactNode;
   className?: string;
   highlight?: boolean;
+  style?: React.CSSProperties;
 }
 
-export function MetricValue({ children, className, highlight }: MetricValueProps) {
+export function MetricValue({ children, className, highlight, style }: MetricValueProps) {
   return (
     <div
       className={cn(
@@ -53,7 +55,7 @@ export function MetricValue({ children, className, highlight }: MetricValueProps
         highlight && "text-primary",
         className
       )}
-      style={{ fontFamily: "var(--font-display, 'Work Sans', sans-serif)" }}
+      style={{ fontFamily: "var(--font-display, 'Work Sans', sans-serif)", ...style }}
     >
       {children}
     </div>

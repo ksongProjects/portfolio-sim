@@ -272,14 +272,7 @@ func (s *PortfolioService) GetMarketIndices(ctx context.Context, db interface {
 
 	tickers, err := s.GetTickers(ctx, db, indexSymbols)
 	if err != nil || len(tickers) == 0 {
-		return []MarketIndex{
-			{Symbol: "SPY", Name: "S&P 500 ETF", Price: 523.45, Change: 4.55, ChangePct: 0.87},
-			{Symbol: "QQQ", Name: "Nasdaq ETF", Price: 448.30, Change: 5.01, ChangePct: 1.12},
-			{Symbol: "DIA", Name: "Dow Jones ETF", Price: 398.20, Change: 1.79, ChangePct: 0.45},
-			{Symbol: "IWM", Name: "Russell 2000 ETF", Price: 198.30, Change: -0.45, ChangePct: -0.23},
-			{Symbol: "VIX", Name: "Volatility Index", Price: 14.82, Change: -0.61, ChangePct: -4.12},
-			{Symbol: "DXY", Name: "US Dollar Index", Price: 104.20, Change: 0.15, ChangePct: 0.15},
-		}, nil
+		return []MarketIndex{}, nil
 	}
 
 	var tickerIDs []string
@@ -292,7 +285,7 @@ func (s *PortfolioService) GetMarketIndices(ctx context.Context, db interface {
 	var indices []MarketIndex
 	for _, sym := range indexSymbols {
 		name := indexNames[sym]
-		price := 100.0
+		price := 0.0
 		change := 0.0
 		changePct := 0.0
 		for _, t := range tickers {
@@ -306,13 +299,6 @@ func (s *PortfolioService) GetMarketIndices(ctx context.Context, db interface {
 		indices = append(indices, MarketIndex{
 			Symbol: sym, Name: name, Price: price, Change: change, ChangePct: changePct,
 		})
-	}
-	if len(indices) == 0 {
-		indices = []MarketIndex{
-			{Symbol: "SPY", Name: "S&P 500 ETF", Price: 523.45, Change: 4.55, ChangePct: 0.87},
-			{Symbol: "QQQ", Name: "Nasdaq ETF", Price: 448.30, Change: 5.01, ChangePct: 1.12},
-			{Symbol: "DIA", Name: "Dow Jones ETF", Price: 398.20, Change: 1.79, ChangePct: 0.45},
-		}
 	}
 	return indices, nil
 }
@@ -452,14 +438,5 @@ func (s *PortfolioService) GetSignals(ctx context.Context, db interface {
 		i++
 	}
 
-	if len(signals) == 0 {
-		now := time.Now()
-		signals = []Signal{
-			{ID: "1", Strategy: "Momentum Growth", Symbol: "NVDA", Action: "BUY", Price: 875.28, Confidence: "HIGH", Timestamp: now},
-			{ID: "2", Strategy: "Value Scanner", Symbol: "JPM", Action: "BUY", Price: 198.50, Confidence: "MEDIUM", Timestamp: now.Add(-time.Hour)},
-			{ID: "3", Strategy: "Sector Rotation", Symbol: "TLT", Action: "SELL", Price: 92.45, Confidence: "HIGH", Timestamp: now.Add(-2 * time.Hour)},
-			{ID: "4", Strategy: "Momentum Growth", Symbol: "TSLA", Action: "BUY", Price: 245.80, Confidence: "MEDIUM", Timestamp: now.Add(-3 * time.Hour)},
-		}
-	}
 	return signals, nil
 }
