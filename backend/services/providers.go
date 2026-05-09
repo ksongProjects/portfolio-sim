@@ -20,6 +20,7 @@ type ProviderConfig struct {
 	Type         string `json:"type"`
 	APIKeySet    bool   `json:"api_key_set"`
 	IsConnected  bool   `json:"is_connected"`
+	TokenExpired bool   `json:"token_expired"`
 	RateLimit    int    `json:"rate_limit"`
 	DocURL       string `json:"docs_url"`
 }
@@ -44,7 +45,8 @@ func (s *ProviderService) GetProviders(ctx context.Context, db interface {
 	query := `
 		SELECT ds.id, ds.name, ds.source_priority, ds.rate_limit_per_min,
 			   CASE WHEN pc.id IS NOT NULL THEN true ELSE false END as has_key,
-			   CASE WHEN pc.id IS NOT NULL THEN true ELSE false END as is_connected
+			   CASE WHEN pc.id IS NOT NULL THEN true ELSE false END as is_connected,
+			   pc.token_expires_at
 		FROM data_sources ds
 		LEFT JOIN provider_configurations pc ON pc.provider_id = ds.id
 		ORDER BY ds.source_priority
@@ -83,31 +85,34 @@ func (s *ProviderService) GetProviders(ctx context.Context, db interface {
 		var id, name string
 		var priority, rateLimit int
 		var hasKey, isConnected bool
-		if err := rows.Scan(&id, &name, &priority, &rateLimit, &hasKey, &isConnected); err != nil {
+		var tokenExpiresAt *time.Time
+		if err := rows.Scan(&id, &name, &priority, &rateLimit, &hasKey, &isConnected, &tokenExpiresAt); err != nil {
 			continue
 		}
 		meta := providerMeta[id]
 		def := defaults[id]
+		tokenExpired := tokenExpiresAt != nil && tokenExpiresAt.Before(time.Now())
 		results = append(results, ProviderConfig{
-			ID:          id,
-			ProviderID:  id,
-			Name:        name,
-			Description: meta.Description,
-			Type:        meta.Type,
-			APIKeySet:   hasKey,
-			IsConnected: isConnected,
-			RateLimit:   rateLimit,
-			DocURL:      def.DocURL,
+			ID:           id,
+			ProviderID:   id,
+			Name:         name,
+			Description:  meta.Description,
+			Type:         meta.Type,
+			APIKeySet:    hasKey,
+			IsConnected:  isConnected && !tokenExpired,
+			TokenExpired: tokenExpired,
+			RateLimit:    rateLimit,
+			DocURL:       def.DocURL,
 		})
 	}
 
 	if len(results) == 0 {
 		results = []ProviderConfig{
-			{ID: "polygon", ProviderID: "polygon", Name: "Polygon.io", Description: "Real-time and historical market data", Type: "market_data", RateLimit: 60, DocURL: "https://polygon.io/docs"},
-			{ID: "questrade", ProviderID: "questrade", Name: "Questrade", Description: "Questrade market data API", Type: "market_data", RateLimit: 100, DocURL: "https://www.questrade.com/api"},
-			{ID: "fmp", ProviderID: "fmp", Name: "Financial Modeling Prep", Description: "Financial statements and fundamental data", Type: "market_data", RateLimit: 250, DocURL: "https://site.financialmodelingprep.com/developers/docs"},
-			{ID: "youtube", ProviderID: "youtube", Name: "YouTube Data API", Description: "YouTube Data API for video transcripts", Type: "youtube", RateLimit: 0, DocURL: "https://developers.google.com/youtube/v3"},
-			{ID: "gemini", ProviderID: "gemini", Name: "Google Gemini", Description: "Gemini API for content summarization", Type: "gemini", RateLimit: 0, DocURL: "https://ai.google.dev/docs"},
+			{ID: "polygon", ProviderID: "polygon", Name: "Polygon.io", Description: "Real-time and historical market data", Type: "market_data", RateLimit: 60, DocURL: "https://polygon.io/docs", TokenExpired: false},
+			{ID: "questrade", ProviderID: "questrade", Name: "Questrade", Description: "Questrade market data API", Type: "market_data", RateLimit: 100, DocURL: "https://www.questrade.com/api", TokenExpired: false},
+			{ID: "fmp", ProviderID: "fmp", Name: "Financial Modeling Prep", Description: "Financial statements and fundamental data", Type: "market_data", RateLimit: 250, DocURL: "https://site.financialmodelingprep.com/developers/docs", TokenExpired: false},
+			{ID: "youtube", ProviderID: "youtube", Name: "YouTube Data API", Description: "YouTube Data API for video transcripts", Type: "youtube", RateLimit: 0, DocURL: "https://developers.google.com/youtube/v3", TokenExpired: false},
+			{ID: "gemini", ProviderID: "gemini", Name: "Google Gemini", Description: "Gemini API for content summarization", Type: "gemini", RateLimit: 0, DocURL: "https://ai.google.dev/docs", TokenExpired: false},
 		}
 	} else {
 		seen := make(map[string]bool)
@@ -341,19 +346,18 @@ func validateGeminiKey(apiKey string) (bool, error) {
 }
 
 type RSSFeed struct {
-	ID              string `json:"id"`
-	Name            string `json:"name"`
-	URL             string `json:"url"`
-	ScrapeInterval  int    `json:"scrape_interval_min"`
-	LastScrapeAt    string `json:"last_scrape_at"`
-	IsActive        bool   `json:"is_active"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	URL          string `json:"url"`
+	IsActive     bool   `json:"is_active"`
+	LastScrapeAt string `json:"last_scrape_at"`
 }
 
 func (s *ProviderService) GetRSSFeeds(ctx context.Context, db interface {
 	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
 }) ([]RSSFeed, error) {
 	query := `
-		SELECT id, name, url, scrape_interval_min,
+		SELECT id, name, url,
 			   COALESCE(last_scrape_at::text, ''),
 			   is_active
 		FROM rss_feeds
@@ -368,7 +372,7 @@ func (s *ProviderService) GetRSSFeeds(ctx context.Context, db interface {
 	var feeds []RSSFeed
 	for rows.Next() {
 		var f RSSFeed
-		if err := rows.Scan(&f.ID, &f.Name, &f.URL, &f.ScrapeInterval, &f.LastScrapeAt, &f.IsActive); err != nil {
+		if err := rows.Scan(&f.ID, &f.Name, &f.URL, &f.LastScrapeAt, &f.IsActive); err != nil {
 			continue
 		}
 		feeds = append(feeds, f)
@@ -378,12 +382,12 @@ func (s *ProviderService) GetRSSFeeds(ctx context.Context, db interface {
 
 func (s *ProviderService) AddRSSFeed(ctx context.Context, db interface {
 	Exec(ctx context.Context, sql string, args ...interface{}) (int64, error)
-}, name, url string, scrapeInterval int) error {
+}, name, url string) error {
 	query := `
-		INSERT INTO rss_feeds (id, name, url, scrape_interval_min, is_active)
-		VALUES (gen_random_uuid(), $1, $2, $3, true)
+		INSERT INTO rss_feeds (id, name, url, is_active)
+		VALUES (gen_random_uuid(), $1, $2, true)
 	`
-	_, err := db.Exec(ctx, query, name, url, scrapeInterval)
+	_, err := db.Exec(ctx, query, name, url)
 	return err
 }
 

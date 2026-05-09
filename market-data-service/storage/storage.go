@@ -178,3 +178,154 @@ func (s *Storage) UpdateQuestradeTokens(ctx context.Context, accessToken, refres
 	`, accessToken, refreshToken, apiServer, expiresAt)
 	return err
 }
+
+func (s *Storage) SearchTickers(ctx context.Context, query string) ([]TickerSearchResult, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT t.symbol, t.name, t.exchange, t.sector,
+			COALESCE(np.price, 0) as price,
+			COALESCE(np.change, 0) as change,
+			COALESCE(np.change_pct, 0) as change_pct
+		FROM tickers t
+		LEFT JOIN normalized_prices np ON t.id = np.ticker_id
+		WHERE t.is_active = true
+			AND (t.symbol ILIKE $1 OR t.name ILIKE $1)
+		ORDER BY t.symbol
+		LIMIT 20
+	`, "%"+query+"%")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []TickerSearchResult
+	for rows.Next() {
+		var r TickerSearchResult
+		if err := rows.Scan(&r.Symbol, &r.Name, &r.Exchange, &r.Sector, &r.Price, &r.Change, &r.ChangePct); err != nil {
+			continue
+		}
+		results = append(results, r)
+	}
+	return results, nil
+}
+
+type TickerSearchResult struct {
+	Symbol    string  `json:"symbol"`
+	Name      string  `json:"name"`
+	Exchange  string  `json:"exchange"`
+	Sector    string  `json:"sector"`
+	Price     float64 `json:"price"`
+	Change    float64 `json:"change"`
+	ChangePct float64 `json:"changePct"`
+}
+
+func (s *Storage) GetTickerDetails(ctx context.Context, symbol string) (*TickerDetails, error) {
+	var d TickerDetails
+	err := s.pool.QueryRow(ctx, `
+		SELECT t.symbol, t.name, t.exchange, t.sector, t.industry,
+			COALESCE(np.price, 0), COALESCE(np.change, 0), COALESCE(np.change_pct, 0),
+			COALESCE(np.volume, 0), COALESCE(np.avg_volume, 0),
+			COALESCE(np.market_cap, 0), COALESCE(np.pe_ratio, 0), COALESCE(np.eps, 0),
+			COALESCE(np.dividend_yield, 0), COALESCE(np.week52_high, 0), COALESCE(np.week52_low, 0)
+		FROM tickers t
+		LEFT JOIN normalized_prices np ON t.id = np.ticker_id
+		WHERE t.symbol = $1
+	`, symbol).Scan(
+		&d.Symbol, &d.Name, &d.Exchange, &d.Sector, &d.Industry,
+		&d.Price, &d.Change, &d.ChangePct,
+		&d.Volume, &d.AvgVolume,
+		&d.MarketCap, &d.PeRatio, &d.Eps,
+		&d.DividendYield, &d.Week52High, &d.Week52Low,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &d, nil
+}
+
+type TickerDetails struct {
+	Symbol        string  `json:"symbol"`
+	Name          string  `json:"name"`
+	Exchange      string  `json:"exchange"`
+	Sector        string  `json:"sector"`
+	Industry      string  `json:"industry"`
+	Price         float64 `json:"price"`
+	Change        float64 `json:"change"`
+	ChangePct     float64 `json:"changePct"`
+	Volume        int64   `json:"volume"`
+	AvgVolume     int64   `json:"avgVolume"`
+	MarketCap     float64 `json:"marketCap"`
+	PeRatio       float64 `json:"peRatio"`
+	Eps           float64 `json:"eps"`
+	DividendYield float64 `json:"dividendYield"`
+	Week52High    float64 `json:"week52High"`
+	Week52Low     float64 `json:"week52Low"`
+}
+
+func (s *Storage) GetIntradayBars(ctx context.Context, symbol string, limit int) ([]IntradayBarRecord, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT ib.timestamp, ib.open, ib.high, ib.low, ib.close, ib.volume
+		FROM intraday_bars ib
+		JOIN tickers t ON t.id = ib.ticker_id
+		WHERE t.symbol = $1
+		ORDER BY ib.timestamp DESC
+		LIMIT $2
+	`, symbol, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var bars []IntradayBarRecord
+	for rows.Next() {
+		var b IntradayBarRecord
+		if err := rows.Scan(&b.Timestamp, &b.Open, &b.High, &b.Low, &b.Close, &b.Volume); err != nil {
+			continue
+		}
+		bars = append(bars, b)
+	}
+	return bars, nil
+}
+
+type IntradayBarRecord struct {
+	Timestamp time.Time `json:"timestamp"`
+	Open      float64   `json:"open"`
+	High      float64   `json:"high"`
+	Low       float64   `json:"low"`
+	Close     float64   `json:"close"`
+	Volume    int64     `json:"volume"`
+}
+
+func (s *Storage) GetFinancialRatios(ctx context.Context, symbol string) ([]FinancialRatioRecord, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT fd.data_type, fd.json_data, fd.timestamp
+		FROM fundamental_data fd
+		JOIN tickers t ON t.id = fd.ticker_id
+		WHERE t.symbol = $1 AND fd.data_type = 'ratios'
+		ORDER BY fd.timestamp DESC
+		LIMIT 1
+	`, symbol)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	if rows.Next() {
+		var dataType string
+		var jsonData []byte
+		var ts time.Time
+		if err := rows.Scan(&dataType, &jsonData, &ts); err != nil {
+			return nil, err
+		}
+		var ratios []FinancialRatioRecord
+		if err := json.Unmarshal(jsonData, &ratios); err == nil {
+			return ratios, nil
+		}
+	}
+	return nil, nil
+}
+
+type FinancialRatioRecord struct {
+	Label       string `json:"label"`
+	Value       string `json:"value"`
+	Description string `json:"description"`
+}

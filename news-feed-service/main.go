@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/portfolio-sim/news-feed-service/config"
+	"github.com/portfolio-sim/news-feed-service/database"
 	"github.com/portfolio-sim/news-feed-service/feed"
 	"github.com/portfolio-sim/news-feed-service/gemini"
 	"github.com/portfolio-sim/news-feed-service/logging"
@@ -32,6 +33,12 @@ func main() {
 	}
 	defer redisClient.Close()
 
+	db, err := database.New(cfg.DatabaseURL)
+	if err != nil {
+		log.Fatalf("connect postgres: %v", err)
+	}
+	defer db.Close()
+
 	logURL := os.Getenv("LOGGING_SERVICE_URL")
 	if logURL == "" {
 		logURL = "http://backend:8080/api/logs"
@@ -42,7 +49,7 @@ func main() {
 	geminiClient := gemini.NewClient(cfg.GeminiAPIKey)
 	youtubeClient, _ := youtube.NewClient(cfg.YouTubeAPIKey)
 
-	feedManager := feed.NewManager(redisClient.Redis())
+	feedManager := feed.NewManager(redisClient.Redis(), db.Pool)
 	sseManager := sse.NewManager(redisClient.Redis())
 
 	go feedManager.StartScheduler(context.Background(), time.Duration(cfg.ScrapeIntervalMin)*time.Minute)

@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { useProviders, ProviderConfig, ConnectionStatus, RSSFeed } from "@/hooks/useProviders";
 
-type ProviderStatus = "connected" | "disconnected" | "error";
+type ProviderStatus = "connected" | "disconnected" | "error" | "expired" | "available";
 
 function ProviderCard({
   provider,
@@ -59,12 +59,15 @@ function ProviderCard({
     setTesting(false);
   };
 
-  const status: ProviderStatus = provider.is_connected ? "connected" : provider.api_key_set ? "connected" : "disconnected";
-  const statusVariant: Record<ProviderStatus, "success" | "error" | "warning"> = {
+  const status: ProviderStatus = provider.token_expired ? "expired" : provider.is_connected ? "connected" : provider.api_key_set ? "available" : "disconnected";
+  const statusVariant: Record<ProviderStatus, "success" | "error" | "warning" | "secondary"> = {
     connected: "success",
     error: "error",
     disconnected: "warning",
+    expired: "error",
+    available: "secondary",
   };
+  const hasStoredKey = provider.api_key_set;
 
   return (
     <div className="p-4 border border-outline-variant/30">
@@ -73,6 +76,12 @@ function ProviderCard({
           <div className="flex items-center gap-2 mb-1">
             <CardTitle className="text-sm font-semibold">{provider.name}</CardTitle>
             <Badge variant={statusVariant[status]}>{status}</Badge>
+            {hasStoredKey && !provider.token_expired && (
+              <Badge variant="secondary" className="gap-1">
+                <Key className="h-3 w-3" />
+                Key saved
+              </Badge>
+            )}
           </div>
           <div className="text-[11px] text-on-surface-variant">{provider.description}</div>
         </div>
@@ -168,20 +177,18 @@ function RSSFeedCard({
   );
 }
 
-function AddRSSFeedForm({ onAdd }: { onAdd: (name: string, url: string, scrapeInterval: number) => Promise<boolean> }) {
+function AddRSSFeedForm({ onAdd }: { onAdd: (name: string, url: string) => Promise<boolean> }) {
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
-  const [scrapeInterval, setScrapeInterval] = useState(60);
   const [adding, setAdding] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !url) return;
     setAdding(true);
-    await onAdd(name, url, scrapeInterval);
+    await onAdd(name, url);
     setName("");
     setUrl("");
-    setScrapeInterval(60);
     setAdding(false);
   };
 
@@ -201,15 +208,6 @@ function AddRSSFeedForm({ onAdd }: { onAdd: (name: string, url: string, scrapeIn
           placeholder="https://example.com/feed.xml"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
-        />
-      </div>
-      <div className="w-full sm:w-24">
-        <Input
-          label="Interval (min)"
-          type="number"
-          min={5}
-          value={scrapeInterval}
-          onChange={(e) => setScrapeInterval(parseInt(e.target.value) || 60)}
         />
       </div>
       <Button type="submit" variant="default" size="sm" disabled={adding || !name || !url}>

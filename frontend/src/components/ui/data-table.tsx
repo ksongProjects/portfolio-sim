@@ -11,7 +11,6 @@ import {
   getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
-  Column,
 } from "@tanstack/react-table";
 import { ChevronDown, ChevronUp, ChevronsUpDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -29,7 +28,7 @@ interface DataTableProps<TData, TValue> {
   enablePagination?: boolean;
 }
 
-function SortIcon({ column }: { column: Column<any, any> }) {
+function SortIcon({ column }: { column: { getIsSorted: () => string | false } }) {
   const sorted = column.getIsSorted();
   if (!sorted) return <ChevronsUpDown className="h-3 w-3 opacity-30" />;
   return sorted === "asc" ? <ChevronUp className="h-3 w-3 text-primary" /> : <ChevronDown className="h-3 w-3 text-primary" />;
@@ -55,9 +54,13 @@ export function DataTable<TData, TValue>({
     pageSize: pageSizes[0] || 10,
   });
 
+  const memoizedData = React.useMemo(() => data, [data]);
+  const memoizedColumns = React.useMemo(() => columns, [columns]);
+
+  /* eslint-disable react-hooks/incompatible-library */
   const table = useReactTable({
-    data,
-    columns,
+    data: memoizedData,
+    columns: memoizedColumns,
     state: {
       sorting,
       columnFilters,

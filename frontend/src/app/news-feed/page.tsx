@@ -32,8 +32,14 @@ export default function NewsFeedPage() {
   const [saved, setSaved] = useState<string[]>([]);
   const [toast, setToast] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"all" | "bullish" | "bearish" | "neutral">("all");
+  const [refreshInterval, setRefreshInterval] = useState(5);
 
   useEffect(() => { fetchNews(20); }, [fetchNews]);
+
+  useEffect(() => {
+    const intervalId = setInterval(() => fetchNews(20), refreshInterval * 60 * 1000);
+    return () => clearInterval(intervalId);
+  }, [refreshInterval, fetchNews]);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -57,7 +63,18 @@ export default function NewsFeedPage() {
     <div className="flex flex-col h-full">
       <div className="px-6 pt-6 pb-4">
         <PageHeader title="News Feed" description="Real-time market news and sentiment analysis">
-          <div className="flex gap-3">
+          <div className="flex gap-3 items-center">
+            <select
+              value={refreshInterval}
+              onChange={(e) => setRefreshInterval(Number(e.target.value))}
+              className="h-9 rounded-md border border-outline bg-surface-container px-3 text-sm text-on-surface focus:outline-none focus:ring-1 focus:ring-primary"
+            >
+              <option value={1}>Refresh every 1 min</option>
+              <option value={5}>Refresh every 5 min</option>
+              <option value={10}>Refresh every 10 min</option>
+              <option value={15}>Refresh every 15 min</option>
+              <option value={30}>Refresh every 30 min</option>
+            </select>
             <Button variant={saved.length > 0 ? "default" : "secondary"} size="sm" onClick={() => showToast(`Saved articles: ${saved.length}`)}>
               <Bookmark className="h-4 w-4" /> Saved ({saved.length})
             </Button>

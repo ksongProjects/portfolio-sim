@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { Notifications } from "@/components/notifications";
 import {
   LayoutDashboard,
   Briefcase,
@@ -26,7 +27,7 @@ export function Navbar() {
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-outline-variant/50 bg-surface">
-      <div className="flex h-12 items-center px-6">
+      <div className="flex h-12 items-center px-6 justify-between">
         <div className="flex items-center gap-6">
           <Link href="/" className="flex items-center gap-2 mr-4">
             <span className="text-sm font-semibold text-on-surface tracking-tight">Portfolio Sim</span>
@@ -53,6 +54,7 @@ export function Navbar() {
             })}
           </nav>
         </div>
+        <Notifications />
       </div>
     </header>
   );

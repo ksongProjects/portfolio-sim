@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -100,6 +101,10 @@ func (s *MarketDataService) startHTTPServer() {
 		w.Write([]byte("ok"))
 	})
 	http.HandleFunc("/api/questrade/oauth/save", loggingMiddleware(s.logClient, s.handleSaveQuestradeOAuth))
+	http.HandleFunc("/api/tickers/search", loggingMiddleware(s.logClient, s.handleSearchTickers))
+	http.HandleFunc("/api/tickers/", loggingMiddleware(s.logClient, s.handleTickerDetails))
+	http.HandleFunc("/api/tickers/", loggingMiddleware(s.logClient, s.handleIntradayBars))
+	http.HandleFunc("/api/tickers/", loggingMiddleware(s.logClient, s.handleFinancialRatios))
 
 	addr := fmt.Sprintf(":%d", s.cfg.Server.HTTPPort)
 	s.logger.Info("HTTP server starting", "addr", addr)
@@ -373,6 +378,93 @@ func (s *MarketDataService) processBackfill(req *sse.BackfillRequest) {
 	}
 
 	s.logger.Info("backfill complete", "ticker", req.Ticker)
+}
+
+func (s *MarketDataService) handleSearchTickers(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query().Get("q")
+	if query == "" {
+		http.Error(w, "q parameter required", http.StatusBadRequest)
+		return
+	}
+	results, err := s.storage.SearchTickers(r.Context(), query)
+	if err != nil {
+		s.logger.Error("search tickers failed", "error", err)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]interface{}{})
+		return
+	}
+	if results == nil {
+		results = []storage.TickerSearchResult{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(results)
+}
+
+func (s *MarketDataService) handleTickerDetails(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+	if !strings.HasSuffix(path, "/details") {
+		http.NotFound(w, r)
+		return
+	}
+	symbol := strings.TrimSuffix(strings.TrimPrefix(path, "/api/tickers/"), "/details")
+	if symbol == "" {
+		http.Error(w, "symbol required", http.StatusBadRequest)
+		return
+	}
+	details, err := s.storage.GetTickerDetails(r.Context(), symbol)
+	if err != nil {
+		s.logger.Error("get ticker details failed", "symbol", symbol, "error", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "ticker not found"})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(details)
+}
+
+func (s *MarketDataService) handleIntradayBars(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+	if !strings.HasSuffix(path, "/intraday") {
+		http.NotFound(w, r)
+		return
+	}
+	symbol := strings.TrimSuffix(strings.TrimPrefix(path, "/api/tickers/"), "/intraday")
+	if symbol == "" {
+		http.Error(w, "symbol required", http.StatusBadRequest)
+		return
+	}
+	bars, err := s.storage.GetIntradayBars(r.Context(), symbol, 100)
+	if err != nil {
+		s.logger.Error("get intraday bars failed", "symbol", symbol, "error", err)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]interface{}{})
+		return
+	}
+	if bars == nil {
+		bars = []storage.IntradayBarRecord{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(bars)
+}
+
+func (s *MarketDataService) handleFinancialRatios(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+	if !strings.HasSuffix(path, "/ratios") {
+		http.NotFound(w, r)
+		return
+	}
+	symbol := strings.TrimSuffix(strings.TrimPrefix(path, "/api/tickers/"), "/ratios")
+	if symbol == "" {
+		http.Error(w, "symbol required", http.StatusBadRequest)
+		return
+	}
+	ratios, err := s.storage.GetFinancialRatios(r.Context(), symbol)
+	if err != nil || ratios == nil {
+		ratios = []storage.FinancialRatioRecord{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(ratios)
 }
 
 func main() {

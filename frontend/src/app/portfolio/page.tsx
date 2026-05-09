@@ -10,6 +10,8 @@ import { DataTable } from "@/components/ui/data-table";
 import { Skeleton, MetricSkeleton } from "@/components/ui/skeleton";
 import { Plus, Download } from "lucide-react";
 import { usePortfolio } from "@/hooks/usePortfolio";
+import { AddPositionModal } from "@/components/add-position-modal";
+import { toast } from "sonner";
 
 interface Position {
   ID: string;
@@ -122,13 +124,14 @@ const columns: ColumnDef<Position>[] = [
 
 export default function PortfolioPage() {
   const { positions, summary, loading, refresh } = usePortfolio();
-  const [toast, setToast] = useState<string | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  const showToast = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 3000);
+  const handleAddPosition = (position: { symbol: string; shares: number; price: number }) => {
+    toast.success(`Added ${position.shares} shares of ${position.symbol} @ $${position.price.toFixed(2)}`);
+    setModalOpen(false);
+    refresh();
   };
 
   const sectors = Array.from(
@@ -150,10 +153,10 @@ export default function PortfolioPage() {
       <div className="px-6 pt-6 pb-4">
         <PageHeader title="Portfolio" description="Holdings and position management">
           <div className="flex gap-3">
-            <Button variant="secondary" size="sm" onClick={() => showToast("Exporting portfolio as CSV...")}>
+            <Button variant="secondary" size="sm" onClick={() => toast.info("Exporting portfolio as CSV...")}>
               <Download className="h-4 w-4" /> Export
             </Button>
-            <Button variant="default" size="sm" onClick={() => showToast("Add position modal coming soon...")}>
+            <Button variant="default" size="sm" onClick={() => setModalOpen(true)}>
               <Plus className="h-4 w-4" /> Add Position
             </Button>
           </div>
@@ -243,11 +246,7 @@ export default function PortfolioPage() {
         </PageGrid>
       </div>
 
-      {toast && (
-        <div className="fixed bottom-6 right-6 z-50 bg-surface-container-highest border border-primary text-on-surface px-4 py-3 text-sm font-medium">
-          {toast}
-        </div>
-      )}
+      <AddPositionModal open={modalOpen} onClose={() => setModalOpen(false)} onAdd={handleAddPosition} />
     </div>
   );
 }

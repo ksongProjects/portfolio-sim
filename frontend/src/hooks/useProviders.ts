@@ -12,6 +12,7 @@ export interface ProviderConfig {
   type: string;
   api_key_set: boolean;
   is_connected: boolean;
+  token_expired: boolean;
   rate_limit: number;
   docs_url: string;
 }
@@ -28,7 +29,6 @@ export interface RSSFeed {
   id: string;
   name: string;
   url: string;
-  scrape_interval_min: number;
   last_scrape_at: string;
   is_active: boolean;
 }
@@ -108,12 +108,12 @@ export function useProviders() {
     }
   }, []);
 
-  const addRSSFeed = useCallback(async (name: string, url: string, scrapeInterval: number): Promise<boolean> => {
+  const addRSSFeed = useCallback(async (name: string, url: string): Promise<boolean> => {
     try {
       const res = await fetch(`${API_BASE}/api/rss-feeds`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, url, scrape_interval_min: scrapeInterval }),
+        body: JSON.stringify({ name, url }),
       });
       if (!res.ok) throw new Error("Failed to add feed");
       const data = await res.json();

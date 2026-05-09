@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 
@@ -20,6 +20,7 @@ export function useMarketStream(symbols: string[] = []) {
 	const [connected, setConnected] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const esRef = useRef<EventSource | null>(null);
+	const symbolsKey = useMemo(() => symbols.join(","), [symbols]);
 
 	const updateTick = useCallback((tick: MarketTick) => {
 		setTicks((prev) => {
@@ -68,7 +69,8 @@ export function useMarketStream(symbols: string[] = []) {
 		return () => {
 			es.close();
 		};
-	}, [symbols.join(","), updateTick]);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [symbolsKey, updateTick, error, connected]);
 
 	const getTick = useCallback(
 		(symbol: string): MarketTick | undefined => {

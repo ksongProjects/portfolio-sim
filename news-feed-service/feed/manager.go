@@ -8,21 +8,22 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/mmcdole/gofeed"
 	"github.com/redis/go-redis/v9"
 )
 
 type Manager struct {
 	redis       *redis.Client
-	pgx         interface{}
-	gemini      interface{}
+	pgx         *pgxpool.Pool
 	scrapeTimer *time.Timer
 	mu          sync.Mutex
 }
 
-func NewManager(redisClient *redis.Client) *Manager {
+func NewManager(redisClient *redis.Client, pgx *pgxpool.Pool) *Manager {
 	return &Manager{
 		redis: redisClient,
+		pgx:   pgx,
 	}
 }
 
@@ -61,8 +62,21 @@ type rssFeed struct {
 }
 
 func (m *Manager) getActiveFeeds(ctx context.Context) ([]rssFeed, error) {
-	_ = m.redis
-	return []rssFeed{}, nil
+	rows, err := m.pgx.Query(ctx, "SELECT name, url FROM rss_feeds WHERE is_active = true")
+	if err != nil {
+		return nil, fmt.Errorf("query feeds: %w", err)
+	}
+	defer rows.Close()
+
+	var feeds []rssFeed
+	for rows.Next() {
+		var f rssFeed
+		if err := rows.Scan(&f.Name, &f.URL); err != nil {
+			continue
+		}
+		feeds = append(feeds, f)
+	}
+	return feeds, nil
 }
 
 func (m *Manager) scrapeFeed(ctx context.Context, parser *gofeed.Parser, feed rssFeed) error {

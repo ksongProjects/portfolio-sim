@@ -381,14 +381,6 @@ func (s *PortfolioService) GetStrategies(ctx context.Context, db interface {
 		i++
 	}
 
-	if len(strategies) == 0 {
-		strategies = []Strategy{
-			{ID: "1", Name: "Momentum Growth", Status: "active", Returns: 18.4, Sharpe: 1.42, MaxDD: -12.3, Trades: 847, WinRate: 64.2},
-			{ID: "2", Name: "Value Scanner", Status: "active", Returns: 12.1, Sharpe: 1.18, MaxDD: -8.7, Trades: 423, WinRate: 58.9},
-			{ID: "3", Name: "Mean Reversion", Status: "paused", Returns: 8.3, Sharpe: 0.95, MaxDD: -15.2, Trades: 612, WinRate: 52.1},
-			{ID: "4", Name: "Sector Rotation", Status: "active", Returns: 15.7, Sharpe: 1.28, MaxDD: -10.1, Trades: 234, WinRate: 61.4},
-		}
-	}
 	return strategies, nil
 }
 
