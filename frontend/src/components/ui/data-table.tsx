@@ -29,7 +29,7 @@ interface DataTableProps<TData, TValue> {
   enablePagination?: boolean;
 }
 
-function SortIcon({ column }: { column: Column<unknown> }) {
+function SortIcon({ column }: { column: Column<any, any> }) {
   const sorted = column.getIsSorted();
   if (!sorted) return <ChevronsUpDown className="h-3 w-3 opacity-30" />;
   return sorted === "asc" ? <ChevronUp className="h-3 w-3 text-primary" /> : <ChevronDown className="h-3 w-3 text-primary" />;
