@@ -100,8 +100,9 @@ export function useProviders() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ provider_id: providerId, api_key: apiKey }),
       });
-      if (!res.ok) throw new Error("Failed to validate");
-      return await res.json();
+      const data = await res.json();
+      if (!res.ok || !data.valid) throw new Error(data.error || "Failed to validate");
+      return data;
     } catch (err) {
       return { valid: false, error: err instanceof Error ? err.message : "Unknown error" };
     }

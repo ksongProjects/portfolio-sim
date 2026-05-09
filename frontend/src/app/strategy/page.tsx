@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { PageGrid, PageCell, PageHeader, MetricLabel, MetricValue } from "@/components/page-layout";
+import { PageCell, PageHeader, MetricLabel, MetricValue } from "@/components/page-layout";
 import { CardTitle } from "@/components/ui/card";
 import { Badge, StatusIndicator } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

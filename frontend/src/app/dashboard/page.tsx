@@ -93,7 +93,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="flex-1 px-6 pb-6 overflow-auto">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-px bg-outline-variant mb-4">
+        <PageGrid style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
           {[1, 2, 3, 4].map((i) => (
             <PageCell key={i}>
               {loading ? <MetricSkeleton /> : (
@@ -107,10 +107,10 @@ export default function DashboardPage() {
               )}
             </PageCell>
           ))}
-        </div>
+        </PageGrid>
 
-        <div className="grid grid-cols-1 lg:grid-cols-[7fr_5fr] gap-px bg-outline-variant mb-px">
-          <PageCell>
+        <PageGrid style={{ gridTemplateColumns: "7fr 5fr", gridTemplateRows: "1fr 1fr" }}>
+          <PageCell className="col-span-1 row-span-1">
             <div className="flex items-center justify-between mb-4">
               <CardTitle>Portfolio Performance</CardTitle>
               <div className="flex gap-1">
@@ -134,9 +134,8 @@ export default function DashboardPage() {
             </div>
           </PageCell>
 
-          <PageCell>
+          <PageCell className="col-span-1 row-span-1">
             <CardTitle className="mb-4">Top Holdings</CardTitle>
-            <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -179,14 +178,10 @@ export default function DashboardPage() {
                 </TableBody>
               )}
             </Table>
-            </div>
           </PageCell>
-        </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-outline-variant mb-px">
-          <PageCell>
+          <PageCell className="col-span-1 row-span-1">
             <CardTitle className="mb-4">Recent Activity</CardTitle>
-            <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -231,13 +226,25 @@ export default function DashboardPage() {
                 </TableBody>
               )}
             </Table>
-            </div>
           </PageCell>
 
-          <PageCell>
+          <PageCell className="col-span-1 row-span-1">
             <CardTitle className="mb-4">Market Indices</CardTitle>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {indices.map((index) => (
+            <div className="grid grid-cols-2 gap-2">
+              {loading ? (
+                Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="flex items-center justify-between p-3 border border-outline-variant/30">
+                    <div className="space-y-1">
+                      <Skeleton className="h-4 w-16" />
+                      <Skeleton className="h-3 w-20" />
+                    </div>
+                    <div className="space-y-1 text-right">
+                      <Skeleton className="h-4 w-16 ml-auto" />
+                      <Skeleton className="h-3 w-12 ml-auto" />
+                    </div>
+                  </div>
+                ))
+              ) : indices.length > 0 ? indices.map((index) => (
                 <div key={index.Symbol} className="flex items-center justify-between p-3 border border-outline-variant/30">
                   <div>
                     <div className="font-mono text-sm font-semibold">{index.Symbol}</div>
@@ -250,13 +257,12 @@ export default function DashboardPage() {
                     </div>
                   </div>
                 </div>
-              ))}
-              {indices.length === 0 && !loading && (
+              )) : (
                 <div className="col-span-2 text-center text-on-surface-variant text-sm py-8">No market data available</div>
               )}
             </div>
           </PageCell>
-        </div>
+        </PageGrid>
       </div>
 
       {toast && (
