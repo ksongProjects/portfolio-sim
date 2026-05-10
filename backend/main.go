@@ -259,6 +259,8 @@ func (s *Server) handleIngestLog(w http.ResponseWriter, r *http.Request) {
 	}
 	if entry.ID == "" {
 		entry.ID = uuid.New().String()
+	} else if _, err := uuid.Parse(entry.ID); err != nil {
+		entry.ID = uuid.New().String()
 	}
 	if entry.Timestamp == "" {
 		entry.Timestamp = time.Now().UTC().Format(time.RFC3339Nano)
