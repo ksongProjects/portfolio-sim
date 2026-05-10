@@ -144,7 +144,7 @@ func NewServer(cfg *Config) (*Server, error) {
 		logClient:    logClient,
 		db:           db,
 		redisClient:  redisClient,
-		obsService:   services.NewObservabilityService(logClient),
+		obsService:   services.NewObservabilityService(),
 		portfolioSvc: services.NewPortfolioService(),
 		providerSvc:  services.NewProviderService(logger, logClient),
 		tickerSvc:    services.NewTickerService(os.Getenv("MARKET_DATA_SERVICE_URL"), logClient),
@@ -181,6 +181,7 @@ func (s *Server) Start() error {
 	http.HandleFunc("POST /api/providers/validate", logging.WrapHandlerFunc(s.handleValidateProvider))
 	http.HandleFunc("PUT /api/providers/questrade/oauth", logging.WrapHandlerFunc(s.handleSaveQuestradeOAuth))
 	http.HandleFunc("GET /api/providers/questrade/oauth", logging.WrapHandlerFunc(s.handleGetQuestradeOAuth))
+	http.HandleFunc("POST /api/providers/questrade/refresh", logging.WrapHandlerFunc(s.handleRefreshQuestradeToken))
 	http.HandleFunc("GET /api/connections", logging.WrapHandlerFunc(s.handleGetConnections))
 	http.HandleFunc("GET /api/rss-feeds", logging.WrapHandlerFunc(s.handleGetRSSFeeds))
 	http.HandleFunc("POST /api/rss-feeds", logging.WrapHandlerFunc(s.handleAddRSSFeed))
@@ -778,6 +779,32 @@ func (s *Server) handleSaveQuestradeOAuth(w http.ResponseWriter, r *http.Request
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "saved"})
+}
+
+func (s *Server) handleRefreshQuestradeToken(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	_, refreshToken, _ := s.providerSvc.GetQuestradeOAuth(r.Context(), s.db, "questrade")
+	if refreshToken == "" {
+		http.Error(w, "no refresh token available", http.StatusBadRequest)
+		return
+	}
+	s.logger.Info("refreshing questrade token")
+	newAccessToken, newRefreshToken, newAPIServer, expiresIn, err := s.providerSvc.ExchangeQuestradeToken(r.Context(), refreshToken)
+	if err != nil {
+		s.logger.Error("failed to refresh questrade token", "error", err)
+		http.Error(w, "failed to refresh token: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := s.providerSvc.SaveQuestradeOAuth(r.Context(), s.db, "questrade", newAccessToken, newRefreshToken, newAPIServer, expiresIn); err != nil {
+		http.Error(w, "failed to save new token", http.StatusInternalServerError)
+		return
+	}
+	s.logger.Info("questrade token refreshed successfully")
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "refreshed"})
 }
 
 func (s *Server) handleSearchTickers(w http.ResponseWriter, r *http.Request) {
