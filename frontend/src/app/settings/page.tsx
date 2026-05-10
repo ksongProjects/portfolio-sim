@@ -6,6 +6,7 @@ import { CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import {
   Key,
   Plug,
@@ -221,6 +222,17 @@ function AddRSSFeedForm({ onAdd }: { onAdd: (name: string, url: string) => Promi
 export default function SettingsPage() {
   const { providers, connections, rssFeeds, loading, refresh, saveProviderKey, validateProviderKey, addRSSFeed, deleteRSSFeed } = useProviders();
 
+  const [notificationSettings, setNotificationSettings] = useState({
+    tradeExecuted: true,
+    strategySignal: true,
+    priceAlert: false,
+    systemError: true,
+  });
+
+  const handleNotificationChange = (key: keyof typeof notificationSettings, value: boolean) => {
+    setNotificationSettings((prev) => ({ ...prev, [key]: value }));
+  };
+
   useEffect(() => { refresh(); }, [refresh]);
 
   const connectedCount = connections.filter((c) => c.is_up).length;
@@ -342,22 +354,34 @@ export default function SettingsPage() {
             <div className="mt-6 pt-5 border-t border-outline-variant/30">
               <CardTitle className="mb-4">Notifications</CardTitle>
               <div className="space-y-3">
-                {[
-                  { label: "Trade executed", enabled: true },
-                  { label: "Strategy signal", enabled: true },
-                  { label: "Price alert", enabled: false },
-                  { label: "System error", enabled: true },
-                ].map((item) => (
-                  <div key={item.label} className="flex items-center justify-between p-3 border border-outline-variant/30">
-                    <span className="text-sm">{item.label}</span>
-                    <button
-                      type="button"
-                      className={`relative h-5 w-9 rounded-full transition-colors ${item.enabled ? "bg-primary" : "bg-surface-container-high"}`}
-                    >
-                      <span className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-on-primary transition-transform ${item.enabled ? "translate-x-4" : ""}`} />
-                    </button>
-                  </div>
-                ))}
+                <div className="flex items-center justify-between p-3 border border-outline-variant/30">
+                  <span className="text-sm">Trade executed</span>
+                  <Switch
+                    checked={notificationSettings.tradeExecuted}
+                    onCheckedChange={(v) => handleNotificationChange("tradeExecuted", v)}
+                  />
+                </div>
+                <div className="flex items-center justify-between p-3 border border-outline-variant/30">
+                  <span className="text-sm">Strategy signal</span>
+                  <Switch
+                    checked={notificationSettings.strategySignal}
+                    onCheckedChange={(v) => handleNotificationChange("strategySignal", v)}
+                  />
+                </div>
+                <div className="flex items-center justify-between p-3 border border-outline-variant/30">
+                  <span className="text-sm">Price alert</span>
+                  <Switch
+                    checked={notificationSettings.priceAlert}
+                    onCheckedChange={(v) => handleNotificationChange("priceAlert", v)}
+                  />
+                </div>
+                <div className="flex items-center justify-between p-3 border border-outline-variant/30">
+                  <span className="text-sm">System error</span>
+                  <Switch
+                    checked={notificationSettings.systemError}
+                    onCheckedChange={(v) => handleNotificationChange("systemError", v)}
+                  />
+                </div>
               </div>
             </div>
           </PageCell>
