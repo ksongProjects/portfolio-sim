@@ -185,14 +185,14 @@ func (s *Storage) UpdateQuestradeTokens(ctx context.Context, accessToken, refres
 
 func (s *Storage) SearchTickers(ctx context.Context, query string) ([]TickerSearchResult, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT t.symbol, t.name, t.exchange, t.sector,
+		SELECT t.symbol, t.company_name, t.exchange,
 			COALESCE(np.price, 0) as price,
 			COALESCE(np.change, 0) as change,
 			COALESCE(np.change_pct, 0) as change_pct
 		FROM tickers t
 		LEFT JOIN normalized_prices np ON t.id = np.ticker_id
 		WHERE t.is_active = true
-			AND (t.symbol ILIKE $1 OR t.name ILIKE $1)
+			AND (t.symbol ILIKE $1 OR t.company_name ILIKE $1)
 		ORDER BY t.symbol
 		LIMIT 20
 	`, "%"+query+"%")
@@ -204,7 +204,7 @@ func (s *Storage) SearchTickers(ctx context.Context, query string) ([]TickerSear
 	var results []TickerSearchResult
 	for rows.Next() {
 		var r TickerSearchResult
-		if err := rows.Scan(&r.Symbol, &r.Name, &r.Exchange, &r.Sector, &r.Price, &r.Change, &r.ChangePct); err != nil {
+		if err := rows.Scan(&r.Symbol, &r.Name, &r.Exchange, &r.Price, &r.Change, &r.ChangePct); err != nil {
 			continue
 		}
 		results = append(results, r)
@@ -216,29 +216,38 @@ type TickerSearchResult struct {
 	Symbol    string  `json:"symbol"`
 	Name      string  `json:"name"`
 	Exchange  string  `json:"exchange"`
-	Sector    string  `json:"sector"`
+	Type      string  `json:"type"`
+	SymbolID  int     `json:"symbolId"`
 	Price     float64 `json:"price"`
 	Change    float64 `json:"change"`
 	ChangePct float64 `json:"changePct"`
 }
 
+func (s *Storage) UpsertTickerFromSearch(ctx context.Context, symbol, name, exchange, assetType string) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO tickers (symbol, company_name, exchange, asset_type, is_active)
+		VALUES ($1, $2, $3, $4, true)
+		ON CONFLICT (symbol) DO UPDATE SET
+			company_name = COALESCE($2, tickers.company_name),
+			exchange = COALESCE($3, tickers.exchange),
+			asset_type = COALESCE($4, tickers.asset_type)
+	`, symbol, name, exchange, assetType)
+	return err
+}
+
 func (s *Storage) GetTickerDetails(ctx context.Context, symbol string) (*TickerDetails, error) {
 	var d TickerDetails
 	err := s.pool.QueryRow(ctx, `
-		SELECT t.symbol, t.name, t.exchange, t.sector, t.industry,
+		SELECT t.symbol, t.company_name, t.exchange,
 			COALESCE(np.price, 0), COALESCE(np.change, 0), COALESCE(np.change_pct, 0),
-			COALESCE(np.volume, 0), COALESCE(np.avg_volume, 0),
-			COALESCE(np.market_cap, 0), COALESCE(np.pe_ratio, 0), COALESCE(np.eps, 0),
-			COALESCE(np.dividend_yield, 0), COALESCE(np.week52_high, 0), COALESCE(np.week52_low, 0)
+			COALESCE(np.volume, 0), COALESCE(np.market_cap, 0)
 		FROM tickers t
 		LEFT JOIN normalized_prices np ON t.id = np.ticker_id
 		WHERE t.symbol = $1
 	`, symbol).Scan(
-		&d.Symbol, &d.Name, &d.Exchange, &d.Sector, &d.Industry,
+		&d.Symbol, &d.Name, &d.Exchange,
 		&d.Price, &d.Change, &d.ChangePct,
-		&d.Volume, &d.AvgVolume,
-		&d.MarketCap, &d.PeRatio, &d.Eps,
-		&d.DividendYield, &d.Week52High, &d.Week52Low,
+		&d.Volume, &d.MarketCap,
 	)
 	if err != nil {
 		return nil, err
@@ -247,22 +256,50 @@ func (s *Storage) GetTickerDetails(ctx context.Context, symbol string) (*TickerD
 }
 
 type TickerDetails struct {
-	Symbol        string  `json:"symbol"`
-	Name          string  `json:"name"`
-	Exchange      string  `json:"exchange"`
-	Sector        string  `json:"sector"`
-	Industry      string  `json:"industry"`
-	Price         float64 `json:"price"`
-	Change        float64 `json:"change"`
-	ChangePct     float64 `json:"changePct"`
-	Volume        int64   `json:"volume"`
-	AvgVolume     int64   `json:"avgVolume"`
-	MarketCap     float64 `json:"marketCap"`
-	PeRatio       float64 `json:"peRatio"`
-	Eps           float64 `json:"eps"`
-	DividendYield float64 `json:"dividendYield"`
-	Week52High    float64 `json:"week52High"`
-	Week52Low     float64 `json:"week52Low"`
+	Symbol    string  `json:"symbol"`
+	Name      string  `json:"name"`
+	Exchange  string  `json:"exchange"`
+	Price     float64 `json:"price"`
+	Change    float64 `json:"change"`
+	ChangePct float64 `json:"changePct"`
+	Volume    int64   `json:"volume"`
+	MarketCap float64 `json:"marketCap"`
+}
+
+func (s *Storage) IsTickerDataStale(ctx context.Context, symbol string, maxAge time.Duration) (bool, error) {
+	var updatedAt *time.Time
+	err := s.pool.QueryRow(ctx, `
+		SELECT t.price_updated_at
+		FROM tickers t
+		WHERE t.symbol = $1
+	`, symbol).Scan(&updatedAt)
+	if err != nil {
+		return true, err
+	}
+	if updatedAt == nil {
+		return true, nil
+	}
+	return time.Since(*updatedAt) > maxAge, nil
+}
+
+func (s *Storage) UpdateTickerPrice(ctx context.Context, symbol string, price, change, changePct float64, volume int64, marketCap float64) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE tickers t
+		SET price_updated_at = NOW()
+		WHERE t.symbol = $1
+	`, symbol)
+	if err != nil {
+		return err
+	}
+	tickerID, err := s.GetTickerID(ctx, symbol)
+	if err != nil {
+		return err
+	}
+	_, err = s.pool.Exec(ctx, `
+		INSERT INTO normalized_prices (ticker_id, price, change, change_pct, volume, market_cap, source_id, timestamp)
+		VALUES ($1, $2, $3, $4, $5, $6, 'fmp', NOW())
+	`, tickerID, price, change, changePct, volume, marketCap)
+	return err
 }
 
 func (s *Storage) GetIntradayBars(ctx context.Context, symbol string, limit int) ([]IntradayBarRecord, error) {

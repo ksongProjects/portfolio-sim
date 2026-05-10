@@ -495,19 +495,33 @@ func (s *MarketDataService) handleTickerDetails(w http.ResponseWriter, r *http.R
 		return
 	}
 	details, err := s.storage.GetTickerDetails(r.Context(), symbol)
-	if err != nil || details.Price == 0 {
-		s.logClient.InfoWithMeta(r.Context(), "ticker not in DB, fetching from provider", map[string]interface{}{"symbol": symbol})
-		details = s.fetchTickerDetailsFromProvider(symbol)
-		if details == nil {
-			s.logClient.ErrorWithMeta(r.Context(), "get ticker details failed", map[string]interface{}{"symbol": symbol, "error": err.Error()})
+	if err == nil && details != nil && details.Price > 0 {
+		stale, _ := s.storage.IsTickerDataStale(r.Context(), symbol, 24*time.Hour)
+		if !stale {
+			s.logClient.InfoWithMeta(r.Context(), "returning cached ticker details", map[string]interface{}{"symbol": symbol})
 			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(map[string]string{"error": "ticker not found"})
+			json.NewEncoder(w).Encode(details)
 			return
 		}
+		s.logClient.InfoWithMeta(r.Context(), "ticker data stale, refreshing from provider", map[string]interface{}{"symbol": symbol})
 	}
+	newDetails := s.fetchTickerDetailsFromProvider(symbol)
+	if newDetails == nil {
+		if details != nil && details.Price > 0 {
+			s.logClient.WarnWithMeta(r.Context(), "provider fetch failed, returning stale data", map[string]interface{}{"symbol": symbol})
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(details)
+			return
+		}
+		s.logClient.ErrorWithMeta(r.Context(), "get ticker details failed", map[string]interface{}{"symbol": symbol})
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "ticker not found"})
+		return
+	}
+	s.storage.UpdateTickerPrice(r.Context(), symbol, newDetails.Price, newDetails.Change, newDetails.ChangePct, newDetails.Volume, newDetails.MarketCap)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(details)
+	json.NewEncoder(w).Encode(newDetails)
 }
 
 func (s *MarketDataService) fetchTickerDetailsFromProvider(symbol string) *storage.TickerDetails {
@@ -518,13 +532,11 @@ func (s *MarketDataService) fetchTickerDetailsFromProvider(symbol string) *stora
 			continue
 		}
 		var price float64
-		var change, changePct float64
 		var volume int64
 
 		priceData, err := provider.FetchPrice(symbol)
 		if err == nil {
 			price = priceData.Price
-			change = priceData.Price - priceData.Price
 			volume = priceData.Volume
 		}
 
@@ -532,18 +544,9 @@ func (s *MarketDataService) fetchTickerDetailsFromProvider(symbol string) *stora
 			Symbol:    profile.Symbol,
 			Name:      profile.Name,
 			Exchange:  profile.Exchange,
-			Sector:    profile.Sector,
-			Industry:  profile.Industry,
 			Price:     price,
-			Change:    change,
-			ChangePct: changePct,
 			Volume:    volume,
 			MarketCap: profile.MarketCap,
-			PeRatio:   profile.PeRatio,
-			Eps:       profile.Eps,
-			DividendYield: profile.DivYield,
-			Week52High: profile.Week52High,
-			Week52Low:  profile.Week52Low,
 		}
 	}
 	return nil
