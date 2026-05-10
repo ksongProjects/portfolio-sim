@@ -2,6 +2,7 @@ package logging
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -46,6 +47,7 @@ func (m *Middleware) WrapHandlerFunc(next func(http.ResponseWriter, *http.Reques
 		rw := &ResponseWriter{ResponseWriter: w, StatusCode: http.StatusOK}
 
 		m.client.InfoWithMeta(ctx, "Request started", map[string]interface{}{
+			"type":        "api_request",
 			"method":      r.Method,
 			"path":        r.URL.Path,
 			"query":       r.URL.RawQuery,
@@ -56,24 +58,28 @@ func (m *Middleware) WrapHandlerFunc(next func(http.ResponseWriter, *http.Reques
 
 		duration := time.Since(start)
 
+		contentType := w.Header().Get("Content-Type")
+
 		meta := map[string]interface{}{
-			"method":      r.Method,
-			"path":        r.URL.Path,
-			"status":      rw.StatusCode,
-			"duration_ms": duration.Milliseconds(),
-			"size_bytes":  rw.Size,
+			"type":          "api_response",
+			"method":        r.Method,
+			"path":          r.URL.Path,
+			"status":        rw.StatusCode,
+			"duration_ms":   duration.Milliseconds(),
+			"size_bytes":    rw.Size,
+			"content_type":  contentType,
 		}
 
 		if rw.StatusCode >= 500 {
 			meta["error"] = true
 			meta["error_type"] = "server_error"
-			m.client.ErrorWithMeta(ctx, "Request error", meta)
+			m.client.ErrorWithMeta(ctx, fmt.Sprintf("Response: %s %s → %d", r.Method, r.URL.Path, rw.StatusCode), meta)
 		} else if rw.StatusCode >= 400 {
 			meta["error"] = true
 			meta["error_type"] = "client_error"
-			m.client.WarnWithMeta(ctx, "Request warning", meta)
+			m.client.WarnWithMeta(ctx, fmt.Sprintf("Response: %s %s → %d", r.Method, r.URL.Path, rw.StatusCode), meta)
 		} else {
-			m.client.InfoWithMeta(ctx, "Request completed", meta)
+			m.client.InfoWithMeta(ctx, fmt.Sprintf("Response: %s %s → %d", r.Method, r.URL.Path, rw.StatusCode), meta)
 		}
 	})
 }

@@ -288,18 +288,22 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	level := r.URL.Query().Get("level")
 	service := r.URL.Query().Get("service")
+	startDate := r.URL.Query().Get("start")
+	endDate := r.URL.Query().Get("end")
 
-	s.logger.Info("handleGetLogs: fetching logs", "limit", limit, "level", level, "service", service)
+	s.logger.Info("handleGetLogs: fetching logs", "limit", limit, "level", level, "service", service, "start", startDate, "end", endDate)
 
 	query := `
 		SELECT id, timestamp::text, level, service, component, message, metadata, trace_id, span_id
 		FROM logs
 		WHERE ($1 = '' OR level = $1)
 		  AND ($2 = '' OR service = $2)
+		  AND ($3 = '' OR timestamp >= $3::timestamptz)
+		  AND ($4 = '' OR timestamp <= $4::timestamptz)
 		ORDER BY timestamp DESC
-		LIMIT $3
+		LIMIT $5
 	`
-	rows, err := s.db.Query(r.Context(), query, level, service, limit)
+	rows, err := s.db.Query(r.Context(), query, level, service, startDate, endDate, limit)
 	if err != nil {
 		s.logger.Error("handleGetLogs: query failed", "error", err)
 		w.Header().Set("Content-Type", "application/json")

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { PageGrid, PageCell, PageHeader, MetricLabel, MetricValue } from "@/components/page-layout";
 import { CardTitle } from "@/components/ui/card";
@@ -35,88 +35,70 @@ function formatJson(obj: unknown): string {
   return JSON.stringify(obj, null, 2);
 }
 
-const logColumns: ColumnDef<{
+interface LogRowProps {
   id: string;
-  timestamp: string;
-  level: string;
-  service: string;
   message: string;
   metadata: Record<string, unknown> | null;
-}>[] = [
-  {
-    accessorKey: "level",
-    header: "Level",
-    cell: ({ row }) => {
-      const level = row.original.level;
-      const variant = level === "INFO" || level === "DEBUG" ? "secondary" : level === "WARN" ? "warning" : "error";
-      return <Badge variant={variant}>{level}</Badge>;
-    },
-  },
-  {
-    accessorKey: "service",
-    header: "Service",
-    cell: ({ row }) => <span className="font-mono text-xs">{row.original.service}</span>,
-  },
-  {
-    accessorKey: "message",
-    header: "Message",
-    cell: ({ row }) => {
-      const meta = row.original.metadata;
-      const [expanded, setExpanded] = useState(false);
-      const [copied, setCopied] = useState(false);
+  isExpanded: boolean;
+  onToggle: (id: string) => void;
+}
 
-      const handleCopy = () => {
-        navigator.clipboard.writeText(formatJson(meta));
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      };
+function LogRow({ id, message, metadata, isExpanded, onToggle }: LogRowProps) {
+  const [copied, setCopied] = useState(false);
 
-      return (
-        <div className="flex flex-col gap-1 py-1">
-          <span className="text-sm">{row.original.message}</span>
-          {meta && (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setExpanded(!expanded)}
-                className="flex items-center gap-1 text-xs text-primary hover:underline"
-              >
-                {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                {expanded ? "Hide" : "Show"} Details
-              </button>
-              <button
-                onClick={handleCopy}
-                className="flex items-center gap-1 text-xs text-on-surface-variant hover:text-on-surface"
-              >
-                {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                {copied ? "Copied!" : "Copy"}
-              </button>
-            </div>
-          )}
-          {expanded && meta && (
-            <pre className="mt-2 p-2 bg-surface-container-high rounded text-xs overflow-auto max-h-40 text-left whitespace-pre-wrap">
-              {formatJson(meta)}
-            </pre>
-          )}
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(formatJson(metadata));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }, [metadata]);
+
+  return (
+    <div className="flex flex-col gap-1 py-1">
+      <span className="text-sm">{message}</span>
+      {metadata && (
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => onToggle(id)}
+            className="flex items-center gap-1 text-xs text-primary hover:underline"
+          >
+            {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            {isExpanded ? "Hide" : "Show"} Details
+          </button>
+          <button
+            onClick={handleCopy}
+            className="flex items-center gap-1 text-xs text-on-surface-variant hover:text-on-surface"
+          >
+            {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+            {copied ? "Copied!" : "Copy"}
+          </button>
         </div>
-      );
-    },
-  },
-  {
-    accessorKey: "timestamp",
-    header: "Time",
-    cell: ({ row }) => (
-      <span className="font-mono text-xs text-on-surface-variant flex items-center gap-1">
-        <Clock className="h-3 w-3" />
-        {formatTimestamp(row.original.timestamp)}
-      </span>
-    ),
-  },
-];
+      )}
+      {isExpanded && metadata && (
+        <pre className="mt-2 p-2 bg-surface-container-high rounded text-xs overflow-auto max-h-40 text-left whitespace-pre-wrap">
+          {formatJson(metadata)}
+        </pre>
+      )}
+    </div>
+  );
+}
 
 export default function ObservabilityPage() {
-  const { services, logs, loading, error, lastUpdated, refresh, startAutoRefresh } = useObservability({ autoRefresh: true });
+  const { services, logs, loading, error, lastUpdated, refresh, startAutoRefresh, filters, setLogFilters } = useObservability({ autoRefresh: true });
+  const [expandedLogIds, setExpandedLogIds] = useState<Set<string>>(new Set());
   useFrontendLogging();
   logComponentMount("ObservabilityPage");
+
+  const toggleLogExpansion = useCallback((id: string) => {
+    setExpandedLogIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
 
   const healthyCount = services.filter((s) => s.status === "healthy").length;
   const warningCount = services.filter((s) => s.status === "warning").length;
@@ -126,6 +108,53 @@ export default function ObservabilityPage() {
     logUserAction("manual_refresh");
     refresh();
   };
+
+  const expandedColumns: ColumnDef<{
+    id: string;
+    timestamp: string;
+    level: string;
+    service: string;
+    message: string;
+    metadata: Record<string, unknown> | null;
+  }>[] = [
+    {
+      accessorKey: "level",
+      header: "Level",
+      cell: ({ row }) => {
+        const level = row.original.level;
+        const variant = level === "INFO" || level === "DEBUG" ? "secondary" : level === "WARN" ? "warning" : "error";
+        return <Badge variant={variant}>{level}</Badge>;
+      },
+    },
+    {
+      accessorKey: "service",
+      header: "Service",
+      cell: ({ row }) => <span className="font-mono text-xs">{row.original.service}</span>,
+    },
+    {
+      accessorKey: "message",
+      header: "Message",
+      cell: ({ row }) => (
+        <LogRow
+          id={row.original.id}
+          message={row.original.message}
+          metadata={row.original.metadata}
+          isExpanded={expandedLogIds.has(row.original.id)}
+          onToggle={toggleLogExpansion}
+        />
+      ),
+    },
+    {
+      accessorKey: "timestamp",
+      header: "Time",
+      cell: ({ row }) => (
+        <span className="font-mono text-xs text-on-surface-variant flex items-center gap-1">
+          <Clock className="h-3 w-3" />
+          {formatTimestamp(row.original.timestamp)}
+        </span>
+      ),
+    },
+  ];
 
   return (
     <div className="flex flex-col h-full">
@@ -236,14 +265,72 @@ export default function ObservabilityPage() {
 
         <PageGrid className="mt-px" style={{ gridTemplateColumns: "1fr" }}>
           <PageCell>
-            <CardTitle className="mb-4">Recent Logs</CardTitle>
+            <div className="flex items-center justify-between mb-4">
+              <CardTitle>Recent Logs</CardTitle>
+            </div>
+            <div className="flex flex-wrap gap-3 mb-4 p-3 bg-surface-container-low rounded-md">
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-on-surface-variant">Level:</label>
+                <select
+                  value={filters.level || ""}
+                  onChange={(e) => setLogFilters({ ...filters, level: e.target.value || undefined })}
+                  className="h-8 rounded-md border border-outline bg-surface-container px-2 text-sm text-on-surface focus:outline-none focus:ring-1 focus:ring-primary"
+                >
+                  <option value="">All</option>
+                  <option value="DEBUG">DEBUG</option>
+                  <option value="INFO">INFO</option>
+                  <option value="WARN">WARN</option>
+                  <option value="ERROR">ERROR</option>
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-on-surface-variant">Service:</label>
+                <select
+                  value={filters.service || ""}
+                  onChange={(e) => setLogFilters({ ...filters, service: e.target.value || undefined })}
+                  className="h-8 rounded-md border border-outline bg-surface-container px-2 text-sm text-on-surface focus:outline-none focus:ring-1 focus:ring-primary"
+                >
+                  <option value="">All</option>
+                  <option value="frontend">Frontend</option>
+                  <option value="main-api">Main API</option>
+                  <option value="market-data-service">Market Data</option>
+                  <option value="news-feed-service">News Feed</option>
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-on-surface-variant">From:</label>
+                <input
+                  type="datetime-local"
+                  value={filters.startDate || ""}
+                  onChange={(e) => setLogFilters({ ...filters, startDate: e.target.value || undefined })}
+                  className="h-8 rounded-md border border-outline bg-surface-container px-2 text-sm text-on-surface focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-on-surface-variant">To:</label>
+                <input
+                  type="datetime-local"
+                  value={filters.endDate || ""}
+                  onChange={(e) => setLogFilters({ ...filters, endDate: e.target.value || undefined })}
+                  className="h-8 rounded-md border border-outline bg-surface-container px-2 text-sm text-on-surface focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setLogFilters({})}
+                className="h-8 text-xs"
+              >
+                Clear
+              </Button>
+            </div>
             {error && logs.length === 0 && (
               <div className="text-error text-sm mb-4 p-3 border border-error/30 rounded bg-error/10">
                 Failed to fetch logs. Is the logging service running?
               </div>
             )}
             <DataTable
-              columns={logColumns}
+              columns={expandedColumns}
               data={logs}
               loading={loading}
               emptyMessage="No logs available"

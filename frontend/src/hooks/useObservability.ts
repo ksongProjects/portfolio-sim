@@ -24,6 +24,13 @@ export type LogEntry = {
   span_id: string | null;
 };
 
+export interface LogFilters {
+  level?: string;
+  service?: string;
+  startDate?: string;
+  endDate?: string;
+}
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 
 export function useObservability(options?: { autoRefresh?: boolean; interval?: number }) {
@@ -32,6 +39,7 @@ export function useObservability(options?: { autoRefresh?: boolean; interval?: n
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [filters, setFilters] = useState<LogFilters>({});
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const { logAPICall } = useFrontendLogging();
 
@@ -55,40 +63,57 @@ export function useObservability(options?: { autoRefresh?: boolean; interval?: n
     }
   }, [logAPICall]);
 
-  const fetchLogs = useCallback(async (limit = 100) => {
+  const buildLogsUrl = useCallback((limit: number, logFilters: LogFilters) => {
+    const params = new URLSearchParams();
+    params.set("limit", limit.toString());
+    if (logFilters.level) params.set("level", logFilters.level);
+    if (logFilters.service) params.set("service", logFilters.service);
+    if (logFilters.startDate) params.set("start", logFilters.startDate);
+    if (logFilters.endDate) params.set("end", logFilters.endDate);
+    return `${API_BASE}/api/observability/logs?${params.toString()}`;
+  }, []);
+
+  const fetchLogs = useCallback(async (limit = 100, logFilters?: LogFilters) => {
+    const activeFilters = logFilters ?? filters;
     const startTime = Date.now();
     try {
-      const res = await fetch(`${API_BASE}/api/observability/logs?limit=${limit}`);
+      const url = buildLogsUrl(limit, activeFilters);
+      const res = await fetch(url);
       const duration = Date.now() - startTime;
       if (!res.ok) {
-        logAPICall("GET", `/api/observability/logs?limit=${limit}`, res.status, duration, "Failed to fetch logs");
+        logAPICall("GET", `/api/observability/logs`, res.status, duration, "Failed to fetch logs");
         throw new Error("Failed to fetch logs");
       }
-      logAPICall("GET", `/api/observability/logs?limit=${limit}`, res.status, duration);
+      logAPICall("GET", `/api/observability/logs`, res.status, duration);
       const data = await res.json();
       setLogs(data);
     } catch (err) {
       const duration = Date.now() - startTime;
-      logAPICall("GET", `/api/observability/logs?limit=${limit}`, 0, duration, err instanceof Error ? err.message : "Unknown error");
+      logAPICall("GET", `/api/observability/logs`, 0, duration, err instanceof Error ? err.message : "Unknown error");
       setError(err instanceof Error ? err.message : "Unknown error");
     }
-  }, [logAPICall]);
+  }, [filters, buildLogsUrl, logAPICall]);
+
+  const setLogFilters = useCallback((newFilters: LogFilters) => {
+    setFilters(newFilters);
+    fetchLogs(100, newFilters);
+  }, [fetchLogs]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
-    await Promise.all([fetchServices(), fetchLogs()]);
+    await Promise.all([fetchServices(), fetchLogs(100, filters)]);
     setLoading(false);
-  }, [fetchServices, fetchLogs]);
+  }, [fetchServices, fetchLogs, filters]);
 
   const startAutoRefresh = useCallback(() => {
     if (intervalRef.current) return;
     const interval = options?.interval ?? 5000;
     intervalRef.current = setInterval(() => {
       fetchServices();
-      fetchLogs();
+      fetchLogs(100, filters);
     }, interval);
-  }, [options?.interval, fetchServices, fetchLogs]);
+  }, [options?.interval, fetchServices, fetchLogs, filters]);
 
   const stopAutoRefresh = useCallback(() => {
     if (intervalRef.current) {
@@ -120,5 +145,7 @@ export function useObservability(options?: { autoRefresh?: boolean; interval?: n
     stopAutoRefresh,
     fetchServices,
     fetchLogs,
+    filters,
+    setLogFilters,
   };
 }
