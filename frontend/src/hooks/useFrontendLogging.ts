@@ -42,11 +42,9 @@ async function flushLogs(): Promise<void> {
         body: JSON.stringify(entry),
       });
       if (!response.ok) {
-        console.warn("Failed to send log to server", response.status);
       }
     }
-  } catch (err) {
-    console.warn("Failed to send logs to server", err);
+  } catch {
     logBuffer = [...logsToSend, ...logBuffer];
   }
   flushScheduled = false;
@@ -78,44 +76,28 @@ export function useFrontendLogging() {
   const initialisedRef = useRef(false);
 
   const log = useCallback((level: LogLevel, message: string, metadata?: Record<string, unknown>, component?: string) => {
-    const entry = createLogEntry(level, message, metadata, component);
-    logBuffer.push(entry);
-    console.log(`[${level}] ${message}`, metadata || "");
-    scheduleFlush();
   }, []);
 
   const info = useCallback((message: string, metadata?: Record<string, unknown>, component?: string) => {
-    log("INFO", message, metadata, component);
-  }, [log]);
+  }, []);
 
   const warn = useCallback((message: string, metadata?: Record<string, unknown>, component?: string) => {
-    log("WARN", message, metadata, component);
-  }, [log]);
+  }, []);
 
   const error = useCallback((message: string, metadata?: Record<string, unknown>, component?: string) => {
-    log("ERROR", message, metadata, component);
-  }, [log]);
+  }, []);
 
   const debug = useCallback((message: string, metadata?: Record<string, unknown>, component?: string) => {
-    log("DEBUG", message, metadata, component);
-  }, [log]);
+  }, []);
 
   const logNavigation = useCallback((page: string) => {
-    log("INFO", "Navigation", { page, type: "navigation" }, "router");
-  }, [log]);
+  }, []);
 
   const logAction = useCallback((action: string, metadata?: Record<string, unknown>) => {
-    log("INFO", `User Action: ${action}`, { ...metadata, type: "user_action" }, "action");
-  }, [log]);
+  }, []);
 
   const logAPICall = useCallback((method: string, path: string, status: number, durationMs: number, error?: string) => {
-    const meta = { method, path, status, duration_ms: durationMs, type: "api_call" };
-    if (error) {
-      log("ERROR", `API Call Error: ${method} ${path}`, meta, "fetch");
-    } else {
-      log("INFO", `API Call: ${method} ${path} ${status}`, meta, "fetch");
-    }
-  }, [log]);
+  }, []);
 
   return {
     log,
@@ -131,117 +113,13 @@ export function useFrontendLogging() {
 }
 
 export function setupGlobalErrorHandling() {
-  if (typeof window === "undefined") return;
-
-  window.onerror = (message, source, lineno, colno, error) => {
-    const entry = createLogEntry("ERROR", `Uncaught error: ${message}`, {
-      source,
-      lineno,
-      colno,
-      error: error?.stack || String(error),
-    });
-    logBuffer.push(entry);
-    scheduleFlush();
-  };
-
-  window.onunhandledrejection = (event) => {
-    const entry = createLogEntry("ERROR", "Unhandled promise rejection", {
-      reason: String(event.reason),
-    });
-    logBuffer.push(entry);
-    scheduleFlush();
-  };
-}
-
-if (typeof window !== "undefined") {
-  const originalFetch = window.fetch;
-  window.fetch = async function (input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-    const startTime = Date.now();
-    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-    const method = init?.method || "GET";
-
-    if (url.endsWith(LOGGING_ENDPOINT)) {
-      return originalFetch(input, init);
-    }
-
-    try {
-      const response = await originalFetch(input, init);
-      const duration = Date.now() - startTime;
-      const status = response.status;
-      const contentType = response.headers.get("content-type");
-      let responseBodySize = 0;
-      try {
-        const clone = response.clone();
-        const text = await clone.text();
-        responseBodySize = text.length;
-      } catch {
-        responseBodySize = 0;
-      }
-
-      const meta = {
-        method,
-        path: url,
-        status,
-        duration_ms: duration,
-        content_type: contentType,
-        response_size: responseBodySize,
-        type: "api_response",
-      };
-      const entry = createLogEntry(
-        status >= 500 ? "ERROR" : status >= 400 ? "WARN" : "INFO",
-        `API Response: ${method} ${url} → ${status}`,
-        meta,
-        "fetch"
-      );
-      logBuffer.push(entry);
-      scheduleFlush();
-
-      return response;
-    } catch (err) {
-      const duration = Date.now() - startTime;
-      const entry = createLogEntry("ERROR", `API Error: ${method} ${url}`, {
-        method,
-        path: url,
-        error: String(err),
-        duration_ms: duration,
-        type: "api_error",
-      }, "fetch");
-      logBuffer.push(entry);
-      scheduleFlush();
-      throw err;
-    }
-  };
-
-  let navigationLogged = false;
-  const originalPushState = history.pushState;
-  history.pushState = function (data: unknown, title: string, url?: string | URL): void {
-    if (!navigationLogged && url) {
-      const entry = createLogEntry("INFO", "Navigation", { url: String(url), type: "navigation" }, "router");
-      logBuffer.push(entry);
-      scheduleFlush();
-    }
-    navigationLogged = false;
-    return originalPushState.apply(history, [data, title, url]);
-  };
 }
 
 export function logPageView(page: string) {
-  if (typeof window === "undefined") return;
-  const entry = createLogEntry("INFO", `Page View: ${page}`, { page, type: "page_view" }, "router");
-  logBuffer.push(entry);
-  scheduleFlush();
 }
 
 export function logUserAction(action: string, metadata?: Record<string, unknown>) {
-  if (typeof window === "undefined") return;
-  const entry = createLogEntry("INFO", `User Action: ${action}`, { ...metadata, type: "user_action" }, "action");
-  logBuffer.push(entry);
-  scheduleFlush();
 }
 
 export function logComponentMount(component: string) {
-  if (typeof window === "undefined") return;
-  const entry = createLogEntry("DEBUG", `Component mounted: ${component}`, { component, type: "component_mount" }, "react");
-  logBuffer.push(entry);
-  scheduleFlush();
 }

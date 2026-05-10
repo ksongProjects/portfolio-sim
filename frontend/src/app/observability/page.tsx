@@ -291,7 +291,6 @@ export default function ObservabilityPage() {
                   className="h-8 rounded-md border border-outline bg-surface-container px-2 text-sm text-on-surface focus:outline-none focus:ring-1 focus:ring-primary"
                 >
                   <option value="">All</option>
-                  <option value="frontend">Frontend</option>
                   <option value="main-api">Main API</option>
                   <option value="market-data-service">Market Data</option>
                   <option value="news-feed-service">News Feed</option>
