@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/portfolio-sim/backend/database"
 	"github.com/portfolio-sim/backend/logging"
 	"github.com/portfolio-sim/backend/redis"
@@ -126,7 +127,7 @@ func NewServer(cfg *Config) (*Server, error) {
 
 	logURL := os.Getenv("LOGGING_SERVICE_URL")
 	if logURL == "" {
-		logURL = "http://backend:8080/api/logs"
+		logURL = "http://localhost:8080/api/logs"
 	}
 	loggingMiddleware := logging.NewMiddleware("main-api", logURL, logger)
 
@@ -239,25 +240,35 @@ func (s *Server) handleIngestLog(w http.ResponseWriter, r *http.Request) {
 		SpanID    string                 `json:"span_id,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&entry); err != nil {
+		s.logger.Error("handleIngestLog: failed to decode", "error", err)
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
 	if entry.Level == "" || entry.Service == "" || entry.Message == "" {
+		s.logger.Error("handleIngestLog: missing required fields", "level", entry.Level, "service", entry.Service, "message", entry.Message)
 		http.Error(w, "level, service, and message are required", http.StatusBadRequest)
 		return
 	}
+
+	s.logger.Info("handleIngestLog: ingesting log", "service", entry.Service, "level", entry.Level, "message", entry.Message)
 
 	metadataJSON, err := json.Marshal(entry.Metadata)
 	if err != nil {
 		s.logger.Warn("log metadata marshaling failed", "error", err)
 		metadataJSON = []byte(`{}`)
 	}
+	if entry.ID == "" {
+		entry.ID = uuid.New().String()
+	}
+	if entry.Timestamp == "" {
+		entry.Timestamp = time.Now().UTC().Format(time.RFC3339Nano)
+	}
 	_, err = s.db.Exec(r.Context(), `
 		INSERT INTO logs (id, timestamp, level, service, component, message, metadata, trace_id, span_id)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`, entry.ID, entry.Timestamp, entry.Level, entry.Service, entry.Component, entry.Message, metadataJSON, entry.TraceID, entry.SpanID)
 	if err != nil {
-		s.logger.Error("log insert failed", "error", err, "service", entry.Service)
+		s.logger.Error("log insert failed", "error", err, "service", entry.Service, "id", entry.ID)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -276,6 +287,8 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 	level := r.URL.Query().Get("level")
 	service := r.URL.Query().Get("service")
 
+	s.logger.Info("handleGetLogs: fetching logs", "limit", limit, "level", level, "service", service)
+
 	query := `
 		SELECT id, timestamp, level, service, component, message, metadata, trace_id, span_id
 		FROM logs
@@ -286,6 +299,7 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 	`
 	rows, err := s.db.Query(r.Context(), query, level, service, limit)
 	if err != nil {
+		s.logger.Error("handleGetLogs: query failed", "error", err)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode([]interface{}{})
 		return
@@ -309,6 +323,7 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 		var le LogEntry
 		var metadata []byte
 		if err := rows.Scan(&le.ID, &le.Timestamp, &le.Level, &le.Service, &le.Component, &le.Message, &metadata, &le.TraceID, &le.SpanID); err != nil {
+			s.logger.Error("handleGetLogs: scan failed", "error", err)
 			continue
 		}
 		if metadata != nil {
@@ -316,6 +331,9 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 		}
 		logs = append(logs, le)
 	}
+
+	s.logger.Info("handleGetLogs: returning logs", "count", len(logs))
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(logs)
 }
