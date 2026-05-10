@@ -223,14 +223,14 @@ type QuestradeCandle struct {
 }
 
 type QuestradeSymbol struct {
-	Symbol     string `json:"symbol"`
-	SymbolID   int    `json:"symbolId"`
-	BoardID    string `json:"boardId"`
-	Name       string `json:"name"`
-	Type       string `json:"type"`
-	Currency   string `json:"currency"`
-	Decimals   int    `json:"decimals"`
-	Active     bool   `json:"isActive"`
+	Symbol          string `json:"symbol"`
+	SymbolID        int    `json:"symbolId"`
+	Description     string `json:"description"`
+	SecurityType    string `json:"securityType"`
+	ListingExchange string `json:"listingExchange"`
+	Currency        string `json:"currency"`
+	IsQuotable      bool   `json:"isQuotable"`
+	IsTradable      bool   `json:"isTradable"`
 }
 
 type QuestradeOption struct {
@@ -375,12 +375,12 @@ func (p *QuestradeProvider) SearchTickers(prefix string) ([]TickerSearchResult, 
 	}
 	results := make([]TickerSearchResult, 0, len(symbols))
 	for _, s := range symbols {
-		if s.Active {
+		if s.IsTradable {
 			results = append(results, TickerSearchResult{
 				Symbol:   s.Symbol,
-				Name:     s.Name,
-				Exchange: s.BoardID,
-				Type:     s.Type,
+				Name:     s.Description,
+				Exchange: s.ListingExchange,
+				Type:     s.SecurityType,
 				SymbolID: s.SymbolID,
 			})
 		}
@@ -395,12 +395,35 @@ func (p *QuestradeProvider) FetchSymbolSearch(prefix string) ([]QuestradeSymbol,
 	}
 
 	var result struct {
-		Symbols []QuestradeSymbol `json:"symbols"`
+		Symbols []struct {
+			Symbol          string `json:"symbol"`
+			SymbolID        int    `json:"symbolId"`
+			Description     string `json:"description"`
+			SecurityType    string `json:"securityType"`
+			ListingExchange string `json:"listingExchange"`
+			IsQuotable      bool   `json:"isQuotable"`
+			IsTradable      bool   `json:"isTradable"`
+			Currency        string `json:"currency"`
+		} `json:"symbol"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, err
 	}
-	return result.Symbols, nil
+
+	symbols := make([]QuestradeSymbol, 0, len(result.Symbols))
+	for _, s := range result.Symbols {
+		symbols = append(symbols, QuestradeSymbol{
+			Symbol:          s.Symbol,
+			SymbolID:        s.SymbolID,
+			Description:     s.Description,
+			SecurityType:    s.SecurityType,
+			ListingExchange: s.ListingExchange,
+			Currency:        s.Currency,
+			IsQuotable:      s.IsQuotable,
+			IsTradable:      s.IsTradable,
+		})
+	}
+	return symbols, nil
 }
 
 func (p *QuestradeProvider) FetchSymbolOptions(symbolID string) ([]QuestradeOption, error) {
