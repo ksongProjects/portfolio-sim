@@ -9,12 +9,14 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/portfolio-sim/backend/logging"
 )
 
 type ServiceHealth struct {
-	Name     string `json:"name"`
-	Status   string `json:"status"`
-	Uptime   string `json:"uptime"`
+	Name      string `json:"name"`
+	Status    string `json:"status"`
+	Uptime    string `json:"uptime"`
 	LastCheck string `json:"last_check"`
 }
 
@@ -22,22 +24,23 @@ type ObservabilityService struct {
 	checks     []ServiceCheck
 	tracker    map[string]*serviceTracker
 	mu         sync.Mutex
+	logClient  *logging.Client
 }
 
 type serviceTracker struct {
-	name         string
-	uptimeCount  int
-	totalChecks  int
-	startTime    time.Time
+	name        string
+	uptimeCount int
+	totalChecks int
+	startTime   time.Time
 }
 
 type ServiceCheck struct {
-	Name         string
-	HealthURL    string
-	Timeout      time.Duration
+	Name      string
+	HealthURL string
+	Timeout   time.Duration
 }
 
-func NewObservabilityService() *ObservabilityService {
+func NewObservabilityService(logClient *logging.Client) *ObservabilityService {
 	return &ObservabilityService{
 		checks: []ServiceCheck{
 			{Name: "main-api", HealthURL: "http://main-api:8080/health", Timeout: 500 * time.Millisecond},
@@ -45,7 +48,8 @@ func NewObservabilityService() *ObservabilityService {
 			{Name: "news-feed-service", HealthURL: "http://news-feed-service:8080/health", Timeout: 500 * time.Millisecond},
 			{Name: "analyst-service", HealthURL: "http://analyst-service:8080/health", Timeout: 500 * time.Millisecond},
 		},
-		tracker: make(map[string]*serviceTracker),
+		tracker:   make(map[string]*serviceTracker),
+		logClient: logClient,
 	}
 }
 
@@ -76,6 +80,15 @@ func (s *ObservabilityService) CheckServices(ctx context.Context) []ServiceHealt
 			hostPort := check.HealthURL[strings.Index(check.HealthURL, "://")+3:]
 			hostPort = strings.Split(hostPort, "/")[0]
 
+			if s.logClient != nil {
+				s.logClient.InfoWithMeta(ctx, "Health check request", map[string]interface{}{
+					"type":    "health_check_request",
+					"target":  check.Name,
+					"url":     check.HealthURL,
+					"timeout": check.Timeout.String(),
+				})
+			}
+
 			dialer := &net.Dialer{Timeout: check.Timeout}
 			conn, err := dialer.DialContext(ctx, "tcp", hostPort)
 			if err == nil {
@@ -86,9 +99,19 @@ func (s *ObservabilityService) CheckServices(ctx context.Context) []ServiceHealt
 					resp, err := client.Do(req)
 					if err == nil {
 						defer resp.Body.Close()
+						body, _ := io.ReadAll(resp.Body)
+						bodyStr := string(body)
+
+						if s.logClient != nil {
+							s.logClient.InfoWithMeta(ctx, "Health check response", map[string]interface{}{
+								"type":   "health_check_response",
+								"target": check.Name,
+								"status": resp.StatusCode,
+								"body":   bodyStr,
+							})
+						}
+
 						if resp.StatusCode == http.StatusOK {
-							body, _ := io.ReadAll(resp.Body)
-							bodyStr := string(body)
 							if bodyStr == "ok" || bodyStr == `"ok"` || contains(body, `"status":"ok"`) {
 								status = "healthy"
 								healthy = true
@@ -100,8 +123,21 @@ func (s *ObservabilityService) CheckServices(ctx context.Context) []ServiceHealt
 							status = "warning"
 						}
 					} else {
+						if s.logClient != nil {
+							s.logClient.ErrorWithMeta(ctx, "Health check failed", map[string]interface{}{
+								"type":  "health_check_error",
+								"error": err.Error(),
+							})
+						}
 						status = "unreachable"
 					}
+				}
+			} else {
+				if s.logClient != nil {
+					s.logClient.ErrorWithMeta(ctx, "Health check connection failed", map[string]interface{}{
+						"type":  "health_check_error",
+						"error": err.Error(),
+					})
 				}
 			}
 

@@ -12,17 +12,19 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/portfolio-sim/backend/logging"
 )
 
 type ProviderService struct {
-	logger *slog.Logger
+	logger    *slog.Logger
+	logClient *logging.Client
 }
 
-func NewProviderService(logger *slog.Logger) *ProviderService {
+func NewProviderService(logger *slog.Logger, logClient *logging.Client) *ProviderService {
 	if logger == nil {
 		logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	}
-	return &ProviderService{logger: logger}
+	return &ProviderService{logger: logger, logClient: logClient}
 }
 
 type ProviderConfig struct {
@@ -176,14 +178,36 @@ func (s *ProviderService) GetQuestradeOAuth(ctx context.Context, db interface {
 	return
 }
 
-func (s *ProviderService) ExchangeQuestradeToken(initialRefreshToken string) (accessToken, newRefreshToken, apiServer string, expiresIn int, err error) {
+func (s *ProviderService) ExchangeQuestradeToken(ctx context.Context, initialRefreshToken string) (accessToken, newRefreshToken, apiServer string, expiresIn int, err error) {
 	const qtAPI = "https://login.questrade.com/oauth2/token"
 	tokenURL := fmt.Sprintf("%s?grant_type=refresh_token&refresh_token=%s", qtAPI, url.QueryEscape(initialRefreshToken))
+
+	if s.logClient != nil {
+		s.logClient.InfoWithMeta(ctx, "Questrade token exchange request", map[string]interface{}{
+			"url":    tokenURL,
+			"method": "GET",
+			"type":   "provider_api_request",
+		})
+	}
+
 	resp, err := http.Get(tokenURL)
 	if err != nil {
 		return "", "", "", 0, err
 	}
 	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", "", "", 0, err
+	}
+
+	if s.logClient != nil {
+		s.logClient.InfoWithMeta(ctx, "Questrade token exchange response", map[string]interface{}{
+			"status": resp.StatusCode,
+			"body":   string(body),
+			"type":   "provider_api_response",
+		})
+	}
 
 	if resp.StatusCode == http.StatusBadRequest {
 		return "", "", "", 0, fmt.Errorf("questrade refresh token is expired or invalid")
@@ -201,7 +225,7 @@ func (s *ProviderService) ExchangeQuestradeToken(initialRefreshToken string) (ac
 		ExpiresIn    int    `json:"expires_in"`
 		APIServer    string `json:"api_server"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(body, &result); err != nil {
 		return "", "", "", 0, err
 	}
 	return result.AccessToken, result.RefreshToken, result.APIServer, result.ExpiresIn, nil
@@ -231,32 +255,53 @@ func (s *ProviderService) CheckConnection(ctx context.Context, db interface {
 func (s *ProviderService) ValidateProviderKey(ctx context.Context, db interface {
 	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
 }, providerID, apiKey string) (bool, *QuestradeOAuthResult, error) {
-	s.logger.Info("ProviderService.ValidateProviderKey called", "provider", providerID)
+	if s.logClient != nil {
+		s.logClient.InfoWithMeta(ctx, "Validating provider key", map[string]interface{}{
+			"provider": providerID,
+			"api_key":  apiKey,
+			"type":     "provider_validation_request",
+		})
+	}
+
+	var valid bool
+	var qtResult *QuestradeOAuthResult
+	var err error
 
 	switch providerID {
 	case "polygon":
-		s.logger.Info("validating polygon key")
-		valid, err := validatePolygonKey(apiKey)
-		return valid, nil, err
+		valid, err = s.validatePolygonKey(apiKey)
 	case "fmp":
-		s.logger.Info("validating fmp key")
-		valid, err := validateFMPKey(apiKey)
-		return valid, nil, err
+		valid, err = s.validateFMPKey(apiKey)
 	case "questrade":
-		s.logger.Info("validating questrade key")
-		return validateQuestradeKey(apiKey)
+		valid, qtResult, err = s.validateQuestradeKey(apiKey)
 	case "youtube":
-		s.logger.Info("validating youtube key")
-		valid, err := validateYouTubeKey(apiKey)
-		return valid, nil, err
+		valid, err = s.validateYouTubeKey(apiKey)
 	case "gemini":
-		s.logger.Info("validating gemini key")
-		valid, err := validateGeminiKey(apiKey)
-		return valid, nil, err
+		valid, err = s.validateGeminiKey(apiKey)
 	default:
-		s.logger.Warn("unknown provider", "provider", providerID)
-		return false, nil, fmt.Errorf("unknown provider: %s", providerID)
+		err = fmt.Errorf("unknown provider: %s", providerID)
 	}
+
+	if err != nil {
+		if s.logClient != nil {
+			s.logClient.ErrorWithMeta(ctx, "Provider validation failed", map[string]interface{}{
+				"provider": providerID,
+				"error":    err.Error(),
+				"type":     "provider_validation_error",
+			})
+		}
+		return false, nil, err
+	}
+
+	if s.logClient != nil {
+		s.logClient.InfoWithMeta(ctx, "Provider validation succeeded", map[string]interface{}{
+			"provider": providerID,
+			"valid":    valid,
+			"type":     "provider_validation_success",
+		})
+	}
+
+	return valid, qtResult, nil
 }
 
 type QuestradeOAuthResult struct {
@@ -266,13 +311,36 @@ type QuestradeOAuthResult struct {
 	ExpiresIn    int
 }
 
-func validatePolygonKey(apiKey string) (bool, error) {
+func (s *ProviderService) validatePolygonKey(apiKey string) (bool, error) {
 	url := fmt.Sprintf("https://api.polygon.io/v2/aggs/ticker/AAPL/prev?adjusted=true&apiKey=%s", apiKey)
+
+	if s.logClient != nil {
+		s.logClient.InfoWithMeta(context.Background(), "Polygon validation request", map[string]interface{}{
+			"url":    url,
+			"method": "GET",
+			"type":   "provider_api_request",
+		})
+	}
+
 	resp, err := http.Get(url)
 	if err != nil {
 		return false, err
 	}
 	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false, err
+	}
+
+	if s.logClient != nil {
+		s.logClient.InfoWithMeta(context.Background(), "Polygon validation response", map[string]interface{}{
+			"status": resp.StatusCode,
+			"body":   string(body),
+			"type":   "provider_api_response",
+		})
+	}
+
 	if resp.StatusCode == http.StatusOK {
 		return true, nil
 	}
@@ -282,15 +350,37 @@ func validatePolygonKey(apiKey string) (bool, error) {
 	return false, fmt.Errorf("polygon returned status: %d", resp.StatusCode)
 }
 
-func validateFMPKey(apiKey string) (bool, error) {
+func (s *ProviderService) validateFMPKey(apiKey string) (bool, error) {
 	url := fmt.Sprintf("https://financialmodelingprep.com/api/v3/quote/AAPL?apikey=%s", apiKey)
+
+	if s.logClient != nil {
+		s.logClient.InfoWithMeta(context.Background(), "FMP validation request", map[string]interface{}{
+			"url":    url,
+			"method": "GET",
+			"type":   "provider_api_request",
+		})
+	}
+
 	resp, err := http.Get(url)
 	if err != nil {
 		return false, err
 	}
 	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false, err
+	}
+
+	if s.logClient != nil {
+		s.logClient.InfoWithMeta(context.Background(), "FMP validation response", map[string]interface{}{
+			"status": resp.StatusCode,
+			"body":   string(body),
+			"type":   "provider_api_response",
+		})
+	}
+
 	if resp.StatusCode == http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
 		var result []struct {
 			Symbol string `json:"symbol"`
 		}
@@ -304,14 +394,36 @@ func validateFMPKey(apiKey string) (bool, error) {
 	return false, fmt.Errorf("fmp returned status: %d", resp.StatusCode)
 }
 
-func validateQuestradeKey(apiKey string) (bool, *QuestradeOAuthResult, error) {
+func (s *ProviderService) validateQuestradeKey(apiKey string) (bool, *QuestradeOAuthResult, error) {
 	const qtAPI = "https://login.questrade.com/oauth2/token"
 	tokenURL := fmt.Sprintf("%s?grant_type=refresh_token&refresh_token=%s", qtAPI, url.QueryEscape(apiKey))
+
+	if s.logClient != nil {
+		s.logClient.InfoWithMeta(context.Background(), "Questrade validation request", map[string]interface{}{
+			"url":    tokenURL,
+			"method": "GET",
+			"type":   "provider_api_request",
+		})
+	}
+
 	resp, err := http.Get(tokenURL)
 	if err != nil {
 		return false, nil, fmt.Errorf("oauth request failed: %w", err)
 	}
 	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false, nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if s.logClient != nil {
+		s.logClient.InfoWithMeta(context.Background(), "Questrade validation response", map[string]interface{}{
+			"status": resp.StatusCode,
+			"body":   string(body),
+			"type":   "provider_api_response",
+		})
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode == http.StatusBadRequest {
@@ -320,7 +432,6 @@ func validateQuestradeKey(apiKey string) (bool, *QuestradeOAuthResult, error) {
 		if resp.StatusCode == http.StatusUnauthorized {
 			return false, nil, fmt.Errorf("questrade unauthorized")
 		}
-		body, _ := io.ReadAll(resp.Body)
 		return false, nil, fmt.Errorf("questrade returned status %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -330,7 +441,7 @@ func validateQuestradeKey(apiKey string) (bool, *QuestradeOAuthResult, error) {
 		ExpiresIn    int    `json:"expires_in"`
 		APIServer    string `json:"api_server"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(body, &result); err != nil {
 		return false, nil, fmt.Errorf("failed to parse oauth response: %w", err)
 	}
 	if result.AccessToken == "" || result.RefreshToken == "" || result.APIServer == "" {
@@ -344,13 +455,36 @@ func validateQuestradeKey(apiKey string) (bool, *QuestradeOAuthResult, error) {
 	}, nil
 }
 
-func validateYouTubeKey(apiKey string) (bool, error) {
+func (s *ProviderService) validateYouTubeKey(apiKey string) (bool, error) {
 	url := fmt.Sprintf("https://www.googleapis.com/youtube/v3/channels?part=contentDetails&mine=true&key=%s", apiKey)
+
+	if s.logClient != nil {
+		s.logClient.InfoWithMeta(context.Background(), "YouTube validation request", map[string]interface{}{
+			"url":    url,
+			"method": "GET",
+			"type":   "provider_api_request",
+		})
+	}
+
 	resp, err := http.Get(url)
 	if err != nil {
 		return false, err
 	}
 	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false, err
+	}
+
+	if s.logClient != nil {
+		s.logClient.InfoWithMeta(context.Background(), "YouTube validation response", map[string]interface{}{
+			"status": resp.StatusCode,
+			"body":   string(body),
+			"type":   "provider_api_response",
+		})
+	}
+
 	if resp.StatusCode == http.StatusOK {
 		return true, nil
 	}
@@ -360,13 +494,36 @@ func validateYouTubeKey(apiKey string) (bool, error) {
 	return false, fmt.Errorf("youtube returned status: %d", resp.StatusCode)
 }
 
-func validateGeminiKey(apiKey string) (bool, error) {
+func (s *ProviderService) validateGeminiKey(apiKey string) (bool, error) {
 	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models?key=%s", apiKey)
+
+	if s.logClient != nil {
+		s.logClient.InfoWithMeta(context.Background(), "Gemini validation request", map[string]interface{}{
+			"url":    url,
+			"method": "GET",
+			"type":   "provider_api_request",
+		})
+	}
+
 	resp, err := http.Get(url)
 	if err != nil {
 		return false, err
 	}
 	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false, err
+	}
+
+	if s.logClient != nil {
+		s.logClient.InfoWithMeta(context.Background(), "Gemini validation response", map[string]interface{}{
+			"status": resp.StatusCode,
+			"body":   string(body),
+			"type":   "provider_api_response",
+		})
+	}
+
 	if resp.StatusCode == http.StatusOK {
 		return true, nil
 	}

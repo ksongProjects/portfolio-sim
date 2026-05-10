@@ -1,14 +1,175 @@
 package logging
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
+	"net/url"
+	"strings"
+	"time"
 )
+
+var defaultClient *Client
+
+func SetClient(client *Client) {
+	defaultClient = client
+}
 
 func WrapHandlerFunc(next func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		next(w, r)
+		if defaultClient == nil {
+			next(w, r)
+			return
+		}
+
+		start := time.Now()
+		reqBody, readErr := io.ReadAll(r.Body)
+		if readErr != nil {
+			reqBody = nil
+		}
+		r.Body = io.NopCloser(bytes.NewReader(reqBody))
+
+		reqMeta := map[string]interface{}{
+			"type":            "api_request",
+			"method":          r.Method,
+			"path":            r.URL.Path,
+			"query":           sanitizeURLQuery(r.URL.RawQuery),
+			"request_headers": redactHeaders(r.Header),
+			"remote_addr":     r.RemoteAddr,
+			"content_length":  r.ContentLength,
+		}
+		if len(reqBody) > 0 {
+			reqMeta["request_body"] = sanitizeBody(r.Header.Get("Content-Type"), reqBody)
+			reqMeta["request_body_size"] = len(reqBody)
+		}
+		if readErr != nil {
+			reqMeta["request_body_error"] = readErr.Error()
+		}
+		defaultClient.InfoWithMeta(r.Context(), "API Request", reqMeta)
+
+		wrapper := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+		next(wrapper, r)
+
+		respMeta := map[string]interface{}{
+			"type":             "api_response",
+			"method":           r.Method,
+			"path":             r.URL.Path,
+			"query":            sanitizeURLQuery(r.URL.RawQuery),
+			"status":           wrapper.statusCode,
+			"duration_ms":      time.Since(start).Milliseconds(),
+			"response_headers": redactHeaders(wrapper.Header()),
+		}
+		if len(wrapper.body) > 0 {
+			respMeta["response_body"] = sanitizeBody(wrapper.Header().Get("Content-Type"), wrapper.body)
+			respMeta["response_body_size"] = len(wrapper.body)
+		}
+
+		switch {
+		case wrapper.statusCode >= 500:
+			defaultClient.ErrorWithMeta(r.Context(), "API Response Error", respMeta)
+		case wrapper.statusCode >= 400:
+			defaultClient.WarnWithMeta(r.Context(), "API Response Warning", respMeta)
+		default:
+			defaultClient.InfoWithMeta(r.Context(), "API Response", respMeta)
+		}
 	})
+}
+
+type responseWriter struct {
+	http.ResponseWriter
+	statusCode int
+	body       []byte
+}
+
+func (rw *responseWriter) WriteHeader(code int) {
+	rw.statusCode = code
+	rw.ResponseWriter.WriteHeader(code)
+}
+
+func (rw *responseWriter) Write(b []byte) (int, error) {
+	rw.body = append(rw.body, b...)
+	return rw.ResponseWriter.Write(b)
+}
+
+func sanitizeURLQuery(rawQuery string) string {
+	if rawQuery == "" {
+		return ""
+	}
+
+	values, err := url.ParseQuery(rawQuery)
+	if err != nil {
+		return rawQuery
+	}
+
+	for key := range values {
+		lowerKey := strings.ToLower(key)
+		if lowerKey == "access_token" || lowerKey == "refresh_token" || lowerKey == "apikey" || lowerKey == "api_key" || lowerKey == "key" || lowerKey == "token" {
+			values.Set(key, "REDACTED")
+		}
+	}
+	return values.Encode()
+}
+
+func redactHeaders(headers http.Header) map[string][]string {
+	if headers == nil {
+		return nil
+	}
+
+	redacted := make(map[string][]string, len(headers))
+	for key, values := range headers {
+		lowerKey := strings.ToLower(key)
+		if lowerKey == "authorization" || lowerKey == "cookie" || lowerKey == "set-cookie" || lowerKey == "x-api-key" || lowerKey == "proxy-authorization" {
+			redacted[key] = []string{"REDACTED"}
+			continue
+		}
+
+		copied := make([]string, len(values))
+		copy(copied, values)
+		redacted[key] = copied
+	}
+	return redacted
+}
+
+func sanitizeBody(contentType string, body []byte) interface{} {
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 {
+		return ""
+	}
+
+	if strings.Contains(strings.ToLower(contentType), "json") || trimmed[0] == '{' || trimmed[0] == '[' {
+		var payload interface{}
+		if err := json.Unmarshal(trimmed, &payload); err == nil {
+			return redactJSONValue(payload)
+		}
+	}
+
+	return string(body)
+}
+
+func redactJSONValue(value interface{}) interface{} {
+	switch typed := value.(type) {
+	case map[string]interface{}:
+		redacted := make(map[string]interface{}, len(typed))
+		for key, nested := range typed {
+			lowerKey := strings.ToLower(key)
+			if lowerKey == "access_token" || lowerKey == "refresh_token" || lowerKey == "authorization" || lowerKey == "api_key" || lowerKey == "apikey" || lowerKey == "encrypted_key" || lowerKey == "password" || lowerKey == "token" {
+				redacted[key] = "REDACTED"
+				continue
+			}
+			redacted[key] = redactJSONValue(nested)
+		}
+		return redacted
+	case []interface{}:
+		redacted := make([]interface{}, len(typed))
+		for i, nested := range typed {
+			redacted[i] = redactJSONValue(nested)
+		}
+		return redacted
+	default:
+		return typed
+	}
 }
 
 func Log(ctx context.Context, client *Client, level, msg string, meta map[string]interface{}) {

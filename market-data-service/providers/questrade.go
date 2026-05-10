@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/portfolio-sim/market-data-service/config"
@@ -15,21 +16,30 @@ import (
 	"github.com/portfolio-sim/market-data-service/storage"
 )
 
+const questradeOAuthURL = "https://login.questrade.com/oauth2/token"
+
+type questradeTokenStore interface {
+	GetQuestradeTokens(ctx context.Context) (*storage.QuestradeTokens, error)
+	UpdateQuestradeTokens(ctx context.Context, accessToken, refreshToken, apiServer string, expiresIn int) error
+}
+
 type QuestradeProvider struct {
-	cfg         config.QuestradeConfig
-	client      *http.Client
-	baseURL     string
-	token       string
-	rateLimiter *RateLimiter
-	storage     *storage.Storage
-	logClient   *logging.Client
+	cfg            config.QuestradeConfig
+	client         *http.Client
+	baseURL        string
+	token          string
+	tokenExpiresAt time.Time
+	oauthURL       string
+	rateLimiter    *RateLimiter
+	storage        questradeTokenStore
+	logClient      *logging.Client
 }
 
 func NewQuestradeProvider(cfg config.QuestradeConfig, storage *storage.Storage, logClient *logging.Client) *QuestradeProvider {
 	return &QuestradeProvider{
 		cfg:         cfg,
 		client:      &http.Client{Timeout: 30 * time.Second},
-		baseURL:     cfg.APIURL,
+		oauthURL:    questradeOAuthURL,
 		rateLimiter: NewRateLimiter(20, 15000),
 		storage:     storage,
 		logClient:   logClient,
@@ -40,23 +50,27 @@ func (p *QuestradeProvider) Name() string {
 	return "questrade"
 }
 
-func (p *QuestradeProvider) logRequest(method, url string) {
+func (p *QuestradeProvider) logRequest(method, url string, headers http.Header) {
 	if p.logClient == nil {
 		return
 	}
+	url = redactQuestradeURL(url)
 	p.logClient.InfoWithMeta(nil, "Questrade Request: "+method+" "+url, map[string]interface{}{
-		"method":     method,
-		"url":        url,
-		"provider":   "questrade",
-		"base_url":   p.baseURL,
-		"has_token":  p.token != "",
+		"method":          method,
+		"url":             url,
+		"provider":        "questrade",
+		"base_url":        p.baseURL,
+		"has_token":       p.token != "",
+		"request_headers": logging.RedactHeaders(headers),
 	})
 }
 
-func (p *QuestradeProvider) logResponse(method, url string, status int, body []byte, err error) {
+func (p *QuestradeProvider) logResponse(method, url string, status int, headers http.Header, body []byte, err error) {
 	if p.logClient == nil {
 		return
 	}
+	url = redactQuestradeURL(url)
+	body = redactQuestradeBody(url, body)
 	level := "INFO"
 	if status >= 400 || err != nil {
 		level = "ERROR"
@@ -66,16 +80,17 @@ func (p *QuestradeProvider) logResponse(method, url string, status int, body []b
 		msg = fmt.Sprintf("Questrade %s %s → ERROR: %v", method, url, err)
 	}
 	meta := map[string]interface{}{
-		"method":      method,
-		"url":         url,
-		"status":      status,
-		"body_length": len(body),
-		"provider":    "questrade",
-		"base_url":    p.baseURL,
-		"has_token":   p.token != "",
+		"method":           method,
+		"url":              url,
+		"status":           status,
+		"body_length":      len(body),
+		"provider":         "questrade",
+		"base_url":         p.baseURL,
+		"has_token":        p.token != "",
+		"response_headers": logging.RedactHeaders(headers),
 	}
 	if len(body) > 0 {
-		meta["body"] = string(body)
+		meta["body"] = logging.SanitizeBody(headers.Get("Content-Type"), body)
 	}
 	if err != nil {
 		meta["error"] = err.Error()
@@ -88,17 +103,59 @@ func (p *QuestradeProvider) logError(method, url string, err error) {
 	if p.logClient == nil {
 		return
 	}
-	p.logClient.ErrorWithMeta(nil, "Questrade Error: "+method+" "+url, map[string]interface{}{
-		"method":     method,
-		"url":        url,
-		"error":      err.Error(),
-		"error_type": fmt.Sprintf("%T", err),
-		"provider":   "questrade",
-		"base_url":   p.baseURL,
+	url = redactQuestradeURL(url)
+	p.logClient.EmitWithMetadata(nil, "ERROR", "Questrade Error: "+method+" "+url, map[string]interface{}{
+		"method":      method,
+		"url":         url,
+		"error":       err.Error(),
+		"error_type":  fmt.Sprintf("%T", err),
+		"provider":    "questrade",
+		"base_url":    p.baseURL,
+		"has_token":   p.token != "",
+		"status":      0,
+		"body_length": 0,
 	})
 }
 
-func (p *QuestradeProvider) refreshToken() error {
+func redactQuestradeURL(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+
+	query := parsed.Query()
+	if _, ok := query["refresh_token"]; ok {
+		query.Set("refresh_token", "REDACTED")
+	}
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
+}
+
+func redactQuestradeBody(rawURL string, body []byte) []byte {
+	if !strings.Contains(rawURL, "/oauth2/token") || len(body) == 0 {
+		return body
+	}
+
+	var payload map[string]interface{}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return body
+	}
+
+	if _, ok := payload["access_token"]; ok {
+		payload["access_token"] = "REDACTED"
+	}
+	if _, ok := payload["refresh_token"]; ok {
+		payload["refresh_token"] = "REDACTED"
+	}
+
+	redacted, err := json.Marshal(payload)
+	if err != nil {
+		return body
+	}
+	return redacted
+}
+
+func (p *QuestradeProvider) refreshToken(force bool) error {
 	if p.storage == nil {
 		return fmt.Errorf("no storage configured")
 	}
@@ -108,11 +165,10 @@ func (p *QuestradeProvider) refreshToken() error {
 		return fmt.Errorf("failed to get tokens from storage: %w", err)
 	}
 
-	if tokens.AccessToken != "" && time.Now().Before(tokens.ExpiresAt) {
+	if !force && tokens.AccessToken != "" && tokens.APIServer != "" && time.Now().Before(tokens.ExpiresAt) {
 		p.token = tokens.AccessToken
-		if tokens.APIServer != "" {
-			p.baseURL = tokens.APIServer
-		}
+		p.baseURL = tokens.APIServer
+		p.tokenExpiresAt = tokens.ExpiresAt
 		return nil
 	}
 
@@ -121,22 +177,31 @@ func (p *QuestradeProvider) refreshToken() error {
 	}
 
 	tokenURL := fmt.Sprintf("%s?grant_type=refresh_token&refresh_token=%s",
-		tokens.APIServer, url.QueryEscape(tokens.RefreshToken))
-	p.logRequest("GET", tokenURL)
-
-	resp, err := http.Get(tokenURL)
+		p.oauthURL,
+		url.QueryEscape(tokens.RefreshToken))
+	req, err := http.NewRequest(http.MethodGet, tokenURL, nil)
+	if err != nil {
+		p.logError("GET", tokenURL, err)
+		return err
+	}
+	p.logRequest("GET", tokenURL, req.Header)
+	resp, err := p.client.Do(req)
 	if err != nil {
 		p.logError("GET", tokenURL, err)
 		return err
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
-	p.logResponse("GET", tokenURL, resp.StatusCode, body, nil)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		p.logError("GET", tokenURL, err)
+		return err
+	}
+	p.logResponse("GET", tokenURL, resp.StatusCode, resp.Header, body, nil)
 
 	if resp.StatusCode != http.StatusOK {
-		err := fmt.Errorf("questrade token refresh failed: %d", resp.StatusCode)
-		p.logResponse("GET", tokenURL, resp.StatusCode, body, err)
+		err := fmt.Errorf("questrade token refresh failed: %d, body: %s", resp.StatusCode, string(body))
+		p.logResponse("GET", tokenURL, resp.StatusCode, resp.Header, body, err)
 		return err
 	}
 
@@ -147,14 +212,25 @@ func (p *QuestradeProvider) refreshToken() error {
 		TokenType    string `json:"token_type"`
 		APIServer    string `json:"api_server"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(body, &result); err != nil {
 		return err
+	}
+	if result.AccessToken == "" {
+		return fmt.Errorf("questrade token refresh missing access token")
+	}
+	if result.RefreshToken == "" {
+		result.RefreshToken = tokens.RefreshToken
+	}
+	if result.APIServer == "" {
+		result.APIServer = tokens.APIServer
+	}
+	if result.APIServer == "" {
+		return fmt.Errorf("questrade token refresh missing api_server")
 	}
 
 	p.token = result.AccessToken
-	if result.APIServer != "" {
-		p.baseURL = result.APIServer
-	}
+	p.baseURL = result.APIServer
+	p.tokenExpiresAt = time.Now().Add(time.Duration(result.ExpiresIn) * time.Second)
 
 	_ = p.storage.UpdateQuestradeTokens(context.Background(), result.AccessToken, result.RefreshToken, result.APIServer, result.ExpiresIn)
 
@@ -164,22 +240,42 @@ func (p *QuestradeProvider) refreshToken() error {
 func (p *QuestradeProvider) doRequest(endpoint string) ([]byte, error) {
 	p.rateLimiter.Wait()
 
-	if p.token == "" {
-		if err := p.refreshToken(); err != nil {
-			p.logError("GET", p.baseURL+endpoint, err)
+	reqURL := strings.TrimSuffix(p.baseURL, "/") + endpoint
+	if p.token == "" || p.baseURL == "" || (!p.tokenExpiresAt.IsZero() && !time.Now().Before(p.tokenExpiresAt)) {
+		if err := p.refreshToken(false); err != nil {
+			p.logError("GET", reqURL, err)
 			return nil, err
 		}
 	}
 
-	reqURL := p.baseURL + endpoint
-	p.logRequest("GET", reqURL)
-
+	reqURL = strings.TrimSuffix(p.baseURL, "/") + endpoint
+	if p.logClient != nil {
+		p.logClient.InfoWithMeta(nil, "Questrade API Request", map[string]interface{}{
+			"method":       "GET",
+			"url":          reqURL,
+			"base_url":     p.baseURL,
+			"has_token":    p.token != "",
+			"token_length": len(p.token),
+			"provider":     "questrade",
+		})
+	}
 	req, err := http.NewRequest("GET", reqURL, nil)
 	if err != nil {
 		p.logError("GET", reqURL, err)
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+p.token)
+	p.logRequest("GET", reqURL, req.Header)
+	if p.logClient != nil {
+		p.logClient.InfoWithMeta(nil, "Questrade API Request Details", map[string]interface{}{
+			"method":          "GET",
+			"url":             redactQuestradeURL(reqURL),
+			"has_auth":        p.token != "",
+			"token_length":    len(p.token),
+			"provider":        "questrade",
+			"request_headers": logging.RedactHeaders(req.Header),
+		})
+	}
 
 	resp, err := p.client.Do(req)
 	if err != nil {
@@ -189,14 +285,21 @@ func (p *QuestradeProvider) doRequest(endpoint string) ([]byte, error) {
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-	p.logResponse("GET", reqURL, resp.StatusCode, body, nil)
+	p.logResponse("GET", reqURL, resp.StatusCode, resp.Header, body, nil)
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		if err := p.refreshToken(); err != nil {
+		if err := p.refreshToken(true); err != nil {
+			p.logError("GET", reqURL, err)
+			return nil, err
+		}
+		reqURL = strings.TrimSuffix(p.baseURL, "/") + endpoint
+		req, err = http.NewRequest("GET", reqURL, nil)
+		if err != nil {
 			p.logError("GET", reqURL, err)
 			return nil, err
 		}
 		req.Header.Set("Authorization", "Bearer "+p.token)
+		p.logRequest("GET", reqURL, req.Header)
 		resp, err = p.client.Do(req)
 		if err != nil {
 			p.logError("GET", reqURL, err)
@@ -204,18 +307,33 @@ func (p *QuestradeProvider) doRequest(endpoint string) ([]byte, error) {
 		}
 		defer resp.Body.Close()
 		body, _ = io.ReadAll(resp.Body)
-		p.logResponse("GET", reqURL, resp.StatusCode, body, nil)
+		p.logResponse("GET", reqURL, resp.StatusCode, resp.Header, body, nil)
 	}
 
 	if resp.StatusCode == http.StatusTooManyRequests {
 		err := fmt.Errorf("questrade rate limit exceeded")
-		p.logResponse("GET", reqURL, resp.StatusCode, body, err)
+		p.logResponse("GET", reqURL, resp.StatusCode, resp.Header, body, err)
 		return nil, err
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		err := fmt.Errorf("questrade request failed: %d", resp.StatusCode)
-		p.logResponse("GET", reqURL, resp.StatusCode, body, err)
+		bodyPreview := string(body)
+		if len(bodyPreview) > 200 {
+			bodyPreview = bodyPreview[:200] + "..."
+		}
+		if p.logClient != nil {
+			p.logClient.ErrorWithMeta(nil, "Questrade API Error Response", map[string]interface{}{
+				"method":           "GET",
+				"url":              redactQuestradeURL(reqURL),
+				"status":           resp.StatusCode,
+				"body":             logging.SanitizeBody(resp.Header.Get("Content-Type"), []byte(bodyPreview)),
+				"body_length":      len(body),
+				"provider":         "questrade",
+				"response_headers": logging.RedactHeaders(resp.Header),
+			})
+		}
+		err := fmt.Errorf("questrade request failed: %d, body: %s", resp.StatusCode, bodyPreview)
+		p.logResponse("GET", reqURL, resp.StatusCode, resp.Header, body, err)
 		return nil, err
 	}
 
@@ -223,22 +341,22 @@ func (p *QuestradeProvider) doRequest(endpoint string) ([]byte, error) {
 }
 
 type QuestradeQuote struct {
-	Symbol            string  `json:"symbol"`
-	SymbolID          int     `json:"symbolId"`
-	Tier              string  `json:"tier"`
-	BidPrice          float64 `json:"bidPrice"`
-	BidSize           int     `json:"bidSize"`
-	AskPrice          float64 `json:"askPrice"`
-	AskSize           int     `json:"askSize"`
-	LastTradePrice    float64 `json:"lastTradePrice"`
-	LastTradeSize     int     `json:"lastTradeSize"`
-	LastTradeTick     string  `json:"lastTradeTick"`
-	Volume            int64   `json:"volume"`
-	OpenPrice         float64 `json:"openPrice"`
-	HighPrice         float64 `json:"highPrice"`
-	LowPrice          float64 `json:"lowPrice"`
-	Delay             bool    `json:"delay"`
-	IsHalted          bool    `json:"isHalted"`
+	Symbol         string  `json:"symbol"`
+	SymbolID       int     `json:"symbolId"`
+	Tier           string  `json:"tier"`
+	BidPrice       float64 `json:"bidPrice"`
+	BidSize        int     `json:"bidSize"`
+	AskPrice       float64 `json:"askPrice"`
+	AskSize        int     `json:"askSize"`
+	LastTradePrice float64 `json:"lastTradePrice"`
+	LastTradeSize  int     `json:"lastTradeSize"`
+	LastTradeTick  string  `json:"lastTradeTick"`
+	Volume         int64   `json:"volume"`
+	OpenPrice      float64 `json:"openPrice"`
+	HighPrice      float64 `json:"highPrice"`
+	LowPrice       float64 `json:"lowPrice"`
+	Delay          bool    `json:"delay"`
+	IsHalted       bool    `json:"isHalted"`
 }
 
 type QuestradeCandle struct {
@@ -263,23 +381,23 @@ type QuestradeSymbol struct {
 }
 
 type QuestradeOption struct {
-	Symbol            string  `json:"symbol"`
-	SymbolID          int     `json:"symbolId"`
-	ExpirationDate    string  `json:"expirationDate"`
-	Strike            float64 `json:"strike"`
-	CallPut           string  `json:"callPut"`
-	BidPrice          float64 `json:"bidPrice"`
-	AskPrice          float64 `json:"askPrice"`
-	LastTradePrice    float64 `json:"lastTradePrice"`
-	Volume            int     `json:"volume"`
-	OpenInterest      int     `json:"openInterest"`
-	Description       string  `json:"description"`
-	IntrinsicValue    float64 `json:"intrinsicValue"`
-	OptionOpenInterest int    `json:"optionOpenInterest"`
-	Delta             float64 `json:"delta"`
-	Gamma             float64 `json:"gamma"`
-	Theta             float64 `json:"theta"`
-	Vega              float64 `json:"vega"`
+	Symbol             string  `json:"symbol"`
+	SymbolID           int     `json:"symbolId"`
+	ExpirationDate     string  `json:"expirationDate"`
+	Strike             float64 `json:"strike"`
+	CallPut            string  `json:"callPut"`
+	BidPrice           float64 `json:"bidPrice"`
+	AskPrice           float64 `json:"askPrice"`
+	LastTradePrice     float64 `json:"lastTradePrice"`
+	Volume             int     `json:"volume"`
+	OpenInterest       int     `json:"openInterest"`
+	Description        string  `json:"description"`
+	IntrinsicValue     float64 `json:"intrinsicValue"`
+	OptionOpenInterest int     `json:"optionOpenInterest"`
+	Delta              float64 `json:"delta"`
+	Gamma              float64 `json:"gamma"`
+	Theta              float64 `json:"theta"`
+	Vega               float64 `json:"vega"`
 }
 
 func (p *QuestradeProvider) FetchMarkets() ([]string, error) {
@@ -418,7 +536,8 @@ func (p *QuestradeProvider) SearchTickers(prefix string) ([]TickerSearchResult, 
 }
 
 func (p *QuestradeProvider) FetchSymbolSearch(prefix string) ([]QuestradeSymbol, error) {
-	body, err := p.doRequest("/v1/symbols/search?prefix=" + url.QueryEscape(prefix))
+	endpoint := "/v1/symbols/search?prefix=" + url.QueryEscape(prefix)
+	body, err := p.doRequest(endpoint)
 	if err != nil {
 		return nil, err
 	}
@@ -433,7 +552,7 @@ func (p *QuestradeProvider) FetchSymbolSearch(prefix string) ([]QuestradeSymbol,
 			IsQuotable      bool   `json:"isQuotable"`
 			IsTradable      bool   `json:"isTradable"`
 			Currency        string `json:"currency"`
-		} `json:"symbol"`
+		} `json:"symbols"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, err
@@ -458,7 +577,7 @@ func (p *QuestradeProvider) FetchSymbolSearch(prefix string) ([]QuestradeSymbol,
 func (p *QuestradeProvider) FetchSymbolOptions(symbolID string) ([]QuestradeOption, error) {
 	body, err := p.doRequest("/v1/symbols/" + symbolID + "/options")
 	if err != nil {
-	 return nil, err
+		return nil, err
 	}
 
 	var result struct {
@@ -499,12 +618,12 @@ func (p *QuestradeProvider) FetchPrice(ticker string) (*Price, error) {
 
 	var result struct {
 		Quotes []struct {
-			Symbol     string  `json:"symbol"`
-			LastPrice  float64 `json:"lastTradePrice"`
-			Bid        float64 `json:"bidPrice"`
-			Ask        float64 `json:"askPrice"`
-			Volume     int64   `json:"volume"`
-			Timestamp  int64   `json:"lastTradeTime"`
+			Symbol    string  `json:"symbol"`
+			LastPrice float64 `json:"lastTradePrice"`
+			Bid       float64 `json:"bidPrice"`
+			Ask       float64 `json:"askPrice"`
+			Volume    int64   `json:"volume"`
+			Timestamp int64   `json:"lastTradeTime"`
 		} `json:"quotes"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
@@ -600,7 +719,7 @@ func (p *QuestradeProvider) FetchIntradayBars(ticker string, interval string) ([
 }
 
 func (p *QuestradeProvider) GetSymbolID(ticker string) (int, error) {
-	body, err := p.doRequest("/v1/symbols/search?prefix=" + url.QueryEscape(ticker))
+	body, err := p.doRequest("/v1/reference/symbols?prefix=" + url.QueryEscape(ticker))
 	if err != nil {
 		return 0, err
 	}
@@ -624,6 +743,30 @@ func (p *QuestradeProvider) GetSymbolID(ticker string) (int, error) {
 		return result.Symbols[0].SymbolID, nil
 	}
 	return 0, fmt.Errorf("symbol not found: %s", ticker)
+}
+
+func (p *QuestradeProvider) FetchCompanyProfile(ticker string) (*CompanyProfile, error) {
+	symbolID, err := p.GetSymbolID(ticker)
+	if err != nil {
+		return nil, err
+	}
+	sym, err := p.FetchSymbol(strconv.Itoa(symbolID))
+	if err != nil {
+		return nil, err
+	}
+	return &CompanyProfile{
+		Symbol:    sym.Symbol,
+		Name:      sym.Description,
+		Exchange:  sym.ListingExchange,
+		Sector:    "",
+		Industry:  "",
+		Price:     0,
+		MarketCap: 0,
+	}, nil
+}
+
+func (p *QuestradeProvider) FetchFinancialRatios(ticker string) ([]*FinancialRatio, error) {
+	return []*FinancialRatio{}, nil
 }
 
 func (p *QuestradeProvider) GetRateLimitStatus() (remaining int, reset int64, err error) {

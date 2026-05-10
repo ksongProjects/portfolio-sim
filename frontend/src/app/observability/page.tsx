@@ -83,7 +83,7 @@ function LogRow({ id, message, metadata, isExpanded, onToggle }: LogRowProps) {
 }
 
 export default function ObservabilityPage() {
-  const { services, logs, loading, error, lastUpdated, refresh, startAutoRefresh, filters, setLogFilters } = useObservability({ autoRefresh: true });
+  const { services, logs, loading, error, lastUpdated, refresh, filters, setLogFilters } = useObservability({ autoRefresh: true });
   const [expandedLogIds, setExpandedLogIds] = useState<Set<string>>(new Set());
   useFrontendLogging();
   logComponentMount("ObservabilityPage");
@@ -291,9 +291,10 @@ export default function ObservabilityPage() {
                   className="h-8 rounded-md border border-outline bg-surface-container px-2 text-sm text-on-surface focus:outline-none focus:ring-1 focus:ring-primary"
                 >
                   <option value="">All</option>
-                  <option value="main-api">Main API</option>
+                  <option value="backend">Backend</option>
                   <option value="market-data-service">Market Data</option>
                   <option value="news-feed-service">News Feed</option>
+                  <option value="frontend">Frontend</option>
                 </select>
               </div>
               <div className="flex items-center gap-2">

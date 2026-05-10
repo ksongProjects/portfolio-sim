@@ -30,17 +30,32 @@ func (p *PolygonProvider) Name() string {
 	return "polygon"
 }
 
-func (p *PolygonProvider) logRequest(method, url string) {
+func (p *PolygonProvider) GetSymbolID(ticker string) (int, error) {
+	return 0, fmt.Errorf("polygon does not use symbol IDs")
+}
+
+func (p *PolygonProvider) FetchCompanyProfile(ticker string) (*CompanyProfile, error) {
+	return nil, fmt.Errorf("polygon does not support company profile")
+}
+
+func (p *PolygonProvider) FetchFinancialRatios(ticker string) ([]*FinancialRatio, error) {
+	return nil, fmt.Errorf("polygon does not support financial ratios")
+}
+
+func (p *PolygonProvider) logRequest(method, rawURL string, headers http.Header) {
 	if p.logClient == nil {
 		return
 	}
-	p.logClient.InfoWithMeta(nil, "Polygon Request: "+method+" "+url, map[string]interface{}{
-		"method": method,
-		"url":    url,
+	safeURL := logging.SanitizeURL(rawURL)
+	p.logClient.InfoWithMeta(nil, "Polygon Request: "+method+" "+safeURL, map[string]interface{}{
+		"method":          method,
+		"url":             safeURL,
+		"provider":        p.Name(),
+		"request_headers": logging.RedactHeaders(headers),
 	})
 }
 
-func (p *PolygonProvider) logResponse(method, url string, status int, body []byte) {
+func (p *PolygonProvider) logResponse(method, rawURL string, status int, headers http.Header, body []byte, duration time.Duration) {
 	if p.logClient == nil {
 		return
 	}
@@ -48,47 +63,69 @@ func (p *PolygonProvider) logResponse(method, url string, status int, body []byt
 	if status >= 400 {
 		level = "ERROR"
 	}
-	p.logClient.EmitWithMetadata(nil, level, "Polygon Response: "+method+" "+url+" -> "+fmt.Sprintf("%d", status), map[string]interface{}{
-		"method":  method,
-		"url":     url,
-		"status":  status,
-		"body":    string(body),
+	safeURL := logging.SanitizeURL(rawURL)
+	p.logClient.EmitWithMetadata(nil, level, "Polygon Response: "+method+" "+safeURL+" -> "+fmt.Sprintf("%d", status), map[string]interface{}{
+		"method":           method,
+		"url":              safeURL,
+		"status":           status,
+		"provider":         p.Name(),
+		"duration_ms":      duration.Milliseconds(),
+		"response_headers": logging.RedactHeaders(headers),
+		"body":             logging.SanitizeBody(headers.Get("Content-Type"), body),
+		"body_size":        len(body),
 	})
 }
 
-func (p *PolygonProvider) logError(method, url string, errMsg string) {
+func (p *PolygonProvider) logError(method, rawURL string, headers http.Header, errMsg string, duration time.Duration) {
 	if p.logClient == nil {
 		return
 	}
-	p.logClient.ErrorWithMeta(nil, "Polygon Error: "+method+" "+url, map[string]interface{}{
-		"method": method,
-		"url":    url,
-		"error":  errMsg,
+	safeURL := logging.SanitizeURL(rawURL)
+	p.logClient.ErrorWithMeta(nil, "Polygon Error: "+method+" "+safeURL, map[string]interface{}{
+		"method":          method,
+		"url":             safeURL,
+		"provider":        p.Name(),
+		"request_headers": logging.RedactHeaders(headers),
+		"duration_ms":     duration.Milliseconds(),
+		"error":           errMsg,
 	})
 }
 
-func (p *PolygonProvider) FetchPrice(ticker string) (*Price, error) {
-	url := fmt.Sprintf("https://api.polygon.io/v2/aggs/ticker/%s/prev?adjusted=true&apiKey=%s", ticker, p.cfg.APIKey)
-
-	p.logRequest("GET", url)
-
-	resp, err := p.client.Get(url)
+func (p *PolygonProvider) get(rawURL string) ([]byte, int, http.Header, error) {
+	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
 	if err != nil {
-		p.logError("GET", url, err.Error())
-		return nil, err
+		return nil, 0, nil, err
+	}
+
+	p.logRequest(http.MethodGet, rawURL, req.Header)
+	start := time.Now()
+	resp, err := p.client.Do(req)
+	duration := time.Since(start)
+	if err != nil {
+		p.logError(http.MethodGet, rawURL, req.Header, err.Error(), duration)
+		return nil, 0, nil, err
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		p.logResponse("GET", url, resp.StatusCode, body)
+		p.logError(http.MethodGet, rawURL, req.Header, err.Error(), duration)
+		return nil, resp.StatusCode, resp.Header, err
+	}
+
+	p.logResponse(http.MethodGet, rawURL, resp.StatusCode, resp.Header, body, duration)
+	return body, resp.StatusCode, resp.Header, nil
+}
+
+func (p *PolygonProvider) FetchPrice(ticker string) (*Price, error) {
+	url := fmt.Sprintf("https://api.polygon.io/v2/aggs/ticker/%s/prev?adjusted=true&apiKey=%s", ticker, p.cfg.APIKey)
+	body, status, _, err := p.get(url)
+	if err != nil {
 		return nil, err
 	}
 
-	p.logResponse("GET", url, resp.StatusCode, body)
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("polygon request failed: %d - %s", resp.StatusCode, string(body))
+	if status != http.StatusOK {
+		return nil, fmt.Errorf("polygon request failed: %d - %s", status, string(body))
 	}
 
 	var result struct {
@@ -144,26 +181,13 @@ func (p *PolygonProvider) FetchIntradayBars(ticker string, interval string) ([]*
 
 	url := fmt.Sprintf("https://api.polygon.io/v2/aggs/ticker/%s/range/%s/%s/%s/%s?adjusted=true&apiKey=%s",
 		ticker, multiplier, timespan, from, to, p.cfg.APIKey)
-
-	p.logRequest("GET", url)
-
-	resp, err := p.client.Get(url)
+	body, status, _, err := p.get(url)
 	if err != nil {
-		p.logError("GET", url, err.Error())
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		p.logResponse("GET", url, resp.StatusCode, body)
 		return nil, err
 	}
 
-	p.logResponse("GET", url, resp.StatusCode, body)
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("polygon request failed: %d - %s", resp.StatusCode, string(body))
+	if status != http.StatusOK {
+		return nil, fmt.Errorf("polygon request failed: %d - %s", status, string(body))
 	}
 
 	var result struct {
@@ -198,14 +222,13 @@ func (p *PolygonProvider) FetchIntradayBars(ticker string, interval string) ([]*
 
 func (p *PolygonProvider) SearchTickers(prefix string) ([]TickerSearchResult, error) {
 	url := fmt.Sprintf("https://api.polygon.io/v3/reference/tickers?search=%s&active=true&apiKey=%s", url.QueryEscape(prefix), p.cfg.APIKey)
-	resp, err := p.client.Get(url)
+	body, status, _, err := p.get(url)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("polygon search failed: %d", resp.StatusCode)
+	if status != http.StatusOK {
+		return nil, fmt.Errorf("polygon search failed: %d - %s", status, string(body))
 	}
 
 	var result struct {
@@ -216,7 +239,7 @@ func (p *PolygonProvider) SearchTickers(prefix string) ([]TickerSearchResult, er
 			Type     string `json:"type"`
 		} `json:"results"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, err
 	}
 

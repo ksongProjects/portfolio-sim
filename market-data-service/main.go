@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -23,14 +25,14 @@ import (
 )
 
 type MarketDataService struct {
-	cfg            *config.Config
-	db             *database.Postgres
-	redis          *redis.Client
-	storage        *storage.Storage
-	logClient      *loggingpkg.Client
-	sseMgr         *sse.Manager
-	normalizer     *normalizer.Normalizer
-	providers      []providers.Provider
+	cfg             *config.Config
+	db              *database.Postgres
+	redis           *redis.Client
+	storage         *storage.Storage
+	logClient       *loggingpkg.Client
+	sseMgr          *sse.Manager
+	normalizer      *normalizer.Normalizer
+	providers       []providers.Provider
 	fetcherRegistry sync.Map
 }
 
@@ -61,12 +63,12 @@ func NewMarketDataService(cfg *config.Config) *MarketDataService {
 	}
 
 	return &MarketDataService{
-		cfg:       cfg,
-		db:        db,
-		redis:     redisClient,
-		storage:   storage.NewStorage(db.Pool()),
-		logClient: logClient,
-		sseMgr:    sse.NewManager(redisClient),
+		cfg:        cfg,
+		db:         db,
+		redis:      redisClient,
+		storage:    storage.NewStorage(db.Pool()),
+		logClient:  logClient,
+		sseMgr:     sse.NewManager(redisClient),
 		normalizer: normalizer.NewNormalizer(),
 	}
 }
@@ -111,27 +113,46 @@ func loggingMiddleware(logClient *loggingpkg.Client, next http.HandlerFunc) http
 	return func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		ctx := r.Context()
+		reqBody, readErr := io.ReadAll(r.Body)
+		if readErr != nil {
+			reqBody = nil
+		}
+		r.Body = io.NopCloser(bytes.NewReader(reqBody))
 
-		logClient.InfoWithMeta(ctx, "API Request", map[string]interface{}{
-			"method": r.Method,
-			"path":   r.URL.Path,
-			"query":  r.URL.RawQuery,
-			"type":   "api_request",
-		})
+		requestMeta := map[string]interface{}{
+			"method":          r.Method,
+			"path":            r.URL.Path,
+			"query":           loggingpkg.SanitizeQuery(r.URL.RawQuery),
+			"type":            "api_request",
+			"request_headers": loggingpkg.RedactHeaders(r.Header),
+			"remote_addr":     r.RemoteAddr,
+			"content_length":  r.ContentLength,
+		}
+		if len(reqBody) > 0 {
+			requestMeta["request_body"] = loggingpkg.SanitizeBody(r.Header.Get("Content-Type"), reqBody)
+			requestMeta["request_body_size"] = len(reqBody)
+		}
+		if readErr != nil {
+			requestMeta["request_body_error"] = readErr.Error()
+		}
+		logClient.InfoWithMeta(ctx, "API Request", requestMeta)
 
 		wrapper := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
 		next(wrapper, r)
 
 		duration := time.Since(start)
 		meta := map[string]interface{}{
-			"method":      r.Method,
-			"path":        r.URL.Path,
-			"status":      wrapper.statusCode,
-			"duration_ms": duration.Milliseconds(),
-			"type":        "api_response",
+			"method":           r.Method,
+			"path":             r.URL.Path,
+			"query":            loggingpkg.SanitizeQuery(r.URL.RawQuery),
+			"status":           wrapper.statusCode,
+			"duration_ms":      duration.Milliseconds(),
+			"type":             "api_response",
+			"response_headers": loggingpkg.RedactHeaders(wrapper.Header()),
 		}
 		if len(wrapper.body) > 0 {
-			meta["response_body"] = string(wrapper.body)
+			meta["response_body"] = loggingpkg.SanitizeBody(wrapper.Header().Get("Content-Type"), wrapper.body)
+			meta["response_body_size"] = len(wrapper.body)
 		}
 
 		if wrapper.statusCode >= 500 {
@@ -400,20 +421,45 @@ func (s *MarketDataService) handleSearchTickers(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	dbResults, err := s.storage.SearchTickers(r.Context(), query)
+	if err == nil && len(dbResults) > 0 {
+		s.logClient.InfoWithMeta(r.Context(), "search returning DB results", map[string]interface{}{
+			"query": query,
+			"count": len(dbResults),
+		})
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(dbResults)
+		return
+	}
+
 	var allResults []providers.TickerSearchResult
+	var providerErrors []string
+	successCount := 0
 	for _, provider := range s.providers {
 		results, err := provider.SearchTickers(query)
 		if err != nil {
 			s.logClient.WarnWithMeta(context.Background(), "search failed for provider", map[string]interface{}{"provider": provider.Name(), "error": err.Error()})
+			providerErrors = append(providerErrors, fmt.Sprintf("%s: %v", provider.Name(), err))
 			continue
 		}
+		successCount++
 		s.logClient.InfoWithMeta(context.Background(), "search succeeded for provider", map[string]interface{}{
 			"provider": provider.Name(),
 			"query":    query,
 			"count":    len(results),
-			"results":  results,
 		})
 		allResults = append(allResults, results...)
+
+		for _, result := range results {
+			s.storage.UpsertTickerFromSearch(r.Context(), result.Symbol, result.Name, result.Exchange, result.Type)
+		}
+	}
+
+	if successCount == 0 && len(providerErrors) > 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		json.NewEncoder(w).Encode(map[string]string{"error": strings.Join(providerErrors, "; ")})
+		return
 	}
 
 	if allResults == nil {
@@ -449,15 +495,58 @@ func (s *MarketDataService) handleTickerDetails(w http.ResponseWriter, r *http.R
 		return
 	}
 	details, err := s.storage.GetTickerDetails(r.Context(), symbol)
-	if err != nil {
-		s.logClient.ErrorWithMeta(r.Context(), "get ticker details failed", map[string]interface{}{"symbol": symbol, "error": err.Error()})
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "ticker not found"})
-		return
+	if err != nil || details.Price == 0 {
+		s.logClient.InfoWithMeta(r.Context(), "ticker not in DB, fetching from provider", map[string]interface{}{"symbol": symbol})
+		details = s.fetchTickerDetailsFromProvider(symbol)
+		if details == nil {
+			s.logClient.ErrorWithMeta(r.Context(), "get ticker details failed", map[string]interface{}{"symbol": symbol, "error": err.Error()})
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": "ticker not found"})
+			return
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(details)
+}
+
+func (s *MarketDataService) fetchTickerDetailsFromProvider(symbol string) *storage.TickerDetails {
+	for _, provider := range s.providers {
+		profile, err := provider.FetchCompanyProfile(symbol)
+		if err != nil {
+			s.logClient.ErrorWithMeta(context.Background(), "FetchCompanyProfile failed", map[string]interface{}{"provider": provider.Name(), "symbol": symbol, "error": err.Error()})
+			continue
+		}
+		var price float64
+		var change, changePct float64
+		var volume int64
+
+		priceData, err := provider.FetchPrice(symbol)
+		if err == nil {
+			price = priceData.Price
+			change = priceData.Price - priceData.Price
+			volume = priceData.Volume
+		}
+
+		return &storage.TickerDetails{
+			Symbol:    profile.Symbol,
+			Name:      profile.Name,
+			Exchange:  profile.Exchange,
+			Sector:    profile.Sector,
+			Industry:  profile.Industry,
+			Price:     price,
+			Change:    change,
+			ChangePct: changePct,
+			Volume:    volume,
+			MarketCap: profile.MarketCap,
+			PeRatio:   profile.PeRatio,
+			Eps:       profile.Eps,
+			DividendYield: profile.DivYield,
+			Week52High: profile.Week52High,
+			Week52Low:  profile.Week52Low,
+		}
+	}
+	return nil
 }
 
 func (s *MarketDataService) handleIntradayBars(w http.ResponseWriter, r *http.Request) {

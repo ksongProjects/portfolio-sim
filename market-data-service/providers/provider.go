@@ -48,7 +48,35 @@ type Provider interface {
 	FetchOptionChain(ticker string) ([]*OptionChain, error)
 	FetchIntradayBars(ticker string, interval string) ([]*IntradayBar, error)
 	SearchTickers(prefix string) ([]TickerSearchResult, error)
+	GetSymbolID(ticker string) (int, error)
+	FetchCompanyProfile(ticker string) (*CompanyProfile, error)
+	FetchFinancialRatios(ticker string) ([]*FinancialRatio, error)
 	Name() string
+}
+
+type CompanyProfile struct {
+	Symbol         string  `json:"symbol"`
+	Name           string  `json:"name"`
+	Exchange       string  `json:"exchange"`
+	Sector         string  `json:"sector"`
+	Industry       string  `json:"industry"`
+	CEO            string  `json:"ceo"`
+	Website        string  `json:"website"`
+	Description    string  `json:"description"`
+	Price          float64 `json:"price"`
+	MarketCap      float64 `json:"marketCap"`
+	PeRatio        float64 `json:"pe"`
+	Eps            float64 `json:"eps"`
+	DivYield       float64 `json:"dividendYield"`
+	Week52High     float64 `json:"year52High"`
+	Week52Low      float64 `json:"year52Low"`
+	AvgVolume      int64   `json:"avgVolume"`
+}
+
+type FinancialRatio struct {
+	Label       string  `json:"label"`
+	Value       string  `json:"value"`
+	Description string  `json:"description"`
 }
 
 type TickerSearchResult struct {

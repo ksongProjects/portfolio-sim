@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -27,10 +28,10 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	HTTPPort       int
-	ReadTimeout    time.Duration
-	WriteTimeout   time.Duration
-	ShutdownTime   time.Duration
+	HTTPPort     int
+	ReadTimeout  time.Duration
+	WriteTimeout time.Duration
+	ShutdownTime time.Duration
 }
 
 type DatabaseConfig struct {
@@ -135,6 +136,7 @@ func NewServer(cfg *Config) (*Server, error) {
 		logURL = "http://main-api:8080/api/logs"
 	}
 	logClient := logging.NewClient("backend", logURL)
+	logging.SetClient(logClient)
 
 	return &Server{
 		cfg:          cfg,
@@ -142,10 +144,10 @@ func NewServer(cfg *Config) (*Server, error) {
 		logClient:    logClient,
 		db:           db,
 		redisClient:  redisClient,
-		obsService:   services.NewObservabilityService(),
+		obsService:   services.NewObservabilityService(logClient),
 		portfolioSvc: services.NewPortfolioService(),
-		providerSvc:  services.NewProviderService(logger),
-		tickerSvc:    services.NewTickerService(os.Getenv("MARKET_DATA_SERVICE_URL")),
+		providerSvc:  services.NewProviderService(logger, logClient),
+		tickerSvc:    services.NewTickerService(os.Getenv("MARKET_DATA_SERVICE_URL"), logClient),
 	}, nil
 }
 
@@ -571,12 +573,13 @@ func (s *Server) handleValidateProvider(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	s.logger.Info("validating provider key", "provider", req.ProviderID, "has_key", len(req.APIKey) > 0)
+	s.logger.Info("validating provider key", "provider", req.ProviderID, "has_api_key", req.APIKey != "", "api_key_length", len(req.APIKey))
 	if s.logClient != nil {
 		s.logClient.InfoWithMeta(r.Context(), fmt.Sprintf("Validating provider key: %s", req.ProviderID), map[string]interface{}{
-			"provider": req.ProviderID,
-			"has_key":  len(req.APIKey) > 0,
-			"type":     "provider_validation_request",
+			"provider":       req.ProviderID,
+			"has_api_key":    req.APIKey != "",
+			"api_key_length": len(req.APIKey),
+			"type":           "provider_validation_request",
 		})
 	}
 
@@ -599,14 +602,46 @@ func (s *Server) handleValidateProvider(w http.ResponseWriter, r *http.Request) 
 	if s.logClient != nil {
 		s.logClient.InfoWithMeta(r.Context(), fmt.Sprintf("Provider validation succeeded: %s", req.ProviderID), map[string]interface{}{
 			"provider": req.ProviderID,
-			"valid":     valid,
-			"type":      "provider_validation_success",
+			"valid":    valid,
+			"type":     "provider_validation_success",
 		})
 	}
 
 	if valid && req.ProviderID == "questrade" && qtResult != nil && qtResult.RefreshToken != "" {
 		s.logger.Info("saving questrade OAuth tokens", "provider", req.ProviderID, "expires_in", qtResult.ExpiresIn)
-		s.providerSvc.SaveQuestradeOAuth(r.Context(), s.db, req.ProviderID, qtResult.AccessToken, qtResult.RefreshToken, qtResult.APIServer, qtResult.ExpiresIn)
+		if s.logClient != nil {
+			s.logClient.InfoWithMeta(r.Context(), fmt.Sprintf("Questrade OAuth tokens received: %s", req.ProviderID), map[string]interface{}{
+				"provider":          req.ProviderID,
+				"api_server":        qtResult.APIServer,
+				"expires_in":        qtResult.ExpiresIn,
+				"has_access_token":  qtResult.AccessToken != "",
+				"has_refresh_token": qtResult.RefreshToken != "",
+				"type":              "questrade_oauth_result",
+			})
+		}
+		if err := s.providerSvc.SaveQuestradeOAuth(r.Context(), s.db, req.ProviderID, qtResult.AccessToken, qtResult.RefreshToken, qtResult.APIServer, qtResult.ExpiresIn); err != nil {
+			s.logger.Error("failed to save questrade OAuth tokens", "provider", req.ProviderID, "error", err)
+			if s.logClient != nil {
+				s.logClient.ErrorWithMeta(r.Context(), fmt.Sprintf("Failed to save Questrade OAuth tokens: %s", req.ProviderID), map[string]interface{}{
+					"provider": req.ProviderID,
+					"error":    err.Error(),
+					"type":     "questrade_oauth_save_error",
+				})
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]interface{}{"valid": false, "error": "failed to save questrade oauth tokens"})
+			return
+		}
+	}
+
+	s.logger.Info("provider validation succeeded", "provider", req.ProviderID, "valid", valid)
+	if s.logClient != nil {
+		s.logClient.InfoWithMeta(r.Context(), fmt.Sprintf("Provider validation succeeded: %s", req.ProviderID), map[string]interface{}{
+			"provider": req.ProviderID,
+			"valid":    valid,
+			"type":     "provider_validation_success",
+		})
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -671,12 +706,40 @@ func (s *Server) handleScrapeRSSFeeds(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+
+	if s.logClient != nil {
+		s.logClient.InfoWithMeta(r.Context(), "RSS scrape request", map[string]interface{}{
+			"type":    "outbound_request",
+			"target":  "news-feed-service",
+			"method":  "POST",
+			"url":     "http://news-feed-service:8080/api/scrape",
+			"service": "backend",
+		})
+	}
+
 	resp, err := http.Post("http://news-feed-service:8080/api/scrape", "application/json", nil)
 	if err != nil {
+		if s.logClient != nil {
+			s.logClient.ErrorWithMeta(r.Context(), "RSS scrape failed", map[string]interface{}{
+				"type":  "outbound_request_error",
+				"error": err.Error(),
+			})
+		}
 		http.Error(w, "failed to trigger scrape", http.StatusInternalServerError)
 		return
 	}
 	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if s.logClient != nil {
+		s.logClient.InfoWithMeta(r.Context(), "RSS scrape response", map[string]interface{}{
+			"type":           "outbound_response",
+			"status":         resp.StatusCode,
+			"body":           string(body),
+			"response_size":  len(body),
+		})
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
@@ -727,7 +790,8 @@ func (s *Server) handleSearchTickers(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.logger.Error("search tickers failed", "error", err)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]interface{}{})
+		w.WriteHeader(http.StatusBadGateway)
+		json.NewEncoder(w).Encode(map[string]string{"error": "ticker search unavailable"})
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -759,22 +823,22 @@ func (s *Server) handleGetTickerDetails(w http.ResponseWriter, r *http.Request) 
 	ratios, _ := s.tickerSvc.GetFinancialRatios(r.Context(), symbol)
 
 	response := map[string]interface{}{
-		"symbol":      details.Symbol,
-		"name":        details.Name,
-		"exchange":    details.Exchange,
-		"sector":      details.Sector,
-		"industry":    details.Industry,
-		"price":       details.Price,
-		"change":      details.Change,
-		"changePct":   details.ChangePct,
-		"volume":      details.Volume,
-		"avgVolume":   details.AvgVolume,
-		"marketCap":   details.MarketCap,
-		"peRatio":     details.PeRatio,
-		"eps":         details.Eps,
+		"symbol":        details.Symbol,
+		"name":          details.Name,
+		"exchange":      details.Exchange,
+		"sector":        details.Sector,
+		"industry":      details.Industry,
+		"price":         details.Price,
+		"change":        details.Change,
+		"changePct":     details.ChangePct,
+		"volume":        details.Volume,
+		"avgVolume":     details.AvgVolume,
+		"marketCap":     details.MarketCap,
+		"peRatio":       details.PeRatio,
+		"eps":           details.Eps,
 		"dividendYield": details.DividendYield,
-		"week52High":  details.Week52High,
-		"week52Low":   details.Week52Low,
+		"week52High":    details.Week52High,
+		"week52Low":     details.Week52Low,
 	}
 
 	if len(intraday) > 0 {
