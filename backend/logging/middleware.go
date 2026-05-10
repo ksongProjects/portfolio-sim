@@ -2,124 +2,39 @@ package logging
 
 import (
 	"context"
-	"fmt"
-	"log/slog"
 	"net/http"
-	"time"
 )
 
-type ResponseWriter struct {
-	http.ResponseWriter
-	StatusCode int
-	Size       int
-}
-
-func (rw *ResponseWriter) WriteHeader(code int) {
-	rw.StatusCode = code
-	rw.ResponseWriter.WriteHeader(code)
-}
-
-func (rw *ResponseWriter) Write(b []byte) (int, error) {
-	n, err := rw.ResponseWriter.Write(b)
-	rw.Size += n
-	return n, err
-}
-
-type Middleware struct {
-	client  *Client
-	logger  *slog.Logger
-	service string
-}
-
-func NewMiddleware(service string, logURL string, logger *slog.Logger) *Middleware {
-	return &Middleware{
-		client:  NewClient(service, logURL),
-		logger:  logger,
-		service: service,
-	}
-}
-
-func (m *Middleware) WrapHandlerFunc(next func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
+func WrapHandlerFunc(next func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		ctx := r.Context()
-
-		rw := &ResponseWriter{ResponseWriter: w, StatusCode: http.StatusOK}
-
-		m.client.InfoWithMeta(ctx, "Request started", map[string]interface{}{
-			"type":        "api_request",
-			"method":      r.Method,
-			"path":        r.URL.Path,
-			"query":       r.URL.RawQuery,
-			"remote_addr": r.RemoteAddr,
-		})
-
-		next(w, r.WithContext(ctx))
-
-		duration := time.Since(start)
-
-		contentType := w.Header().Get("Content-Type")
-
-		meta := map[string]interface{}{
-			"type":          "api_response",
-			"method":        r.Method,
-			"path":          r.URL.Path,
-			"status":        rw.StatusCode,
-			"duration_ms":   duration.Milliseconds(),
-			"size_bytes":    rw.Size,
-			"content_type":  contentType,
-		}
-
-		if rw.StatusCode >= 500 {
-			meta["error"] = true
-			meta["error_type"] = "server_error"
-			m.client.ErrorWithMeta(ctx, fmt.Sprintf("Response: %s %s → %d", r.Method, r.URL.Path, rw.StatusCode), meta)
-		} else if rw.StatusCode >= 400 {
-			meta["error"] = true
-			meta["error_type"] = "client_error"
-			m.client.WarnWithMeta(ctx, fmt.Sprintf("Response: %s %s → %d", r.Method, r.URL.Path, rw.StatusCode), meta)
-		} else {
-			m.client.InfoWithMeta(ctx, fmt.Sprintf("Response: %s %s → %d", r.Method, r.URL.Path, rw.StatusCode), meta)
-		}
+		next(w, r)
 	})
 }
 
-func (m *Middleware) Log(ctx context.Context, level, msg string, meta map[string]interface{}) {
+func Log(ctx context.Context, client *Client, level, msg string, meta map[string]interface{}) {
 	if meta == nil {
 		meta = map[string]interface{}{}
 	}
 	switch level {
 	case "ERROR":
-		m.client.ErrorWithMeta(ctx, msg, meta)
+		client.ErrorWithMeta(ctx, msg, meta)
 	case "WARN":
-		m.client.WarnWithMeta(ctx, msg, meta)
+		client.WarnWithMeta(ctx, msg, meta)
 	case "DEBUG":
-		m.client.DebugWithMeta(ctx, msg, meta)
+		client.DebugWithMeta(ctx, msg, meta)
 	default:
-		m.client.InfoWithMeta(ctx, msg, meta)
+		client.InfoWithMeta(ctx, msg, meta)
 	}
 }
 
-func (m *Middleware) Info(ctx context.Context, msg string) {
-	m.client.Info(ctx, msg)
+func Info(ctx context.Context, client *Client, msg string) {
+	client.Info(ctx, msg)
 }
 
-func (m *Middleware) Error(ctx context.Context, msg string, meta map[string]interface{}) {
-	m.client.ErrorWithMeta(ctx, msg, meta)
+func Error(ctx context.Context, client *Client, msg string, meta map[string]interface{}) {
+	client.ErrorWithMeta(ctx, msg, meta)
 }
 
-func (m *Middleware) Warn(ctx context.Context, msg string, meta map[string]interface{}) {
-	m.client.WarnWithMeta(ctx, msg, meta)
-}
-
-func (m *Middleware) LogInfo(ctx context.Context, msg string, meta map[string]interface{}) {
-	m.client.InfoWithMeta(ctx, msg, meta)
-}
-
-func (m *Middleware) LogError(ctx context.Context, msg string, meta map[string]interface{}) {
-	m.client.ErrorWithMeta(ctx, msg, meta)
-}
-
-func (m *Middleware) LogWarn(ctx context.Context, msg string, meta map[string]interface{}) {
-	m.client.WarnWithMeta(ctx, msg, meta)
+func Warn(ctx context.Context, client *Client, msg string, meta map[string]interface{}) {
+	client.WarnWithMeta(ctx, msg, meta)
 }
