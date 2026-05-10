@@ -168,11 +168,28 @@ if (typeof window !== "undefined") {
       const response = await originalFetch(input, init);
       const duration = Date.now() - startTime;
       const status = response.status;
+      const contentType = response.headers.get("content-type");
+      let responseBodySize = 0;
+      try {
+        const clone = response.clone();
+        const text = await clone.text();
+        responseBodySize = text.length;
+      } catch {
+        responseBodySize = 0;
+      }
 
-      const meta = { method, path: url, status, duration_ms: duration, type: "api_call" };
+      const meta = {
+        method,
+        path: url,
+        status,
+        duration_ms: duration,
+        content_type: contentType,
+        response_size: responseBodySize,
+        type: "api_response",
+      };
       const entry = createLogEntry(
         status >= 500 ? "ERROR" : status >= 400 ? "WARN" : "INFO",
-        `API Call: ${method} ${url} ${status}`,
+        `API Response: ${method} ${url} → ${status}`,
         meta,
         "fetch"
       );
@@ -182,12 +199,12 @@ if (typeof window !== "undefined") {
       return response;
     } catch (err) {
       const duration = Date.now() - startTime;
-      const entry = createLogEntry("ERROR", `API Call Error: ${method} ${url}`, {
+      const entry = createLogEntry("ERROR", `API Error: ${method} ${url}`, {
         method,
         path: url,
         error: String(err),
         duration_ms: duration,
-        type: "api_call",
+        type: "api_error",
       }, "fetch");
       logBuffer.push(entry);
       scheduleFlush();
