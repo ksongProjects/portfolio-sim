@@ -100,6 +100,7 @@ func getEnvDuration(key string, defaultVal time.Duration) time.Duration {
 type Server struct {
 	cfg          *Config
 	logger       *slog.Logger
+	logClient    *logging.Client
 	db           *database.Postgres
 	redisClient  *redis.Client
 	obsService   *services.ObservabilityService
@@ -129,9 +130,16 @@ func NewServer(cfg *Config) (*Server, error) {
 		return nil, fmt.Errorf("connect redis: %w", err)
 	}
 
+	logURL := os.Getenv("LOGGING_SERVICE_URL")
+	if logURL == "" {
+		logURL = "http://main-api:8080/api/logs"
+	}
+	logClient := logging.NewClient("backend", logURL)
+
 	return &Server{
 		cfg:          cfg,
 		logger:       logger,
+		logClient:    logClient,
 		db:           db,
 		redisClient:  redisClient,
 		obsService:   services.NewObservabilityService(),
@@ -564,16 +572,37 @@ func (s *Server) handleValidateProvider(w http.ResponseWriter, r *http.Request) 
 	}
 
 	s.logger.Info("validating provider key", "provider", req.ProviderID, "has_key", len(req.APIKey) > 0)
+	if s.logClient != nil {
+		s.logClient.InfoWithMeta(r.Context(), fmt.Sprintf("Validating provider key: %s", req.ProviderID), map[string]interface{}{
+			"provider": req.ProviderID,
+			"has_key":  len(req.APIKey) > 0,
+			"type":     "provider_validation_request",
+		})
+	}
 
 	valid, qtResult, err := s.providerSvc.ValidateProviderKey(r.Context(), s.db, req.ProviderID, req.APIKey)
 	if err != nil {
 		s.logger.Error("provider validation failed", "provider", req.ProviderID, "error", err)
+		if s.logClient != nil {
+			s.logClient.ErrorWithMeta(r.Context(), fmt.Sprintf("Provider validation failed: %s", req.ProviderID), map[string]interface{}{
+				"provider": req.ProviderID,
+				"error":    err.Error(),
+				"type":     "provider_validation_error",
+			})
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"valid": false, "error": err.Error()})
 		return
 	}
 
 	s.logger.Info("provider validation succeeded", "provider", req.ProviderID, "valid", valid)
+	if s.logClient != nil {
+		s.logClient.InfoWithMeta(r.Context(), fmt.Sprintf("Provider validation succeeded: %s", req.ProviderID), map[string]interface{}{
+			"provider": req.ProviderID,
+			"valid":     valid,
+			"type":      "provider_validation_success",
+		})
+	}
 
 	if valid && req.ProviderID == "questrade" && qtResult != nil && qtResult.RefreshToken != "" {
 		s.logger.Info("saving questrade OAuth tokens", "provider", req.ProviderID, "expires_in", qtResult.ExpiresIn)

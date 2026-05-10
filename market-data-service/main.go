@@ -61,7 +61,7 @@ func NewMarketDataService(cfg *config.Config) *MarketDataService {
 
 	logURL := os.Getenv("LOGGING_SERVICE_URL")
 	if logURL == "" {
-		logURL = "http://backend:8080/api/logs"
+		logURL = "http://main-api:8080/api/logs"
 	}
 	return &MarketDataService{
 		cfg:       cfg,
