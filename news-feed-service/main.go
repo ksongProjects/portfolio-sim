@@ -75,13 +75,26 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, "ok")
 	})
+	mux.HandleFunc("/api/scrape", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		ctx := r.Context()
+		log.Println("Starting feed scrape...")
+		if err := feedManager.ScrapeFeeds(ctx); err != nil {
+			log.Printf("Scrape error: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "ok")
+	})
 
 	wrappedMux := logging.LoggingMiddleware(mux, logClient)
 
 	srv := &http.Server{
 		Addr:              ":" + port,
 		Handler:           http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/health" {
+			if r.URL.Path == "/health" || r.URL.Path == "/api/health" || r.URL.Path == "/api/scrape" {
 				mux.ServeHTTP(w, r)
 				return
 			}

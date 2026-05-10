@@ -6,8 +6,9 @@ import { CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Clock, TrendingUp, ExternalLink, Search, Filter, Bookmark } from "lucide-react";
+import { Clock, TrendingUp, ExternalLink, Search, Filter, Bookmark, RefreshCw, Plus, X, Rss } from "lucide-react";
 import { useNews } from "@/hooks/useNews";
+import { useRSSFeeds } from "@/hooks/useRSSFeeds";
 
 function timeAgo(dateStr: string): string {
   try {
@@ -33,13 +34,36 @@ export default function NewsFeedPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"all" | "bullish" | "bearish" | "neutral">("all");
   const [refreshInterval, setRefreshInterval] = useState(5);
+  const [showAddFeed, setShowAddFeed] = useState(false);
+  const [newFeedName, setNewFeedName] = useState("");
+  const [newFeedUrl, setNewFeedUrl] = useState("");
+  const { feeds, loading: feedsLoading, fetchFeeds, addFeed, deleteFeed, scrapeFeeds } = useRSSFeeds();
 
+  useEffect(() => { fetchFeeds(20); }, [fetchFeeds]);
   useEffect(() => { fetchNews(20); }, [fetchNews]);
 
   useEffect(() => {
     const intervalId = setInterval(() => fetchNews(20), refreshInterval * 60 * 1000);
     return () => clearInterval(intervalId);
   }, [refreshInterval, fetchNews]);
+
+  const handleAddFeed = async () => {
+    if (newFeedName && newFeedUrl) {
+      const success = await addFeed(newFeedName, newFeedUrl);
+      if (success) {
+        setNewFeedName("");
+        setNewFeedUrl("");
+        setShowAddFeed(false);
+        showToast("Feed added successfully");
+      }
+    }
+  };
+
+  const handleRefresh = async () => {
+    showToast("Scraping feeds...");
+    await scrapeFeeds();
+    setTimeout(() => fetchNews(20), 2000);
+  };
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -64,19 +88,14 @@ export default function NewsFeedPage() {
       <div className="px-6 pt-6 pb-4">
         <PageHeader title="News Feed" description="Real-time market news and sentiment analysis">
           <div className="flex gap-3 items-center">
-            <select
-              value={refreshInterval}
-              onChange={(e) => setRefreshInterval(Number(e.target.value))}
-              className="h-9 rounded-md border border-outline bg-surface-container px-3 text-sm text-on-surface focus:outline-none focus:ring-1 focus:ring-primary"
-            >
-              <option value={1}>Refresh every 1 min</option>
-              <option value={5}>Refresh every 5 min</option>
-              <option value={10}>Refresh every 10 min</option>
-              <option value={15}>Refresh every 15 min</option>
-              <option value={30}>Refresh every 30 min</option>
-            </select>
+            <Button variant="default" size="sm" onClick={handleRefresh} disabled={feedsLoading}>
+              <RefreshCw className="h-4 w-4" /> Refresh
+            </Button>
             <Button variant={saved.length > 0 ? "default" : "secondary"} size="sm" onClick={() => showToast(`Saved articles: ${saved.length}`)}>
               <Bookmark className="h-4 w-4" /> Saved ({saved.length})
+            </Button>
+            <Button variant="default" size="sm" onClick={() => setShowAddFeed(true)}>
+              <Plus className="h-4 w-4" /> Add Feed
             </Button>
             <Button variant="default" size="sm" onClick={() => showToast("Market summary coming soon...")}>
               <TrendingUp className="h-4 w-4" /> Market Summary
@@ -188,13 +207,60 @@ export default function NewsFeedPage() {
               )}
 
               <div className="bg-surface-container p-4">
-                <CardTitle className="mb-3">Market Indices</CardTitle>
-                <div className="text-on-surface-variant text-sm">No market data available</div>
+                <CardTitle className="mb-3">RSS Feeds</CardTitle>
+                {feedsLoading ? (
+                  <div className="text-on-surface-variant text-sm">Loading...</div>
+                ) : feeds.length === 0 ? (
+                  <div className="text-on-surface-variant text-sm mb-3">No feeds configured</div>
+                ) : (
+                  <div className="space-y-2 mb-3">
+                    {feeds.map((feed) => (
+                      <div key={feed.id} className="flex items-center justify-between text-sm">
+                        <div className="flex items-center gap-2">
+                          <Rss className="h-3 w-3 text-on-surface-variant" />
+                          <span className="text-on-surface">{feed.name}</span>
+                        </div>
+                        <button onClick={() => deleteFeed(feed.id)} className="text-on-surface-variant hover:text-error transition-colors">
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <Button variant="secondary" size="sm" onClick={() => setShowAddFeed(true)} className="w-full">
+                  <Plus className="h-3 w-3 mr-1" /> Add Feed
+                </Button>
               </div>
             </div>
           </PageCell>
         </PageGrid>
       </div>
+
+      {showAddFeed && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center">
+          <div className="bg-surface-container-highest border border-outline rounded-lg p-6 w-96 max-w-[90vw]">
+            <div className="flex items-center justify-between mb-4">
+              <CardTitle>Add RSS Feed</CardTitle>
+              <button onClick={() => setShowAddFeed(false)} className="text-on-surface-variant hover:text-on-surface">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs text-on-surface-variant mb-1 block">Feed Name</label>
+                <Input placeholder="e.g., Reuters Markets" value={newFeedName} onChange={(e) => setNewFeedName(e.target.value)} />
+              </div>
+              <div>
+                <label className="text-xs text-on-surface-variant mb-1 block">Feed URL</label>
+                <Input placeholder="https://feeds.example.com/market.xml" value={newFeedUrl} onChange={(e) => setNewFeedUrl(e.target.value)} />
+              </div>
+              <Button onClick={handleAddFeed} disabled={!newFeedName || !newFeedUrl || feedsLoading} className="w-full">
+                Add Feed
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {toast && (
         <div className="fixed bottom-6 right-6 z-50 bg-surface-container-highest border border-primary text-on-surface px-4 py-3 text-sm font-medium">{toast}</div>
