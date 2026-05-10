@@ -227,27 +227,6 @@ export function DataTable<TData, TValue>({
           </div>
         </div>
       )}
-
-      {cols.length > 0 && (
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs text-on-surface-variant">Sort by:</span>
-          {cols.map((col) => {
-            const sorted = col.getIsSorted();
-            return (
-              <Button
-                key={col.id}
-                variant={sorted ? "default" : "ghost"}
-                size="sm"
-                className="h-7 text-[11px]"
-                onClick={() => col.getToggleSortingHandler()?.(undefined)}
-              >
-                {col.id}
-                {sorted === "asc" ? " ↑" : sorted === "desc" ? " ↓" : ""}
-              </Button>
-            );
-          })}
-        </div>
-      )}
     </div>
   );
 }
