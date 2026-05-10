@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { PageGrid, PageCell, PageHeader, MetricLabel, MetricValue } from "@/components/page-layout";
 import { CardTitle } from "@/components/ui/card";
@@ -7,7 +8,7 @@ import { Badge, StatusIndicator } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlertTriangle, CheckCircle, Clock, RefreshCw, Zap } from "lucide-react";
+import { AlertTriangle, CheckCircle, Clock, RefreshCw, Zap, ChevronDown, ChevronRight, Copy, Check } from "lucide-react";
 import { useObservability } from "@/hooks/useObservability";
 import { useFrontendLogging, logUserAction, logComponentMount } from "@/hooks/useFrontendLogging";
 
@@ -28,12 +29,19 @@ function formatTimeAgo(date: Date | null): string {
   return date.toLocaleTimeString();
 }
 
+function formatJson(obj: unknown): string {
+  if (!obj) return "";
+  if (typeof obj === "string") return obj;
+  return JSON.stringify(obj, null, 2);
+}
+
 const logColumns: ColumnDef<{
   id: string;
   timestamp: string;
   level: string;
   service: string;
   message: string;
+  metadata: Record<string, unknown> | null;
 }>[] = [
   {
     accessorKey: "level",
@@ -52,7 +60,46 @@ const logColumns: ColumnDef<{
   {
     accessorKey: "message",
     header: "Message",
-    cell: ({ row }) => <span className="text-sm truncate max-w-md">{row.original.message}</span>,
+    cell: ({ row }) => {
+      const meta = row.original.metadata;
+      const [expanded, setExpanded] = useState(false);
+      const [copied, setCopied] = useState(false);
+
+      const handleCopy = () => {
+        navigator.clipboard.writeText(formatJson(meta));
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      };
+
+      return (
+        <div className="flex flex-col gap-1 py-1">
+          <span className="text-sm">{row.original.message}</span>
+          {meta && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setExpanded(!expanded)}
+                className="flex items-center gap-1 text-xs text-primary hover:underline"
+              >
+                {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                {expanded ? "Hide" : "Show"} Details
+              </button>
+              <button
+                onClick={handleCopy}
+                className="flex items-center gap-1 text-xs text-on-surface-variant hover:text-on-surface"
+              >
+                {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                {copied ? "Copied!" : "Copy"}
+              </button>
+            </div>
+          )}
+          {expanded && meta && (
+            <pre className="mt-2 p-2 bg-surface-container-high rounded text-xs overflow-auto max-h-40 text-left whitespace-pre-wrap">
+              {formatJson(meta)}
+            </pre>
+          )}
+        </div>
+      );
+    },
   },
   {
     accessorKey: "timestamp",
