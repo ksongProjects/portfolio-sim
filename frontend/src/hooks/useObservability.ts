@@ -27,8 +27,7 @@ export type LogEntry = {
 export interface LogFilters {
   level?: string;
   service?: string;
-  startDate?: string;
-  endDate?: string;
+  minutes?: number;
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
@@ -39,7 +38,7 @@ export function useObservability(options?: { autoRefresh?: boolean; interval?: n
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [filters, setFilters] = useState<LogFilters>({});
+  const [filters, setFilters] = useState<LogFilters>({ minutes: 60 });
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const { logAPICall } = useFrontendLogging();
 
@@ -68,8 +67,7 @@ export function useObservability(options?: { autoRefresh?: boolean; interval?: n
     params.set("limit", limit.toString());
     if (logFilters.level) params.set("level", logFilters.level);
     if (logFilters.service) params.set("service", logFilters.service);
-    if (logFilters.startDate) params.set("start", logFilters.startDate);
-    if (logFilters.endDate) params.set("end", logFilters.endDate);
+    if (logFilters.minutes && logFilters.minutes !== 60) params.set("minutes", logFilters.minutes.toString());
     return `${API_BASE}/api/observability/logs?${params.toString()}`;
   }, []);
 

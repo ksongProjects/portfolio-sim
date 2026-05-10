@@ -288,22 +288,26 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	level := r.URL.Query().Get("level")
 	service := r.URL.Query().Get("service")
-	startDate := r.URL.Query().Get("start")
-	endDate := r.URL.Query().Get("end")
+	minutesStr := r.URL.Query().Get("minutes")
+	minutes := 60
+	if minutesStr != "" {
+		if m, err := strconv.Atoi(minutesStr); err == nil && m > 0 {
+			minutes = m
+		}
+	}
 
-	s.logger.Info("handleGetLogs: fetching logs", "limit", limit, "level", level, "service", service, "start", startDate, "end", endDate)
+	s.logger.Info("handleGetLogs: fetching logs", "limit", limit, "level", level, "service", service, "minutes", minutes)
 
 	query := `
 		SELECT id, timestamp::text, level, service, component, message, metadata, trace_id, span_id
 		FROM logs
 		WHERE ($1 = '' OR level = $1)
 		  AND ($2 = '' OR service = $2)
-		  AND ($3 = '' OR timestamp >= $3::timestamptz)
-		  AND ($4 = '' OR timestamp <= $4::timestamptz)
+		  AND timestamp >= NOW() - INTERVAL '1 minute' * $3
 		ORDER BY timestamp DESC
-		LIMIT $5
+		LIMIT $4
 	`
-	rows, err := s.db.Query(r.Context(), query, level, service, startDate, endDate, limit)
+	rows, err := s.db.Query(r.Context(), query, level, service, minutes, limit)
 	if err != nil {
 		s.logger.Error("handleGetLogs: query failed", "error", err)
 		w.Header().Set("Content-Type", "application/json")

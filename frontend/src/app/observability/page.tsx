@@ -298,22 +298,17 @@ export default function ObservabilityPage() {
                 </select>
               </div>
               <div className="flex items-center gap-2">
-                <label className="text-xs text-on-surface-variant">From:</label>
-                <input
-                  type="datetime-local"
-                  value={filters.startDate || ""}
-                  onChange={(e) => setLogFilters({ ...filters, startDate: e.target.value || undefined })}
+                <label className="text-xs text-on-surface-variant">Time Range:</label>
+                <select
+                  value={filters.minutes || 60}
+                  onChange={(e) => setLogFilters({ ...filters, minutes: parseInt(e.target.value) || undefined })}
                   className="h-8 rounded-md border border-outline bg-surface-container px-2 text-sm text-on-surface focus:outline-none focus:ring-1 focus:ring-primary"
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-on-surface-variant">To:</label>
-                <input
-                  type="datetime-local"
-                  value={filters.endDate || ""}
-                  onChange={(e) => setLogFilters({ ...filters, endDate: e.target.value || undefined })}
-                  className="h-8 rounded-md border border-outline bg-surface-container px-2 text-sm text-on-surface focus:outline-none focus:ring-1 focus:ring-primary"
-                />
+                >
+                  <option value="30">Last 30 min</option>
+                  <option value="60">Last 1 hour</option>
+                  <option value="180">Last 3 hours</option>
+                  <option value="480">Last 8 hours</option>
+                </select>
               </div>
               <Button
                 variant="ghost"
