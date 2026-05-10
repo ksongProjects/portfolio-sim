@@ -55,6 +55,8 @@ function scheduleFlush(): void {
   setTimeout(flushLogs, 1000);
 }
 
+const LOGGING_ENDPOINT = "/api/logs";
+
 function createLogEntry(level: LogLevel, message: string, metadata?: Record<string, unknown>, component?: string): FrontendLogEntry {
   return {
     id: generateId(),
@@ -154,6 +156,10 @@ if (typeof window !== "undefined") {
     const startTime = Date.now();
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     const method = init?.method || "GET";
+
+    if (url.endsWith(LOGGING_ENDPOINT)) {
+      return originalFetch(input, init);
+    }
 
     try {
       const response = await originalFetch(input, init);

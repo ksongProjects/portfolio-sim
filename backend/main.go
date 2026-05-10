@@ -265,7 +265,7 @@ func (s *Server) handleIngestLog(w http.ResponseWriter, r *http.Request) {
 	}
 	_, err = s.db.Exec(r.Context(), `
 		INSERT INTO logs (id, timestamp, level, service, component, message, metadata, trace_id, span_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		VALUES ($1, $2::timestamptz, $3, $4, $5, $6, $7, $8, $9)
 	`, entry.ID, entry.Timestamp, entry.Level, entry.Service, entry.Component, entry.Message, metadataJSON, entry.TraceID, entry.SpanID)
 	if err != nil {
 		s.logger.Error("log insert failed", "error", err, "service", entry.Service, "id", entry.ID)
@@ -290,7 +290,7 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 	s.logger.Info("handleGetLogs: fetching logs", "limit", limit, "level", level, "service", service)
 
 	query := `
-		SELECT id, timestamp, level, service, component, message, metadata, trace_id, span_id
+		SELECT id, timestamp::text, level, service, component, message, metadata, trace_id, span_id
 		FROM logs
 		WHERE ($1 = '' OR level = $1)
 		  AND ($2 = '' OR service = $2)
