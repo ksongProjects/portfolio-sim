@@ -39,7 +39,7 @@ export default function NewsFeedPage() {
   const [newFeedUrl, setNewFeedUrl] = useState("");
   const { feeds, loading: feedsLoading, fetchFeeds, addFeed, deleteFeed, scrapeFeeds } = useRSSFeeds();
 
-  useEffect(() => { fetchFeeds(20); }, [fetchFeeds]);
+  useEffect(() => { fetchFeeds(); }, [fetchFeeds]);
   useEffect(() => { fetchNews(20); }, [fetchNews]);
 
   useEffect(() => {

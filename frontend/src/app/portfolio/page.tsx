@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { ColumnDef } from "@tanstack/react-table";
 import { PageGrid, PageCell, PageHeader, MetricLabel, MetricValue, MetricSubValue } from "@/components/page-layout";
 import { CardTitle } from "@/components/ui/card";
@@ -36,7 +37,11 @@ const columns: ColumnDef<Position>[] = [
   {
     accessorKey: "Symbol",
     header: "Symbol",
-    cell: ({ row }) => <span className="font-mono font-semibold">{row.original.Symbol}</span>,
+    cell: ({ row }) => (
+      <Link href={`/ticker/${row.original.Symbol}`} className="font-mono font-semibold text-primary hover:underline">
+        {row.original.Symbol}
+      </Link>
+    ),
   },
   {
     accessorKey: "CompanyName",
