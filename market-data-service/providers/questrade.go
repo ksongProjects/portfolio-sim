@@ -45,37 +45,56 @@ func (p *QuestradeProvider) logRequest(method, url string) {
 		return
 	}
 	p.logClient.InfoWithMeta(nil, "Questrade Request: "+method+" "+url, map[string]interface{}{
-		"method": method,
-		"url":    url,
+		"method":     method,
+		"url":        url,
+		"provider":   "questrade",
+		"base_url":   p.baseURL,
+		"has_token":  p.token != "",
 	})
 }
 
-func (p *QuestradeProvider) logResponse(method, url string, status int, body []byte) {
+func (p *QuestradeProvider) logResponse(method, url string, status int, body []byte, err error) {
 	if p.logClient == nil {
 		return
 	}
 	level := "INFO"
-	if status >= 400 {
+	if status >= 400 || err != nil {
 		level = "ERROR"
 	}
-	p.logClient.EmitWithMetadata(nil, level, fmt.Sprintf("Questrade %s %s → %d (%d bytes)", method, url, status, len(body)), map[string]interface{}{
-		"method":       method,
-		"url":          url,
-		"status":       status,
-		"body_length":  len(body),
-		"body":         string(body),
-		"provider":     "questrade",
-	})
+	msg := fmt.Sprintf("Questrade %s %s → %d (%d bytes)", method, url, status, len(body))
+	if err != nil {
+		msg = fmt.Sprintf("Questrade %s %s → ERROR: %v", method, url, err)
+	}
+	meta := map[string]interface{}{
+		"method":      method,
+		"url":         url,
+		"status":      status,
+		"body_length": len(body),
+		"provider":    "questrade",
+		"base_url":    p.baseURL,
+		"has_token":   p.token != "",
+	}
+	if len(body) > 0 {
+		meta["body"] = string(body)
+	}
+	if err != nil {
+		meta["error"] = err.Error()
+		meta["error_type"] = fmt.Sprintf("%T", err)
+	}
+	p.logClient.EmitWithMetadata(nil, level, msg, meta)
 }
 
-func (p *QuestradeProvider) logError(method, url string, errMsg string) {
+func (p *QuestradeProvider) logError(method, url string, err error) {
 	if p.logClient == nil {
 		return
 	}
 	p.logClient.ErrorWithMeta(nil, "Questrade Error: "+method+" "+url, map[string]interface{}{
-		"method": method,
-		"url":    url,
-		"error":  errMsg,
+		"method":     method,
+		"url":        url,
+		"error":      err.Error(),
+		"error_type": fmt.Sprintf("%T", err),
+		"provider":   "questrade",
+		"base_url":   p.baseURL,
 	})
 }
 
@@ -107,16 +126,18 @@ func (p *QuestradeProvider) refreshToken() error {
 
 	resp, err := http.Get(tokenURL)
 	if err != nil {
-		p.logError("GET", tokenURL, err.Error())
+		p.logError("GET", tokenURL, err)
 		return err
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-	p.logResponse("GET", tokenURL, resp.StatusCode, body)
+	p.logResponse("GET", tokenURL, resp.StatusCode, body, nil)
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("questrade token refresh failed: %d", resp.StatusCode)
+		err := fmt.Errorf("questrade token refresh failed: %d", resp.StatusCode)
+		p.logResponse("GET", tokenURL, resp.StatusCode, body, err)
+		return err
 	}
 
 	var result struct {
@@ -145,6 +166,7 @@ func (p *QuestradeProvider) doRequest(endpoint string) ([]byte, error) {
 
 	if p.token == "" {
 		if err := p.refreshToken(); err != nil {
+			p.logError("GET", p.baseURL+endpoint, err)
 			return nil, err
 		}
 	}
@@ -154,40 +176,47 @@ func (p *QuestradeProvider) doRequest(endpoint string) ([]byte, error) {
 
 	req, err := http.NewRequest("GET", reqURL, nil)
 	if err != nil {
+		p.logError("GET", reqURL, err)
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+p.token)
 
 	resp, err := p.client.Do(req)
 	if err != nil {
-		p.logError("GET", reqURL, err.Error())
+		p.logError("GET", reqURL, err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-	p.logResponse("GET", reqURL, resp.StatusCode, body)
+	p.logResponse("GET", reqURL, resp.StatusCode, body, nil)
 
 	if resp.StatusCode == http.StatusUnauthorized {
 		if err := p.refreshToken(); err != nil {
+			p.logError("GET", reqURL, err)
 			return nil, err
 		}
 		req.Header.Set("Authorization", "Bearer "+p.token)
 		resp, err = p.client.Do(req)
 		if err != nil {
+			p.logError("GET", reqURL, err)
 			return nil, err
 		}
 		defer resp.Body.Close()
 		body, _ = io.ReadAll(resp.Body)
-		p.logResponse("GET", reqURL, resp.StatusCode, body)
+		p.logResponse("GET", reqURL, resp.StatusCode, body, nil)
 	}
 
 	if resp.StatusCode == http.StatusTooManyRequests {
-		return nil, fmt.Errorf("questrade rate limit exceeded")
+		err := fmt.Errorf("questrade rate limit exceeded")
+		p.logResponse("GET", reqURL, resp.StatusCode, body, err)
+		return nil, err
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("questrade request failed: %d", resp.StatusCode)
+		err := fmt.Errorf("questrade request failed: %d", resp.StatusCode)
+		p.logResponse("GET", reqURL, resp.StatusCode, body, err)
+		return nil, err
 	}
 
 	return body, nil
