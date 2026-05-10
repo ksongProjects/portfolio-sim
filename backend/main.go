@@ -175,6 +175,7 @@ func (s *Server) Start() error {
 	http.HandleFunc("GET /api/rss-feeds", logging.WrapHandlerFunc(s.handleGetRSSFeeds))
 	http.HandleFunc("POST /api/rss-feeds", logging.WrapHandlerFunc(s.handleAddRSSFeed))
 	http.HandleFunc("DELETE /api/rss-feeds", logging.WrapHandlerFunc(s.handleDeleteRSSFeed))
+	http.HandleFunc("POST /api/rss-feeds/scrape", logging.WrapHandlerFunc(s.handleScrapeRSSFeeds))
 	http.HandleFunc("GET /api/tickers/search", logging.WrapHandlerFunc(s.handleSearchTickers))
 	http.HandleFunc("GET /api/tickers/", logging.WrapHandlerFunc(s.handleGetTickerDetails))
 	http.HandleFunc("GET /api/stream/market", s.handleMarketStream)
@@ -564,7 +565,7 @@ func (s *Server) handleValidateProvider(w http.ResponseWriter, r *http.Request) 
 
 	s.logger.Info("validating provider key", "provider", req.ProviderID, "has_key", len(req.APIKey) > 0)
 
-	valid, err := s.providerSvc.ValidateProviderKey(r.Context(), s.db, req.ProviderID, req.APIKey)
+	valid, qtResult, err := s.providerSvc.ValidateProviderKey(r.Context(), s.db, req.ProviderID, req.APIKey)
 	if err != nil {
 		s.logger.Error("provider validation failed", "provider", req.ProviderID, "error", err)
 		w.Header().Set("Content-Type", "application/json")
@@ -574,15 +575,9 @@ func (s *Server) handleValidateProvider(w http.ResponseWriter, r *http.Request) 
 
 	s.logger.Info("provider validation succeeded", "provider", req.ProviderID, "valid", valid)
 
-	if valid && req.ProviderID == "questrade" {
-		s.logger.Info("exchanging questrade OAuth token", "provider", req.ProviderID)
-		accessToken, refreshToken, apiServer, expiresIn, err := s.providerSvc.ExchangeQuestradeToken(req.APIKey)
-		if err == nil && refreshToken != "" {
-			s.logger.Info("saving questrade OAuth tokens", "provider", req.ProviderID, "expires_in", expiresIn)
-			s.providerSvc.SaveQuestradeOAuth(r.Context(), s.db, req.ProviderID, accessToken, refreshToken, apiServer, expiresIn)
-		} else if err != nil {
-			s.logger.Error("questrade token exchange failed", "provider", req.ProviderID, "error", err)
-		}
+	if valid && req.ProviderID == "questrade" && qtResult != nil && qtResult.RefreshToken != "" {
+		s.logger.Info("saving questrade OAuth tokens", "provider", req.ProviderID, "expires_in", qtResult.ExpiresIn)
+		s.providerSvc.SaveQuestradeOAuth(r.Context(), s.db, req.ProviderID, qtResult.AccessToken, qtResult.RefreshToken, qtResult.APIServer, qtResult.ExpiresIn)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -640,6 +635,21 @@ func (s *Server) handleDeleteRSSFeed(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+}
+
+func (s *Server) handleScrapeRSSFeeds(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	resp, err := http.Post("http://news-feed-service:8080/api/scrape", "application/json", nil)
+	if err != nil {
+		http.Error(w, "failed to trigger scrape", http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 func (s *Server) handleGetQuestradeOAuth(w http.ResponseWriter, r *http.Request) {

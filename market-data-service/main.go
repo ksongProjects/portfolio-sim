@@ -184,7 +184,7 @@ func (s *MarketDataService) handleSaveQuestradeOAuth(w http.ResponseWriter, r *h
 }
 
 func (s *MarketDataService) setupProviders() {
-	s.providers = append(s.providers, providers.NewQuestradeProvider(s.cfg.Questrade, s.storage))
+	s.providers = append(s.providers, providers.NewQuestradeProvider(s.cfg.Questrade, s.storage, s.logClient))
 	if s.cfg.Polygon.APIKey != "" {
 		s.providers = append(s.providers, providers.NewPolygonProvider(s.cfg.Polygon, s.logClient))
 	}
@@ -337,7 +337,7 @@ func (s *MarketDataService) processBackfill(req *sse.BackfillRequest) {
 	case "fmp":
 		provider = providers.NewFMPProvider(s.cfg.FMP, s.logClient)
 	default:
-		provider = providers.NewQuestradeProvider(s.cfg.Questrade, s.storage)
+		provider = providers.NewQuestradeProvider(s.cfg.Questrade, s.storage, s.logClient)
 	}
 
 	switch req.DataType {

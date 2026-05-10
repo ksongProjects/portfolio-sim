@@ -161,11 +161,15 @@ func (s *Storage) GetQuestradeTokens(ctx context.Context) (*QuestradeTokens, err
 	if err != nil {
 		return nil, err
 	}
+	expAt := time.Now()
+	if expiresAt != nil {
+		expAt = *expiresAt
+	}
 	return &QuestradeTokens{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 		APIServer:    apiServer,
-		ExpiresAt:    time.Now(),
+		ExpiresAt:    expAt,
 	}, nil
 }
 

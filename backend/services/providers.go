@@ -230,29 +230,40 @@ func (s *ProviderService) CheckConnection(ctx context.Context, db interface {
 
 func (s *ProviderService) ValidateProviderKey(ctx context.Context, db interface {
 	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
-}, providerID, apiKey string) (bool, error) {
+}, providerID, apiKey string) (bool, *QuestradeOAuthResult, error) {
 	s.logger.Info("ProviderService.ValidateProviderKey called", "provider", providerID)
 
 	switch providerID {
 	case "polygon":
 		s.logger.Info("validating polygon key")
-		return validatePolygonKey(apiKey)
+		valid, err := validatePolygonKey(apiKey)
+		return valid, nil, err
 	case "fmp":
 		s.logger.Info("validating fmp key")
-		return validateFMPKey(apiKey)
+		valid, err := validateFMPKey(apiKey)
+		return valid, nil, err
 	case "questrade":
 		s.logger.Info("validating questrade key")
 		return validateQuestradeKey(apiKey)
 	case "youtube":
 		s.logger.Info("validating youtube key")
-		return validateYouTubeKey(apiKey)
+		valid, err := validateYouTubeKey(apiKey)
+		return valid, nil, err
 	case "gemini":
 		s.logger.Info("validating gemini key")
-		return validateGeminiKey(apiKey)
+		valid, err := validateGeminiKey(apiKey)
+		return valid, nil, err
 	default:
 		s.logger.Warn("unknown provider", "provider", providerID)
-		return false, fmt.Errorf("unknown provider: %s", providerID)
+		return false, nil, fmt.Errorf("unknown provider: %s", providerID)
 	}
+}
+
+type QuestradeOAuthResult struct {
+	AccessToken  string
+	RefreshToken string
+	APIServer    string
+	ExpiresIn    int
 }
 
 func validatePolygonKey(apiKey string) (bool, error) {
@@ -293,24 +304,24 @@ func validateFMPKey(apiKey string) (bool, error) {
 	return false, fmt.Errorf("fmp returned status: %d", resp.StatusCode)
 }
 
-func validateQuestradeKey(apiKey string) (bool, error) {
+func validateQuestradeKey(apiKey string) (bool, *QuestradeOAuthResult, error) {
 	const qtAPI = "https://login.questrade.com/oauth2/token"
 	tokenURL := fmt.Sprintf("%s?grant_type=refresh_token&refresh_token=%s", qtAPI, url.QueryEscape(apiKey))
 	resp, err := http.Get(tokenURL)
 	if err != nil {
-		return false, fmt.Errorf("oauth request failed: %w", err)
+		return false, nil, fmt.Errorf("oauth request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode == http.StatusBadRequest {
-			return false, fmt.Errorf("questrade refresh token is expired or invalid")
+			return false, nil, fmt.Errorf("questrade refresh token is expired or invalid")
 		}
 		if resp.StatusCode == http.StatusUnauthorized {
-			return false, fmt.Errorf("questrade unauthorized")
+			return false, nil, fmt.Errorf("questrade unauthorized")
 		}
 		body, _ := io.ReadAll(resp.Body)
-		return false, fmt.Errorf("questrade returned status %d: %s", resp.StatusCode, string(body))
+		return false, nil, fmt.Errorf("questrade returned status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var result struct {
@@ -320,12 +331,17 @@ func validateQuestradeKey(apiKey string) (bool, error) {
 		APIServer    string `json:"api_server"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return false, fmt.Errorf("failed to parse oauth response: %w", err)
+		return false, nil, fmt.Errorf("failed to parse oauth response: %w", err)
 	}
 	if result.AccessToken == "" || result.RefreshToken == "" || result.APIServer == "" {
-		return false, fmt.Errorf("oauth response missing required fields")
+		return false, nil, fmt.Errorf("oauth response missing required fields")
 	}
-	return true, nil
+	return true, &QuestradeOAuthResult{
+		AccessToken:  result.AccessToken,
+		RefreshToken: result.RefreshToken,
+		APIServer:    result.APIServer,
+		ExpiresIn:    result.ExpiresIn,
+	}, nil
 }
 
 func validateYouTubeKey(apiKey string) (bool, error) {

@@ -96,5 +96,15 @@ export function usePortfolio() {
 		setLoading(false);
 	}, [fetchPositions, fetchSummary, fetchIndices]);
 
-	return { positions, summary, indices, loading, error, fetchPositions, fetchSummary, fetchIndices, refresh };
+	const addPosition = useCallback(async (portfolioId = "default", symbol: string, shares: number, price: number) => {
+		const res = await fetch(`${API_BASE}/api/portfolio/positions`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ portfolio_id: portfolioId, symbol, shares, price }),
+		});
+		if (!res.ok) throw new Error("Failed to add position");
+		await refresh(portfolioId);
+	}, [refresh]);
+
+	return { positions, summary, indices, loading, error, fetchPositions, fetchSummary, fetchIndices, refresh, addPosition };
 }

@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -167,6 +168,7 @@ func (s *PortfolioService) GetLatestPrices(ctx context.Context, db interface {
 
 func (s *PortfolioService) GetPositions(ctx context.Context, db interface {
 	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
+	Exec(ctx context.Context, sql string, args ...interface{}) (int64, error)
 }, portfolioID string) ([]Position, error) {
 	query := `
 		SELECT p.id, p.portfolio_id, p.ticker_id, t.symbol, t.company_name,
@@ -194,8 +196,31 @@ func (s *PortfolioService) GetPositions(ctx context.Context, db interface {
 	return positions, nil
 }
 
+func (s *PortfolioService) AddPosition(ctx context.Context, db interface {
+	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
+	Exec(ctx context.Context, sql string, args ...interface{}) (int64, error)
+}, portfolioID, symbol string, quantity, avgCost float64) error {
+	var tickerID string
+	rows, err := db.Query(ctx, `SELECT id FROM tickers WHERE symbol = $1 AND is_active = true`, symbol)
+	if err != nil {
+		return fmt.Errorf("ticker query failed: %s", symbol)
+	}
+	defer rows.Close()
+	if rows.Next() {
+		rows.Scan(&tickerID)
+	} else {
+		return fmt.Errorf("ticker not found: %s", symbol)
+	}
+	_, err = db.Exec(ctx, `
+		INSERT INTO positions (portfolio_id, ticker_id, quantity, avg_cost, opened_at)
+		VALUES ($1, $2, $3, $4, NOW())
+	`, portfolioID, tickerID, quantity, avgCost)
+	return err
+}
+
 func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, db interface {
 	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
+	Exec(ctx context.Context, sql string, args ...interface{}) (int64, error)
 }, portfolioID string) (*PortfolioSummary, error) {
 	rows, err := db.Query(ctx, `
 		SELECT id, initial_cash FROM portfolios WHERE id = $1

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/portfolio-sim/market-data-service/config"
+	"github.com/portfolio-sim/market-data-service/logging"
 	"github.com/portfolio-sim/market-data-service/storage"
 )
 
@@ -21,20 +22,59 @@ type QuestradeProvider struct {
 	token       string
 	rateLimiter *RateLimiter
 	storage     *storage.Storage
+	logClient   *logging.Client
 }
 
-func NewQuestradeProvider(cfg config.QuestradeConfig, storage *storage.Storage) *QuestradeProvider {
+func NewQuestradeProvider(cfg config.QuestradeConfig, storage *storage.Storage, logClient *logging.Client) *QuestradeProvider {
 	return &QuestradeProvider{
 		cfg:         cfg,
 		client:      &http.Client{Timeout: 30 * time.Second},
 		baseURL:     cfg.APIURL,
 		rateLimiter: NewRateLimiter(20, 15000),
 		storage:     storage,
+		logClient:   logClient,
 	}
 }
 
 func (p *QuestradeProvider) Name() string {
 	return "questrade"
+}
+
+func (p *QuestradeProvider) logRequest(method, url string) {
+	if p.logClient == nil {
+		return
+	}
+	p.logClient.InfoWithMeta(nil, "Questrade Request: "+method+" "+url, map[string]interface{}{
+		"method": method,
+		"url":    url,
+	})
+}
+
+func (p *QuestradeProvider) logResponse(method, url string, status int, body []byte) {
+	if p.logClient == nil {
+		return
+	}
+	level := "INFO"
+	if status >= 400 {
+		level = "ERROR"
+	}
+	p.logClient.EmitWithMetadata(nil, level, "Questrade Response: "+method+" "+url+" -> "+fmt.Sprintf("%d", status), map[string]interface{}{
+		"method":  method,
+		"url":     url,
+		"status":  status,
+		"body":    string(body),
+	})
+}
+
+func (p *QuestradeProvider) logError(method, url string, errMsg string) {
+	if p.logClient == nil {
+		return
+	}
+	p.logClient.ErrorWithMeta(nil, "Questrade Error: "+method+" "+url, map[string]interface{}{
+		"method": method,
+		"url":    url,
+		"error":  errMsg,
+	})
 }
 
 func (p *QuestradeProvider) refreshToken() error {
@@ -46,17 +86,32 @@ func (p *QuestradeProvider) refreshToken() error {
 	if err != nil {
 		return fmt.Errorf("failed to get tokens from storage: %w", err)
 	}
+
+	if tokens.AccessToken != "" && time.Now().Before(tokens.ExpiresAt) {
+		p.token = tokens.AccessToken
+		if tokens.APIServer != "" {
+			p.baseURL = tokens.APIServer
+		}
+		return nil
+	}
+
 	if tokens.RefreshToken == "" {
 		return fmt.Errorf("no refresh token available")
 	}
 
 	tokenURL := fmt.Sprintf("%s?grant_type=refresh_token&refresh_token=%s",
 		tokens.APIServer, url.QueryEscape(tokens.RefreshToken))
+	p.logRequest("GET", tokenURL)
+
 	resp, err := http.Get(tokenURL)
 	if err != nil {
+		p.logError("GET", tokenURL, err.Error())
 		return err
 	}
 	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	p.logResponse("GET", tokenURL, resp.StatusCode, body)
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("questrade token refresh failed: %d", resp.StatusCode)
@@ -92,7 +147,10 @@ func (p *QuestradeProvider) doRequest(endpoint string) ([]byte, error) {
 		}
 	}
 
-	req, err := http.NewRequest("GET", p.baseURL+endpoint, nil)
+	reqURL := p.baseURL + endpoint
+	p.logRequest("GET", reqURL)
+
+	req, err := http.NewRequest("GET", reqURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -100,9 +158,13 @@ func (p *QuestradeProvider) doRequest(endpoint string) ([]byte, error) {
 
 	resp, err := p.client.Do(req)
 	if err != nil {
+		p.logError("GET", reqURL, err.Error())
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	p.logResponse("GET", reqURL, resp.StatusCode, body)
 
 	if resp.StatusCode == http.StatusUnauthorized {
 		if err := p.refreshToken(); err != nil {
@@ -114,6 +176,8 @@ func (p *QuestradeProvider) doRequest(endpoint string) ([]byte, error) {
 			return nil, err
 		}
 		defer resp.Body.Close()
+		body, _ = io.ReadAll(resp.Body)
+		p.logResponse("GET", reqURL, resp.StatusCode, body)
 	}
 
 	if resp.StatusCode == http.StatusTooManyRequests {

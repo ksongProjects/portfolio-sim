@@ -123,15 +123,19 @@ const columns: ColumnDef<Position>[] = [
 ];
 
 export default function PortfolioPage() {
-  const { positions, summary, loading, refresh } = usePortfolio();
+  const { positions, summary, loading, refresh, addPosition } = usePortfolio();
   const [modalOpen, setModalOpen] = useState(false);
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  const handleAddPosition = (position: { symbol: string; shares: number; price: number }) => {
-    toast.success(`Added ${position.shares} shares of ${position.symbol} @ $${position.price.toFixed(2)}`);
+  const handleAddPosition = async (position: { symbol: string; shares: number; price: number }) => {
+    try {
+      await addPosition("default", position.symbol, position.shares, position.price);
+      toast.success(`Added ${position.shares} shares of ${position.symbol} @ $${position.price.toFixed(2)}`);
+    } catch {
+      toast.error(`Failed to add ${position.symbol}`);
+    }
     setModalOpen(false);
-    refresh();
   };
 
   const sectors = Array.from(
