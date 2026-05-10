@@ -176,6 +176,7 @@ func (s *Server) Start() error {
 	http.HandleFunc("GET /api/news", logging.WrapHandlerFunc(s.handleGetNews))
 	http.HandleFunc("GET /api/strategies", logging.WrapHandlerFunc(s.handleGetStrategies))
 	http.HandleFunc("GET /api/signals", logging.WrapHandlerFunc(s.handleGetSignals))
+	http.HandleFunc("GET /api/notifications", logging.WrapHandlerFunc(s.handleGetNotifications))
 	http.HandleFunc("GET /api/providers", logging.WrapHandlerFunc(s.handleGetProviders))
 	http.HandleFunc("PUT /api/providers", logging.WrapHandlerFunc(s.handleUpdateProvider))
 	http.HandleFunc("POST /api/providers/validate", logging.WrapHandlerFunc(s.handleValidateProvider))
@@ -316,7 +317,8 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.logger.Error("handleGetLogs: query failed", "error", err)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]interface{}{})
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to fetch logs"})
 		return
 	}
 	defer rows.Close()
@@ -351,6 +353,64 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(logs)
+}
+
+func (s *Server) handleGetNotifications(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.db.Query(r.Context(), `
+		SELECT id, timestamp::text, level, service, message
+		FROM logs
+		WHERE level IN ('WARN', 'ERROR', 'FATAL')
+		  AND timestamp >= NOW() - INTERVAL '24 hours'
+		ORDER BY timestamp DESC
+		LIMIT 20
+	`)
+	if err != nil {
+		s.logger.Error("handleGetNotifications: query failed", "error", err)
+		http.Error(w, "failed to fetch notifications", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	type Notification struct {
+		ID        string `json:"id"`
+		Title     string `json:"title"`
+		Message   string `json:"message"`
+		Type      string `json:"type"`
+		Timestamp string `json:"timestamp"`
+		Read      bool   `json:"read"`
+	}
+
+	notifications := []Notification{}
+	for rows.Next() {
+		var id, timestamp, level, service, message string
+		if err := rows.Scan(&id, &timestamp, &level, &service, &message); err != nil {
+			s.logger.Error("handleGetNotifications: scan failed", "error", err)
+			continue
+		}
+
+		notificationType := "warning"
+		if level == "ERROR" || level == "FATAL" {
+			notificationType = "error"
+		}
+
+		serviceTitle := strings.ReplaceAll(service, "-", " ")
+		if serviceTitle == "" {
+			serviceTitle = "system"
+		}
+		title := strings.ToUpper(level[:1]) + strings.ToLower(level[1:]) + " from " + serviceTitle
+
+		notifications = append(notifications, Notification{
+			ID:        id,
+			Title:     title,
+			Message:   message,
+			Type:      notificationType,
+			Timestamp: timestamp,
+			Read:      false,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(notifications)
 }
 
 func (s *Server) handleMarketStream(w http.ResponseWriter, r *http.Request) {
@@ -734,10 +794,10 @@ func (s *Server) handleScrapeRSSFeeds(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(resp.Body)
 	if s.logClient != nil {
 		s.logClient.InfoWithMeta(r.Context(), "RSS scrape response", map[string]interface{}{
-			"type":           "outbound_response",
-			"status":         resp.StatusCode,
-			"body":           string(body),
-			"response_size":  len(body),
+			"type":          "outbound_response",
+			"status":        resp.StatusCode,
+			"body":          string(body),
+			"response_size": len(body),
 		})
 	}
 

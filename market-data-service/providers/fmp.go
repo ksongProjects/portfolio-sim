@@ -13,16 +13,18 @@ import (
 )
 
 type FMPProvider struct {
-	cfg       config.FMPConfig
-	client    *http.Client
-	logClient *logging.Client
+	cfg            config.FMPConfig
+	client         *http.Client
+	logClient      *logging.Client
+	apiKeyResolver APIKeyResolver
 }
 
-func NewFMPProvider(cfg config.FMPConfig, logClient *logging.Client) *FMPProvider {
+func NewFMPProvider(cfg config.FMPConfig, logClient *logging.Client, apiKeyResolver APIKeyResolver) *FMPProvider {
 	return &FMPProvider{
-		cfg:       cfg,
-		client:    &http.Client{Timeout: 10 * time.Second},
-		logClient: logClient,
+		cfg:            cfg,
+		client:         &http.Client{Timeout: 10 * time.Second},
+		logClient:      logClient,
+		apiKeyResolver: apiKeyResolver,
 	}
 }
 
@@ -44,22 +46,22 @@ func (p *FMPProvider) FetchCompanyProfile(ticker string) (*CompanyProfile, error
 		return nil, fmt.Errorf("fmp profile failed: %d - %s", status, string(body))
 	}
 	var result []struct {
-		Symbol       string  `json:"symbol"`
-		CompanyName  string  `json:"companyName"`
-		Exchange     string  `json:"exchange"`
-		Sector       string  `json:"sector"`
-		Industry     string  `json:"industry"`
-		CEO          string  `json:"ceo"`
-		Website      string  `json:"website"`
-		Description  string  `json:"description"`
-		Price        float64 `json:"price"`
-		MarketCap    float64 `json:"mktCap"`
-		Pe           float64 `json:"pe"`
-		Eps          float64 `json:"eps"`
-		DivYield     float64 `json:"dividendYield"`
-		Year52High   float64 `json:"year52High"`
-		Year52Low    float64 `json:"year52Low"`
-		AvgVolume    int64   `json:"volAvg"`
+		Symbol      string  `json:"symbol"`
+		CompanyName string  `json:"companyName"`
+		Exchange    string  `json:"exchange"`
+		Sector      string  `json:"sector"`
+		Industry    string  `json:"industry"`
+		CEO         string  `json:"ceo"`
+		Website     string  `json:"website"`
+		Description string  `json:"description"`
+		Price       float64 `json:"price"`
+		MarketCap   float64 `json:"mktCap"`
+		Pe          float64 `json:"pe"`
+		Eps         float64 `json:"eps"`
+		DivYield    float64 `json:"dividendYield"`
+		Year52High  float64 `json:"year52High"`
+		Year52Low   float64 `json:"year52Low"`
+		AvgVolume   int64   `json:"volAvg"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, err
@@ -69,22 +71,22 @@ func (p *FMPProvider) FetchCompanyProfile(ticker string) (*CompanyProfile, error
 	}
 	r := result[0]
 	return &CompanyProfile{
-		Symbol:    r.Symbol,
-		Name:      r.CompanyName,
-		Exchange:  r.Exchange,
-		Sector:    r.Sector,
-		Industry:  r.Industry,
-		CEO:       r.CEO,
-		Website:   r.Website,
+		Symbol:      r.Symbol,
+		Name:        r.CompanyName,
+		Exchange:    r.Exchange,
+		Sector:      r.Sector,
+		Industry:    r.Industry,
+		CEO:         r.CEO,
+		Website:     r.Website,
 		Description: r.Description,
-		Price:     r.Price,
-		MarketCap: r.MarketCap,
-		PeRatio:   r.Pe,
-		Eps:       r.Eps,
-		DivYield:  r.DivYield,
-		Week52High: r.Year52High,
-		Week52Low: r.Year52Low,
-		AvgVolume: r.AvgVolume,
+		Price:       r.Price,
+		MarketCap:   r.MarketCap,
+		PeRatio:     r.Pe,
+		Eps:         r.Eps,
+		DivYield:    r.DivYield,
+		Week52High:  r.Year52High,
+		Week52Low:   r.Year52Low,
+		AvgVolume:   r.AvgVolume,
 	}, nil
 }
 
@@ -244,12 +246,32 @@ func (p *FMPProvider) logResponseError(method, rawURL string, headers http.Heade
 	})
 }
 
+func (p *FMPProvider) apiKey() (string, error) {
+	if p.apiKeyResolver != nil {
+		apiKey, err := p.apiKeyResolver()
+		if err == nil && apiKey != "" {
+			return apiKey, nil
+		}
+		if p.cfg.APIKey == "" && err != nil {
+			return "", err
+		}
+	}
+	if p.cfg.APIKey == "" {
+		return "", fmt.Errorf("fmp API key not configured")
+	}
+	return p.cfg.APIKey, nil
+}
+
 func (p *FMPProvider) get(rawURL string) ([]byte, int, http.Header, error) {
+	apiKey, err := p.apiKey()
+	if err != nil {
+		return nil, 0, nil, err
+	}
 	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, 0, nil, err
 	}
-	req.Header.Set("apikey", p.cfg.APIKey)
+	req.Header.Set("apikey", apiKey)
 
 	p.logRequest(http.MethodGet, rawURL, req.Header, nil)
 	start := time.Now()

@@ -10,7 +10,6 @@ import { DataTable } from "@/components/ui/data-table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertTriangle, CheckCircle, Clock, RefreshCw, Zap, ChevronDown, ChevronRight, Copy, Check } from "lucide-react";
 import { useObservability } from "@/hooks/useObservability";
-import { useFrontendLogging, logUserAction, logComponentMount } from "@/hooks/useFrontendLogging";
 
 function formatTimestamp(ts: string): string {
   try {
@@ -85,8 +84,6 @@ function LogRow({ id, message, metadata, isExpanded, onToggle }: LogRowProps) {
 export default function ObservabilityPage() {
   const { services, logs, loading, error, lastUpdated, refresh, filters, setLogFilters } = useObservability({ autoRefresh: true });
   const [expandedLogIds, setExpandedLogIds] = useState<Set<string>>(new Set());
-  useFrontendLogging();
-  logComponentMount("ObservabilityPage");
 
   const toggleLogExpansion = useCallback((id: string) => {
     setExpandedLogIds(prev => {
@@ -105,7 +102,6 @@ export default function ObservabilityPage() {
   const errorCount = services.filter((s) => s.status === "error").length;
 
   const handleRefresh = () => {
-    logUserAction("manual_refresh");
     refresh();
   };
 

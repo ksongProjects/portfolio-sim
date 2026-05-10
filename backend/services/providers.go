@@ -9,10 +9,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/portfolio-sim/backend/logging"
+	"github.com/portfolio-sim/backend/secrets"
 )
 
 type ProviderService struct {
@@ -139,14 +141,18 @@ func (s *ProviderService) GetProviders(ctx context.Context, db interface {
 }
 
 func (s *ProviderService) SaveProviderKey(ctx context.Context, db interface {
-	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
+	Exec(ctx context.Context, sql string, args ...interface{}) (int64, error)
 }, providerID, apiKey string) error {
+	encryptedKey, err := secrets.EncryptString(apiKey)
+	if err != nil {
+		return err
+	}
 	query := `
 		INSERT INTO provider_configurations (id, provider_id, encrypted_key, created_at, updated_at)
 		VALUES (gen_random_uuid(), $1, $2, NOW(), NOW())
 		ON CONFLICT (provider_id) DO UPDATE SET encrypted_key = $2, updated_at = NOW()
 	`
-	_, err := db.Query(ctx, query, providerID, apiKey)
+	_, err = db.Exec(ctx, query, providerID, encryptedKey)
 	return err
 }
 
@@ -154,13 +160,25 @@ func (s *ProviderService) SaveQuestradeOAuth(ctx context.Context, db interface {
 	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
 	Exec(ctx context.Context, sql string, args ...interface{}) (int64, error)
 }, providerID, accessToken, refreshToken, apiServer string, expiresIn int) error {
+	encryptedAccessToken, err := secrets.EncryptString(accessToken)
+	if err != nil {
+		return err
+	}
+	encryptedRefreshToken, err := secrets.EncryptString(refreshToken)
+	if err != nil {
+		return err
+	}
+	encryptedAPIServer, err := secrets.EncryptString(apiServer)
+	if err != nil {
+		return err
+	}
 	expiresAt := time.Now().Add(time.Duration(expiresIn) * time.Second)
 	query := `
 		INSERT INTO provider_configurations (id, provider_id, encrypted_key, access_token, refresh_token, api_server, token_expires_at, created_at, updated_at)
 		VALUES (gen_random_uuid(), $1, '', $2, $3, $4, $5, NOW(), NOW())
 		ON CONFLICT (provider_id) DO UPDATE SET access_token = $2, refresh_token = $3, api_server = $4, token_expires_at = $5, updated_at = NOW()
 	`
-	_, err := db.Exec(ctx, query, providerID, accessToken, refreshToken, apiServer, expiresAt)
+	_, err = db.Exec(ctx, query, providerID, encryptedAccessToken, encryptedRefreshToken, encryptedAPIServer, expiresAt)
 	return err
 }
 
@@ -174,7 +192,13 @@ func (s *ProviderService) GetQuestradeOAuth(ctx context.Context, db interface {
 		WHERE provider_id = $1
 	`
 	row, _ := db.QueryRow(ctx, query, providerID)
-	row.Scan(&accessToken, &refreshToken, &apiServer)
+	var encryptedAccessToken, encryptedRefreshToken, encryptedAPIServer string
+	if err := row.Scan(&encryptedAccessToken, &encryptedRefreshToken, &encryptedAPIServer); err != nil {
+		return "", "", ""
+	}
+	accessToken, _ = secrets.DecryptString(encryptedAccessToken)
+	refreshToken, _ = secrets.DecryptString(encryptedRefreshToken)
+	apiServer, _ = secrets.DecryptString(encryptedAPIServer)
 	return
 }
 
@@ -184,7 +208,7 @@ func (s *ProviderService) ExchangeQuestradeToken(ctx context.Context, initialRef
 
 	if s.logClient != nil {
 		s.logClient.InfoWithMeta(ctx, "Questrade token exchange request", map[string]interface{}{
-			"url":    tokenURL,
+			"url":    sanitizeProviderURL(tokenURL),
 			"method": "GET",
 			"type":   "provider_api_request",
 		})
@@ -204,7 +228,7 @@ func (s *ProviderService) ExchangeQuestradeToken(ctx context.Context, initialRef
 	if s.logClient != nil {
 		s.logClient.InfoWithMeta(ctx, "Questrade token exchange response", map[string]interface{}{
 			"status": resp.StatusCode,
-			"body":   string(body),
+			"body":   sanitizeProviderBody(body),
 			"type":   "provider_api_response",
 		})
 	}
@@ -257,9 +281,10 @@ func (s *ProviderService) ValidateProviderKey(ctx context.Context, db interface 
 }, providerID, apiKey string) (bool, *QuestradeOAuthResult, error) {
 	if s.logClient != nil {
 		s.logClient.InfoWithMeta(ctx, "Validating provider key", map[string]interface{}{
-			"provider": providerID,
-			"api_key":  apiKey,
-			"type":     "provider_validation_request",
+			"provider":       providerID,
+			"has_api_key":    apiKey != "",
+			"api_key_length": len(apiKey),
+			"type":           "provider_validation_request",
 		})
 	}
 
@@ -316,7 +341,7 @@ func (s *ProviderService) validatePolygonKey(apiKey string) (bool, error) {
 
 	if s.logClient != nil {
 		s.logClient.InfoWithMeta(context.Background(), "Polygon validation request", map[string]interface{}{
-			"url":    url,
+			"url":    sanitizeProviderURL(url),
 			"method": "GET",
 			"type":   "provider_api_request",
 		})
@@ -336,7 +361,7 @@ func (s *ProviderService) validatePolygonKey(apiKey string) (bool, error) {
 	if s.logClient != nil {
 		s.logClient.InfoWithMeta(context.Background(), "Polygon validation response", map[string]interface{}{
 			"status": resp.StatusCode,
-			"body":   string(body),
+			"body":   sanitizeProviderBody(body),
 			"type":   "provider_api_response",
 		})
 	}
@@ -355,7 +380,7 @@ func (s *ProviderService) validateFMPKey(apiKey string) (bool, error) {
 
 	if s.logClient != nil {
 		s.logClient.InfoWithMeta(context.Background(), "FMP validation request", map[string]interface{}{
-			"url":    url,
+			"url":    sanitizeProviderURL(url),
 			"method": "GET",
 			"type":   "provider_api_request",
 		})
@@ -375,7 +400,7 @@ func (s *ProviderService) validateFMPKey(apiKey string) (bool, error) {
 	if s.logClient != nil {
 		s.logClient.InfoWithMeta(context.Background(), "FMP validation response", map[string]interface{}{
 			"status": resp.StatusCode,
-			"body":   string(body),
+			"body":   sanitizeProviderBody(body),
 			"type":   "provider_api_response",
 		})
 	}
@@ -400,7 +425,7 @@ func (s *ProviderService) validateQuestradeKey(apiKey string) (bool, *QuestradeO
 
 	if s.logClient != nil {
 		s.logClient.InfoWithMeta(context.Background(), "Questrade validation request", map[string]interface{}{
-			"url":    tokenURL,
+			"url":    sanitizeProviderURL(tokenURL),
 			"method": "GET",
 			"type":   "provider_api_request",
 		})
@@ -420,7 +445,7 @@ func (s *ProviderService) validateQuestradeKey(apiKey string) (bool, *QuestradeO
 	if s.logClient != nil {
 		s.logClient.InfoWithMeta(context.Background(), "Questrade validation response", map[string]interface{}{
 			"status": resp.StatusCode,
-			"body":   string(body),
+			"body":   sanitizeProviderBody(body),
 			"type":   "provider_api_response",
 		})
 	}
@@ -460,7 +485,7 @@ func (s *ProviderService) validateYouTubeKey(apiKey string) (bool, error) {
 
 	if s.logClient != nil {
 		s.logClient.InfoWithMeta(context.Background(), "YouTube validation request", map[string]interface{}{
-			"url":    url,
+			"url":    sanitizeProviderURL(url),
 			"method": "GET",
 			"type":   "provider_api_request",
 		})
@@ -480,7 +505,7 @@ func (s *ProviderService) validateYouTubeKey(apiKey string) (bool, error) {
 	if s.logClient != nil {
 		s.logClient.InfoWithMeta(context.Background(), "YouTube validation response", map[string]interface{}{
 			"status": resp.StatusCode,
-			"body":   string(body),
+			"body":   sanitizeProviderBody(body),
 			"type":   "provider_api_response",
 		})
 	}
@@ -499,7 +524,7 @@ func (s *ProviderService) validateGeminiKey(apiKey string) (bool, error) {
 
 	if s.logClient != nil {
 		s.logClient.InfoWithMeta(context.Background(), "Gemini validation request", map[string]interface{}{
-			"url":    url,
+			"url":    sanitizeProviderURL(url),
 			"method": "GET",
 			"type":   "provider_api_request",
 		})
@@ -519,7 +544,7 @@ func (s *ProviderService) validateGeminiKey(apiKey string) (bool, error) {
 	if s.logClient != nil {
 		s.logClient.InfoWithMeta(context.Background(), "Gemini validation response", map[string]interface{}{
 			"status": resp.StatusCode,
-			"body":   string(body),
+			"body":   sanitizeProviderBody(body),
 			"type":   "provider_api_response",
 		})
 	}
@@ -585,4 +610,55 @@ func (s *ProviderService) DeleteRSSFeed(ctx context.Context, db interface {
 	query := `DELETE FROM rss_feeds WHERE id = $1`
 	_, err := db.Exec(ctx, query, feedID)
 	return err
+}
+
+func sanitizeProviderURL(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	query := parsed.Query()
+	for key := range query {
+		lowerKey := strings.ToLower(key)
+		if lowerKey == "apikey" || lowerKey == "api_key" || lowerKey == "key" || lowerKey == "token" || lowerKey == "access_token" || lowerKey == "refresh_token" {
+			query.Set(key, "REDACTED")
+		}
+	}
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
+}
+
+func sanitizeProviderBody(body []byte) interface{} {
+	if len(body) == 0 {
+		return ""
+	}
+	var payload interface{}
+	if err := json.Unmarshal(body, &payload); err == nil {
+		return redactProviderValue(payload)
+	}
+	return string(body)
+}
+
+func redactProviderValue(value interface{}) interface{} {
+	switch typed := value.(type) {
+	case map[string]interface{}:
+		redacted := make(map[string]interface{}, len(typed))
+		for key, nested := range typed {
+			lowerKey := strings.ToLower(key)
+			if lowerKey == "access_token" || lowerKey == "refresh_token" || lowerKey == "api_key" || lowerKey == "apikey" || lowerKey == "token" {
+				redacted[key] = "REDACTED"
+				continue
+			}
+			redacted[key] = redactProviderValue(nested)
+		}
+		return redacted
+	case []interface{}:
+		redacted := make([]interface{}, len(typed))
+		for i, nested := range typed {
+			redacted[i] = redactProviderValue(nested)
+		}
+		return redacted
+	default:
+		return typed
+	}
 }

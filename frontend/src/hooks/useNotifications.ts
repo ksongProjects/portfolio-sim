@@ -16,7 +16,6 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 
 export function useNotifications() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const fetchNotifications = useCallback(async () => {
@@ -40,12 +39,35 @@ export function useNotifications() {
   }, []);
 
   useEffect(() => {
-    fetchNotifications();
-  }, [fetchNotifications]);
+    let cancelled = false;
 
-  useEffect(() => {
-    setUnreadCount(notifications.filter((n) => !n.read).length);
-  }, [notifications]);
+    void (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/notifications`);
+        if (!res.ok) throw new Error("Failed to fetch");
+        const data = await res.json();
+        if (cancelled) return;
+        setNotifications(
+          Array.isArray(data)
+            ? data.map((n: { id: string; title: string; message: string; type: string; timestamp: string; read?: boolean }) => ({
+                ...n,
+                type: n.type as Notification["type"],
+                timestamp: new Date(n.timestamp),
+                read: n.read ?? false,
+              }))
+            : []
+        );
+      } catch {
+        // silent fail
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const unreadCount = notifications.filter((n) => !n.read).length;
 
   const markAsRead = useCallback((id: string) => {
     setNotifications((prev) =>

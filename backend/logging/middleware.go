@@ -25,9 +25,14 @@ func WrapHandlerFunc(next func(http.ResponseWriter, *http.Request)) http.Handler
 		}
 
 		start := time.Now()
-		reqBody, readErr := io.ReadAll(r.Body)
-		if readErr != nil {
-			reqBody = nil
+		captureBody := shouldCaptureHTTPBody(r.URL.Path)
+		var reqBody []byte
+		var readErr error
+		if captureBody {
+			reqBody, readErr = io.ReadAll(r.Body)
+			if readErr != nil {
+				reqBody = nil
+			}
 		}
 		r.Body = io.NopCloser(bytes.NewReader(reqBody))
 
@@ -40,30 +45,36 @@ func WrapHandlerFunc(next func(http.ResponseWriter, *http.Request)) http.Handler
 			"remote_addr":     r.RemoteAddr,
 			"content_length":  r.ContentLength,
 		}
-		if len(reqBody) > 0 {
+		if captureBody && len(reqBody) > 0 {
 			reqMeta["request_body"] = sanitizeBody(r.Header.Get("Content-Type"), reqBody)
 			reqMeta["request_body_size"] = len(reqBody)
 		}
-		if readErr != nil {
+		if captureBody && readErr != nil {
 			reqMeta["request_body_error"] = readErr.Error()
+		}
+		if !captureBody {
+			reqMeta["request_body_skipped"] = true
 		}
 		defaultClient.InfoWithMeta(r.Context(), "API Request", reqMeta)
 
-		wrapper := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+		wrapper := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK, captureBody: captureBody}
 		next(wrapper, r)
 
 		respMeta := map[string]interface{}{
-			"type":             "api_response",
-			"method":           r.Method,
-			"path":             r.URL.Path,
-			"query":            sanitizeURLQuery(r.URL.RawQuery),
-			"status":           wrapper.statusCode,
-			"duration_ms":      time.Since(start).Milliseconds(),
-			"response_headers": redactHeaders(wrapper.Header()),
+			"type":               "api_response",
+			"method":             r.Method,
+			"path":               r.URL.Path,
+			"query":              sanitizeURLQuery(r.URL.RawQuery),
+			"status":             wrapper.statusCode,
+			"duration_ms":        time.Since(start).Milliseconds(),
+			"response_headers":   redactHeaders(wrapper.Header()),
+			"response_body_size": wrapper.size,
 		}
-		if len(wrapper.body) > 0 {
+		if captureBody && len(wrapper.body) > 0 {
 			respMeta["response_body"] = sanitizeBody(wrapper.Header().Get("Content-Type"), wrapper.body)
-			respMeta["response_body_size"] = len(wrapper.body)
+		}
+		if !captureBody {
+			respMeta["response_body_skipped"] = true
 		}
 
 		switch {
@@ -79,8 +90,10 @@ func WrapHandlerFunc(next func(http.ResponseWriter, *http.Request)) http.Handler
 
 type responseWriter struct {
 	http.ResponseWriter
-	statusCode int
-	body       []byte
+	statusCode  int
+	body        []byte
+	size        int
+	captureBody bool
 }
 
 func (rw *responseWriter) WriteHeader(code int) {
@@ -89,8 +102,18 @@ func (rw *responseWriter) WriteHeader(code int) {
 }
 
 func (rw *responseWriter) Write(b []byte) (int, error) {
-	rw.body = append(rw.body, b...)
+	rw.size += len(b)
+	if rw.captureBody {
+		rw.body = append(rw.body, b...)
+	}
 	return rw.ResponseWriter.Write(b)
+}
+
+func shouldCaptureHTTPBody(path string) bool {
+	if path == "/api/logs" {
+		return false
+	}
+	return !strings.HasPrefix(path, "/api/observability/")
 }
 
 func sanitizeURLQuery(rawQuery string) string {

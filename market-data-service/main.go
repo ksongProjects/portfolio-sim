@@ -32,7 +32,6 @@ type MarketDataService struct {
 	logClient       *loggingpkg.Client
 	sseMgr          *sse.Manager
 	normalizer      *normalizer.Normalizer
-	providers       []providers.Provider
 	fetcherRegistry sync.Map
 }
 
@@ -203,20 +202,89 @@ func (s *MarketDataService) handleSaveQuestradeOAuth(w http.ResponseWriter, r *h
 		return
 	}
 
-	_ = s.storage.UpdateQuestradeTokens(r.Context(), req.AccessToken, req.RefreshToken, req.APIServer, req.ExpiresIn)
+	if err := s.storage.UpdateQuestradeTokens(r.Context(), req.AccessToken, req.RefreshToken, req.APIServer, req.ExpiresIn); err != nil {
+		http.Error(w, "failed to save oauth tokens", http.StatusInternalServerError)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "saved"})
 }
 
 func (s *MarketDataService) setupProviders() {
-	s.providers = append(s.providers, providers.NewQuestradeProvider(s.cfg.Questrade, s.storage, s.logClient))
-	if s.cfg.Polygon.APIKey != "" {
-		s.providers = append(s.providers, providers.NewPolygonProvider(s.cfg.Polygon, s.logClient))
+	activeProviders := s.availableProviders(context.Background())
+	names := make([]string, 0, len(activeProviders))
+	for _, provider := range activeProviders {
+		names = append(names, provider.Name())
 	}
-	if s.cfg.FMP.APIKey != "" {
-		s.providers = append(s.providers, providers.NewFMPProvider(s.cfg.FMP, s.logClient))
+	s.logClient.InfoWithMeta(context.Background(), "providers ready", map[string]interface{}{"providers": names})
+}
+
+func (s *MarketDataService) providerAPIKey(ctx context.Context, providerID string) (string, error) {
+	apiKey, err := s.storage.GetProviderAPIKey(ctx, providerID)
+	if err != nil {
+		return "", err
 	}
+	if apiKey != "" {
+		return apiKey, nil
+	}
+	switch providerID {
+	case "polygon":
+		return s.cfg.Polygon.APIKey, nil
+	case "fmp":
+		return s.cfg.FMP.APIKey, nil
+	default:
+		return "", nil
+	}
+}
+
+func (s *MarketDataService) newPolygonProvider() providers.Provider {
+	return providers.NewPolygonProvider(s.cfg.Polygon, s.logClient, func() (string, error) {
+		return s.providerAPIKey(context.Background(), "polygon")
+	})
+}
+
+func (s *MarketDataService) newFMPProvider() providers.Provider {
+	return providers.NewFMPProvider(s.cfg.FMP, s.logClient, func() (string, error) {
+		return s.providerAPIKey(context.Background(), "fmp")
+	})
+}
+
+func (s *MarketDataService) availableProviders(ctx context.Context) []providers.Provider {
+	activeProviders := []providers.Provider{
+		providers.NewQuestradeProvider(s.cfg.Questrade, s.storage, s.logClient),
+	}
+	if apiKey, err := s.providerAPIKey(ctx, "polygon"); err == nil && apiKey != "" {
+		activeProviders = append(activeProviders, s.newPolygonProvider())
+	}
+	if apiKey, err := s.providerAPIKey(ctx, "fmp"); err == nil && apiKey != "" {
+		activeProviders = append(activeProviders, s.newFMPProvider())
+	}
+	return activeProviders
+}
+
+func (s *MarketDataService) preferredBackfillSource(ctx context.Context) string {
+	if apiKey, err := s.providerAPIKey(ctx, "polygon"); err == nil && apiKey != "" {
+		return "polygon"
+	}
+	if apiKey, err := s.providerAPIKey(ctx, "fmp"); err == nil && apiKey != "" {
+		return "fmp"
+	}
+	return "questrade"
+}
+
+func (s *MarketDataService) providerForSource(ctx context.Context, source string) providers.Provider {
+	switch source {
+	case "polygon":
+		if apiKey, err := s.providerAPIKey(ctx, "polygon"); err == nil && apiKey != "" {
+			return s.newPolygonProvider()
+		}
+	case "fmp":
+		if apiKey, err := s.providerAPIKey(ctx, "fmp"); err == nil && apiKey != "" {
+			return s.newFMPProvider()
+		}
+	}
+	return providers.NewQuestradeProvider(s.cfg.Questrade, s.storage, s.logClient)
 }
 
 func (s *MarketDataService) fetcherKey(ticker string, provider providers.Provider) string {
@@ -241,7 +309,7 @@ func (s *MarketDataService) runPriceFetchers() {
 		return
 	}
 	for _, ticker := range tickerSymbols {
-		for _, provider := range s.providers {
+		for _, provider := range s.availableProviders(context.Background()) {
 			if s.registerFetcher(ticker, provider) {
 				go s.fetchPriceLoop(ticker, provider)
 			}
@@ -315,7 +383,7 @@ func (s *MarketDataService) handleTickerSubscribe() {
 		_ = tickerID // validated that ticker exists
 
 		if req.Action == "subscribe" {
-			for _, provider := range s.providers {
+			for _, provider := range s.availableProviders(context.Background()) {
 				if s.registerFetcher(req.Symbol, provider) {
 					go s.fetchPriceLoop(req.Symbol, provider)
 					s.logClient.InfoWithMeta(context.Background(), "started price fetcher for ticker", map[string]interface{}{"ticker": req.Symbol, "provider": provider.Name()})
@@ -357,14 +425,7 @@ func (s *MarketDataService) processBackfill(req *sse.BackfillRequest) {
 	}
 
 	var provider providers.Provider
-	switch req.Source {
-	case "polygon":
-		provider = providers.NewPolygonProvider(s.cfg.Polygon, s.logClient)
-	case "fmp":
-		provider = providers.NewFMPProvider(s.cfg.FMP, s.logClient)
-	default:
-		provider = providers.NewQuestradeProvider(s.cfg.Questrade, s.storage, s.logClient)
-	}
+	provider = s.providerForSource(context.Background(), req.Source)
 
 	switch req.DataType {
 	case "intraday_bars":
@@ -435,7 +496,7 @@ func (s *MarketDataService) handleSearchTickers(w http.ResponseWriter, r *http.R
 	var allResults []providers.TickerSearchResult
 	var providerErrors []string
 	successCount := 0
-	for _, provider := range s.providers {
+	for _, provider := range s.availableProviders(r.Context()) {
 		results, err := provider.SearchTickers(query)
 		if err != nil {
 			s.logClient.WarnWithMeta(context.Background(), "search failed for provider", map[string]interface{}{"provider": provider.Name(), "error": err.Error()})
@@ -525,7 +586,7 @@ func (s *MarketDataService) handleTickerDetails(w http.ResponseWriter, r *http.R
 }
 
 func (s *MarketDataService) fetchTickerDetailsFromProvider(symbol string) *storage.TickerDetails {
-	for _, provider := range s.providers {
+	for _, provider := range s.availableProviders(context.Background()) {
 		profile, err := provider.FetchCompanyProfile(symbol)
 		if err != nil {
 			s.logClient.ErrorWithMeta(context.Background(), "FetchCompanyProfile failed", map[string]interface{}{"provider": provider.Name(), "symbol": symbol, "error": err.Error()})
@@ -593,7 +654,7 @@ func (s *MarketDataService) triggerBackfill(ticker, dataType, interval string) {
 		Ticker:   ticker,
 		DataType: dataType,
 		Interval: interval,
-		Source:   "polygon",
+		Source:   s.preferredBackfillSource(context.Background()),
 	}
 	data, _ := json.Marshal(req)
 	s.redis.LPush(context.Background(), "queue:backfill", string(data))

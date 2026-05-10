@@ -108,13 +108,8 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
     }
   };
 
-  useEffect(() => {
-    if (selectedTicker) {
-      setPrice(selectedTicker.price.toFixed(2));
-    }
-  }, [selectedTicker]);
-
   const handleTickerSelect = (ticker: TickerDetails) => {
+    setPrice(ticker.price.toFixed(2));
     lookupTicker(ticker.symbol);
     setStep("details");
   };

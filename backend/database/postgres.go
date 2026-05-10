@@ -82,16 +82,16 @@ func (p *Postgres) log(ctx context.Context, level string, msg string, meta map[s
 func (p *Postgres) Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error) {
 	start := time.Now()
 	p.log(ctx, "DEBUG", "DB Query started", map[string]interface{}{
-		"sql":  sql,
-		"args": fmt.Sprintf("%v", args),
+		"sql":       sql,
+		"arg_count": len(args),
 	})
 	rows, err := p.pool.Query(ctx, sql, args...)
 	duration := time.Since(start)
 	if err != nil {
 		p.log(ctx, "ERROR", "DB Query failed", map[string]interface{}{
-			"sql":        sql,
-			"args":       fmt.Sprintf("%v", args),
-			"error":      err.Error(),
+			"sql":         sql,
+			"arg_count":   len(args),
+			"error":       err.Error(),
 			"duration_ms": duration.Milliseconds(),
 		})
 		return nil, err
@@ -106,8 +106,8 @@ func (p *Postgres) Query(ctx context.Context, sql string, args ...interface{}) (
 func (p *Postgres) QueryRow(ctx context.Context, sql string, args ...interface{}) (pgx.Row, error) {
 	start := time.Now()
 	p.log(ctx, "DEBUG", "DB QueryRow started", map[string]interface{}{
-		"sql":  sql,
-		"args": fmt.Sprintf("%v", args),
+		"sql":       sql,
+		"arg_count": len(args),
 	})
 	row := p.pool.QueryRow(ctx, sql, args...)
 	duration := time.Since(start)
@@ -121,22 +121,22 @@ func (p *Postgres) QueryRow(ctx context.Context, sql string, args ...interface{}
 func (p *Postgres) Exec(ctx context.Context, sql string, args ...interface{}) (int64, error) {
 	start := time.Now()
 	p.log(ctx, "DEBUG", "DB Exec started", map[string]interface{}{
-		"sql":  sql,
-		"args": fmt.Sprintf("%v", args),
+		"sql":       sql,
+		"arg_count": len(args),
 	})
 	tag, err := p.pool.Exec(ctx, sql, args...)
 	duration := time.Since(start)
 	if err != nil {
 		p.log(ctx, "ERROR", "DB Exec failed", map[string]interface{}{
-			"sql":        sql,
-			"args":       fmt.Sprintf("%v", args),
-			"error":      err.Error(),
+			"sql":         sql,
+			"arg_count":   len(args),
+			"error":       err.Error(),
 			"duration_ms": duration.Milliseconds(),
 		})
 		return 0, err
 	}
 	p.log(ctx, "DEBUG", "DB Exec completed", map[string]interface{}{
-		"sql":            sql,
+		"sql":           sql,
 		"rows_affected": tag.RowsAffected(),
 		"duration_ms":   duration.Milliseconds(),
 	})

@@ -232,7 +232,9 @@ func (p *QuestradeProvider) refreshToken(force bool) error {
 	p.baseURL = result.APIServer
 	p.tokenExpiresAt = time.Now().Add(time.Duration(result.ExpiresIn) * time.Second)
 
-	_ = p.storage.UpdateQuestradeTokens(context.Background(), result.AccessToken, result.RefreshToken, result.APIServer, result.ExpiresIn)
+	if err := p.storage.UpdateQuestradeTokens(context.Background(), result.AccessToken, result.RefreshToken, result.APIServer, result.ExpiresIn); err != nil {
+		p.logError("GET", tokenURL, fmt.Errorf("persist refreshed questrade token: %w", err))
+	}
 
 	return nil
 }

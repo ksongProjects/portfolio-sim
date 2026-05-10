@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/portfolio-sim/market-data-service/secrets"
 )
 
 type Storage struct {
@@ -150,14 +152,42 @@ type QuestradeTokens struct {
 	ExpiresAt    time.Time
 }
 
+func (s *Storage) GetProviderAPIKey(ctx context.Context, providerID string) (string, error) {
+	var encryptedKey string
+	err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE(encrypted_key, '')
+		FROM provider_configurations
+		WHERE provider_id = $1
+	`, providerID).Scan(&encryptedKey)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return "", nil
+		}
+		return "", err
+	}
+	return secrets.DecryptString(encryptedKey)
+}
+
 func (s *Storage) GetQuestradeTokens(ctx context.Context) (*QuestradeTokens, error) {
-	var accessToken, refreshToken, apiServer string
+	var encryptedAccessToken, encryptedRefreshToken, encryptedAPIServer string
 	var expiresAt *time.Time
 	err := s.pool.QueryRow(ctx, `
 		SELECT access_token, refresh_token, api_server, token_expires_at
 		FROM provider_configurations
 		WHERE provider_id = 'questrade'
-	`).Scan(&accessToken, &refreshToken, &apiServer, &expiresAt)
+	`).Scan(&encryptedAccessToken, &encryptedRefreshToken, &encryptedAPIServer, &expiresAt)
+	if err != nil {
+		return nil, err
+	}
+	accessToken, err := secrets.DecryptString(encryptedAccessToken)
+	if err != nil {
+		return nil, err
+	}
+	refreshToken, err := secrets.DecryptString(encryptedRefreshToken)
+	if err != nil {
+		return nil, err
+	}
+	apiServer, err := secrets.DecryptString(encryptedAPIServer)
 	if err != nil {
 		return nil, err
 	}
@@ -174,12 +204,29 @@ func (s *Storage) GetQuestradeTokens(ctx context.Context) (*QuestradeTokens, err
 }
 
 func (s *Storage) UpdateQuestradeTokens(ctx context.Context, accessToken, refreshToken, apiServer string, expiresIn int) error {
+	encryptedAccessToken, err := secrets.EncryptString(accessToken)
+	if err != nil {
+		return err
+	}
+	encryptedRefreshToken, err := secrets.EncryptString(refreshToken)
+	if err != nil {
+		return err
+	}
+	encryptedAPIServer, err := secrets.EncryptString(apiServer)
+	if err != nil {
+		return err
+	}
 	expiresAt := time.Now().Add(time.Duration(expiresIn) * time.Second)
-	_, err := s.pool.Exec(ctx, `
-		UPDATE provider_configurations
-		SET access_token = $1, refresh_token = $2, api_server = $3, token_expires_at = $4, updated_at = NOW()
-		WHERE provider_id = 'questrade'
-	`, accessToken, refreshToken, apiServer, expiresAt)
+	_, err = s.pool.Exec(ctx, `
+		INSERT INTO provider_configurations (id, provider_id, encrypted_key, access_token, refresh_token, api_server, token_expires_at, created_at, updated_at)
+		VALUES (gen_random_uuid(), 'questrade', '', $1, $2, $3, $4, NOW(), NOW())
+		ON CONFLICT (provider_id) DO UPDATE SET
+			access_token = EXCLUDED.access_token,
+			refresh_token = EXCLUDED.refresh_token,
+			api_server = EXCLUDED.api_server,
+			token_expires_at = EXCLUDED.token_expires_at,
+			updated_at = NOW()
+	`, encryptedAccessToken, encryptedRefreshToken, encryptedAPIServer, expiresAt)
 	return err
 }
 

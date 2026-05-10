@@ -13,16 +13,18 @@ import (
 )
 
 type PolygonProvider struct {
-	cfg       config.PolygonConfig
-	client    *http.Client
-	logClient *logging.Client
+	cfg            config.PolygonConfig
+	client         *http.Client
+	logClient      *logging.Client
+	apiKeyResolver APIKeyResolver
 }
 
-func NewPolygonProvider(cfg config.PolygonConfig, logClient *logging.Client) *PolygonProvider {
+func NewPolygonProvider(cfg config.PolygonConfig, logClient *logging.Client, apiKeyResolver APIKeyResolver) *PolygonProvider {
 	return &PolygonProvider{
-		cfg:       cfg,
-		client:    &http.Client{Timeout: 10 * time.Second},
-		logClient: logClient,
+		cfg:            cfg,
+		client:         &http.Client{Timeout: 10 * time.Second},
+		logClient:      logClient,
+		apiKeyResolver: apiKeyResolver,
 	}
 }
 
@@ -117,8 +119,28 @@ func (p *PolygonProvider) get(rawURL string) ([]byte, int, http.Header, error) {
 	return body, resp.StatusCode, resp.Header, nil
 }
 
+func (p *PolygonProvider) apiKey() (string, error) {
+	if p.apiKeyResolver != nil {
+		apiKey, err := p.apiKeyResolver()
+		if err == nil && apiKey != "" {
+			return apiKey, nil
+		}
+		if p.cfg.APIKey == "" && err != nil {
+			return "", err
+		}
+	}
+	if p.cfg.APIKey == "" {
+		return "", fmt.Errorf("polygon API key not configured")
+	}
+	return p.cfg.APIKey, nil
+}
+
 func (p *PolygonProvider) FetchPrice(ticker string) (*Price, error) {
-	url := fmt.Sprintf("https://api.polygon.io/v2/aggs/ticker/%s/prev?adjusted=true&apiKey=%s", ticker, p.cfg.APIKey)
+	apiKey, err := p.apiKey()
+	if err != nil {
+		return nil, err
+	}
+	url := fmt.Sprintf("https://api.polygon.io/v2/aggs/ticker/%s/prev?adjusted=true&apiKey=%s", ticker, apiKey)
 	body, status, _, err := p.get(url)
 	if err != nil {
 		return nil, err
@@ -179,8 +201,12 @@ func (p *PolygonProvider) FetchIntradayBars(ticker string, interval string) ([]*
 	from := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
 	to := time.Now().Format("2006-01-02")
 
+	apiKey, err := p.apiKey()
+	if err != nil {
+		return nil, err
+	}
 	url := fmt.Sprintf("https://api.polygon.io/v2/aggs/ticker/%s/range/%s/%s/%s/%s?adjusted=true&apiKey=%s",
-		ticker, multiplier, timespan, from, to, p.cfg.APIKey)
+		ticker, multiplier, timespan, from, to, apiKey)
 	body, status, _, err := p.get(url)
 	if err != nil {
 		return nil, err
@@ -221,8 +247,12 @@ func (p *PolygonProvider) FetchIntradayBars(ticker string, interval string) ([]*
 }
 
 func (p *PolygonProvider) SearchTickers(prefix string) ([]TickerSearchResult, error) {
-	url := fmt.Sprintf("https://api.polygon.io/v3/reference/tickers?search=%s&active=true&apiKey=%s", url.QueryEscape(prefix), p.cfg.APIKey)
-	body, status, _, err := p.get(url)
+	apiKey, err := p.apiKey()
+	if err != nil {
+		return nil, err
+	}
+	searchURL := fmt.Sprintf("https://api.polygon.io/v3/reference/tickers?search=%s&active=true&apiKey=%s", url.QueryEscape(prefix), apiKey)
+	body, status, _, err := p.get(searchURL)
 	if err != nil {
 		return nil, err
 	}
