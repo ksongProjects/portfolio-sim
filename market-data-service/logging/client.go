@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -86,13 +87,15 @@ func (c *Client) send(ctx context.Context, entry LogEntry) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	go func() {
-		resp, err := c.client.Do(req)
-		if err != nil {
-			return
-		}
-		defer resp.Body.Close()
-	}()
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("log ingestion returned: %d", resp.StatusCode)
+	}
 
 	return nil
 }

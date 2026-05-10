@@ -247,12 +247,17 @@ func (s *Server) handleIngestLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	metadataJSON, _ := json.Marshal(entry.Metadata)
-	_, err := s.db.Exec(r.Context(), `
+	metadataJSON, err := json.Marshal(entry.Metadata)
+	if err != nil {
+		s.logger.Warn("log metadata marshaling failed", "error", err)
+		metadataJSON = []byte(`{}`)
+	}
+	_, err = s.db.Exec(r.Context(), `
 		INSERT INTO logs (id, timestamp, level, service, component, message, metadata, trace_id, span_id)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`, entry.ID, entry.Timestamp, entry.Level, entry.Service, entry.Component, entry.Message, metadataJSON, entry.TraceID, entry.SpanID)
 	if err != nil {
+		s.logger.Error("log insert failed", "error", err, "service", entry.Service)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
