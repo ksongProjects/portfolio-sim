@@ -130,6 +130,9 @@ func loggingMiddleware(logClient *loggingpkg.Client, next http.HandlerFunc) http
 			"duration_ms": duration.Milliseconds(),
 			"type":        "api_response",
 		}
+		if len(wrapper.body) > 0 {
+			meta["response_body"] = string(wrapper.body)
+		}
 
 		if wrapper.statusCode >= 500 {
 			logClient.ErrorWithMeta(ctx, "API Response Error", meta)
@@ -144,11 +147,17 @@ func loggingMiddleware(logClient *loggingpkg.Client, next http.HandlerFunc) http
 type responseWriter struct {
 	http.ResponseWriter
 	statusCode int
+	body       []byte
 }
 
 func (rw *responseWriter) WriteHeader(code int) {
 	rw.statusCode = code
 	rw.ResponseWriter.WriteHeader(code)
+}
+
+func (rw *responseWriter) Write(b []byte) (int, error) {
+	rw.body = append(rw.body, b...)
+	return rw.ResponseWriter.Write(b)
 }
 
 func (s *MarketDataService) handleSaveQuestradeOAuth(w http.ResponseWriter, r *http.Request) {
@@ -398,6 +407,12 @@ func (s *MarketDataService) handleSearchTickers(w http.ResponseWriter, r *http.R
 			s.logClient.WarnWithMeta(context.Background(), "search failed for provider", map[string]interface{}{"provider": provider.Name(), "error": err.Error()})
 			continue
 		}
+		s.logClient.InfoWithMeta(context.Background(), "search succeeded for provider", map[string]interface{}{
+			"provider": provider.Name(),
+			"query":    query,
+			"count":    len(results),
+			"results":  results,
+		})
 		allResults = append(allResults, results...)
 	}
 
