@@ -65,6 +65,7 @@ services:
       DATABASE_NAME: portfolio_sim
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      LOGGING_SERVICE_URL: http://main-api:8080/api/logs
       QUESTRADE_API_KEY: ${QUESTRADE_API_KEY:-}
       POLYGON_API_KEY: ${POLYGON_API_KEY:-}
       FMP_API_KEY: ${FMP_API_KEY:-}
@@ -88,6 +89,7 @@ services:
       DATABASE_NAME: portfolio_sim
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      LOGGING_SERVICE_URL: http://main-api:8080/api/logs
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
     ports:
@@ -110,6 +112,7 @@ services:
       DATABASE_NAME: portfolio_sim
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      LOGGING_SERVICE_URL: http://main-api:8080/api/logs
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     ports:
       - "8083:8080"
