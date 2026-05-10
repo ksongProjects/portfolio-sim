@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { PageGrid, PageCell, PageHeader, MetricLabel, MetricValue } from "@/components/page-layout";
 import { CardTitle } from "@/components/ui/card";
@@ -8,7 +7,7 @@ import { Badge, StatusIndicator } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlertTriangle, CheckCircle, Clock, RefreshCw, Zap, Pause, Play } from "lucide-react";
+import { AlertTriangle, CheckCircle, Clock, RefreshCw, Zap } from "lucide-react";
 import { useObservability } from "@/hooks/useObservability";
 import { useFrontendLogging, logUserAction, logComponentMount } from "@/hooks/useFrontendLogging";
 
@@ -68,24 +67,13 @@ const logColumns: ColumnDef<{
 ];
 
 export default function ObservabilityPage() {
-  const { services, logs, loading, error, lastUpdated, refresh, startAutoRefresh, stopAutoRefresh } = useObservability();
-  const [autoRefresh, setAutoRefresh] = useState(false);
+  const { services, logs, loading, error, lastUpdated, refresh, startAutoRefresh } = useObservability({ autoRefresh: true });
   useFrontendLogging();
   logComponentMount("ObservabilityPage");
 
   const healthyCount = services.filter((s) => s.status === "healthy").length;
   const warningCount = services.filter((s) => s.status === "warning").length;
   const errorCount = services.filter((s) => s.status === "error").length;
-
-  const handleToggleAutoRefresh = () => {
-    logUserAction(autoRefresh ? "stop_auto_refresh" : "start_auto_refresh");
-    if (autoRefresh) {
-      stopAutoRefresh();
-    } else {
-      startAutoRefresh();
-    }
-    setAutoRefresh(!autoRefresh);
-  };
 
   const handleRefresh = () => {
     logUserAction("manual_refresh");
@@ -102,15 +90,11 @@ export default function ObservabilityPage() {
                 Updated: {formatTimeAgo(lastUpdated)}
               </span>
             )}
-            <Button
-              variant={autoRefresh ? "default" : "secondary"}
-              size="sm"
-              onClick={handleToggleAutoRefresh}
-            >
-              {autoRefresh ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-              {autoRefresh ? "Live" : "Auto-refresh"}
-            </Button>
-            <Button variant="secondary" size="sm" onClick={refresh} disabled={loading}>
+            <div className="flex items-center gap-1 text-xs text-primary">
+              <div className="h-2 w-2 rounded-full bg-primary animate-pulse" />
+              Live
+            </div>
+            <Button variant="secondary" size="sm" onClick={handleRefresh} disabled={loading}>
               <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
               {loading ? "Refreshing..." : "Refresh"}
             </Button>
@@ -151,14 +135,6 @@ export default function ObservabilityPage() {
           <PageCell>
             <div className="flex items-center justify-between mb-4">
               <CardTitle>Services</CardTitle>
-              <div className="flex items-center gap-2">
-                {autoRefresh && (
-                  <div className="flex items-center gap-1 text-xs text-primary">
-                    <div className="h-2 w-2 rounded-full bg-primary animate-pulse" />
-                    Live
-                  </div>
-                )}
-              </div>
             </div>
             {error && services.length === 0 && (
               <div className="text-error text-sm mb-4 p-3 border border-error/30 rounded bg-error/10">
