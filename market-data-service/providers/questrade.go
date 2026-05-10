@@ -58,11 +58,13 @@ func (p *QuestradeProvider) logResponse(method, url string, status int, body []b
 	if status >= 400 {
 		level = "ERROR"
 	}
-	p.logClient.EmitWithMetadata(nil, level, "Questrade Response: "+method+" "+url+" -> "+fmt.Sprintf("%d", status), map[string]interface{}{
-		"method":  method,
-		"url":     url,
-		"status":  status,
-		"body":    string(body),
+	p.logClient.EmitWithMetadata(nil, level, fmt.Sprintf("Questrade %s %s → %d (%d bytes)", method, url, status, len(body)), map[string]interface{}{
+		"method":       method,
+		"url":          url,
+		"status":       status,
+		"body_length":  len(body),
+		"body":         string(body),
+		"provider":     "questrade",
 	})
 }
 
@@ -188,7 +190,7 @@ func (p *QuestradeProvider) doRequest(endpoint string) ([]byte, error) {
 		return nil, fmt.Errorf("questrade request failed: %d", resp.StatusCode)
 	}
 
-	return io.ReadAll(resp.Body)
+	return body, nil
 }
 
 type QuestradeQuote struct {
