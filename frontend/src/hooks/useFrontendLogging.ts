@@ -32,14 +32,15 @@ async function flushLogs(): Promise<void> {
   logBuffer = [];
 
   try {
-    const response = await fetch(`${API_BASE}/api/logs`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(logsToSend),
-    });
-    if (!response.ok) {
-      console.warn("Failed to send logs to server", response.status);
-      logBuffer = [...logsToSend, ...logBuffer];
+    for (const entry of logsToSend) {
+      const response = await fetch(`${API_BASE}/api/logs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(entry),
+      });
+      if (!response.ok) {
+        console.warn("Failed to send log to server", response.status);
+      }
     }
   } catch (err) {
     console.warn("Failed to send logs to server", err);
