@@ -145,6 +145,22 @@ export function useProviders() {
     setLoading(false);
   }, [fetchProviders, fetchConnections, fetchRSSFeeds]);
 
+  const refreshQuestradeToken = useCallback(async (): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const res = await fetch(`${API_BASE}/api/providers/questrade/refresh`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        return { success: false, error: data.error || "Failed to refresh" };
+      }
+      await fetchProviders();
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
+    }
+  }, [fetchProviders]);
+
   return {
     providers,
     connections,
@@ -159,5 +175,6 @@ export function useProviders() {
     addRSSFeed,
     deleteRSSFeed,
     refresh,
+    refreshQuestradeToken,
   };
 }

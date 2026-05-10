@@ -22,7 +22,9 @@ import {
   Plus,
   Trash2,
   Rss,
+  RefreshCw,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { useProviders, ProviderConfig, ConnectionStatus, RSSFeed } from "@/hooks/useProviders";
 
 type ProviderStatus = "connected" | "disconnected" | "error" | "expired" | "available";
@@ -31,16 +33,20 @@ function ProviderCard({
   provider,
   onSave,
   onValidate,
+  onRefresh,
 }: {
   provider: ProviderConfig;
   onSave: (providerId: string, apiKey: string) => Promise<boolean>;
   onValidate: (providerId: string, apiKey: string) => Promise<{ valid: boolean; error?: string }>;
+  onRefresh?: () => Promise<{ success: boolean; error?: string }>;
 }) {
   const [apiKey, setApiKey] = useState("");
   const [showSecret, setShowSecret] = useState(false);
   const [saved, setSaved] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<ProviderStatus | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
 
   const handleSave = async () => {
     if (!apiKey) return;
@@ -58,6 +64,17 @@ function ProviderCard({
     const result = await onValidate(provider.provider_id, apiKey);
     setTestResult(result.valid ? "connected" : "error");
     setTesting(false);
+  };
+
+  const handleRefresh = async () => {
+    if (!onRefresh) return;
+    setRefreshing(true);
+    setRefreshError(null);
+    const result = await onRefresh();
+    if (!result.success) {
+      setRefreshError(result.error || "Failed to refresh");
+    }
+    setRefreshing(false);
   };
 
   const status: ProviderStatus = provider.token_expired ? "expired" : provider.is_connected ? "connected" : provider.api_key_set ? "available" : "disconnected";
@@ -117,6 +134,12 @@ function ProviderCard({
             </span>
           </div>
         )}
+        {refreshError && (
+          <div className="flex items-center gap-2 text-sm text-error">
+            <XCircle className="h-4 w-4" />
+            <span>{refreshError}</span>
+          </div>
+        )}
         <div className="flex gap-2">
           <Button variant="secondary" size="sm" onClick={handleTest} disabled={testing || !apiKey}>
             <TestTube className="h-4 w-4" />
@@ -126,6 +149,12 @@ function ProviderCard({
             <Save className="h-4 w-4" />
             {saved ? "Saved!" : "Save"}
           </Button>
+          {provider.provider_id === "questrade" && onRefresh && (
+            <Button variant="warning" size="sm" onClick={handleRefresh} disabled={refreshing}>
+              <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
+              {refreshing ? "Refreshing..." : "Refresh Token"}
+            </Button>
+          )}
         </div>
       </div>
     </div>
@@ -220,7 +249,7 @@ function AddRSSFeedForm({ onAdd }: { onAdd: (name: string, url: string) => Promi
 }
 
 export default function SettingsPage() {
-  const { providers, connections, rssFeeds, loading, refresh, saveProviderKey, validateProviderKey, addRSSFeed, deleteRSSFeed } = useProviders();
+  const { providers, connections, rssFeeds, loading, refresh, saveProviderKey, validateProviderKey, addRSSFeed, deleteRSSFeed, refreshQuestradeToken } = useProviders();
 
   const [notificationSettings, setNotificationSettings] = useState({
     tradeExecuted: true,
@@ -306,7 +335,7 @@ export default function SettingsPage() {
                 <CardTitle className="mb-4">Market Data Providers</CardTitle>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {marketDataProviders.map((p) => (
-                    <ProviderCard key={p.provider_id} provider={p} onSave={saveProviderKey} onValidate={validateProviderKey} />
+                    <ProviderCard key={p.provider_id} provider={p} onSave={saveProviderKey} onValidate={validateProviderKey} onRefresh={p.provider_id === "questrade" ? refreshQuestradeToken : undefined} />
                   ))}
                 </div>
               </div>
