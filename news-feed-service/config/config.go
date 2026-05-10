@@ -34,11 +34,20 @@ func Load() (*Config, error) {
 		dbURL = fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", dbUser, dbPassword, dbHost, dbPort, dbName)
 	}
 
+	redisHost := os.Getenv("REDIS_HOST")
+	redisPort := os.Getenv("REDIS_PORT")
+	if redisHost == "" {
+		redisHost = "localhost"
+	}
+	if redisPort == "" {
+		redisPort = "6379"
+	}
+
 	return &Config{
 		GeminiAPIKey:      os.Getenv("GEMINI_API_KEY"),
 		YouTubeAPIKey:     os.Getenv("YOUTUBE_API_KEY"),
 		DatabaseURL:       dbURL,
-		RedisAddr:         fmt.Sprintf("%s:%s", os.Getenv("REDIS_HOST"), os.Getenv("REDIS_PORT")),
+		RedisAddr:         fmt.Sprintf("%s:%s", redisHost, redisPort),
 		Port:              port,
 		ScrapeIntervalMin: scrapeInterval,
 	}, nil

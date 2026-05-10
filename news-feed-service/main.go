@@ -41,21 +41,20 @@ func main() {
 
 	logURL := os.Getenv("LOGGING_SERVICE_URL")
 	if logURL == "" {
-		logURL = "http://backend:8080/api/logs"
+		logURL = "http://main-api:8080/api/logs"
 	}
 	logClient := logging.NewClient("news-feed-service", logURL)
-	logWriter := logging.NewLogWriter(logClient)
 
 	geminiClient := gemini.NewClient(cfg.GeminiAPIKey)
 	youtubeClient, _ := youtube.NewClient(cfg.YouTubeAPIKey)
 
-	feedManager := feed.NewManager(redisClient.Redis(), db.Pool)
+	feedManager := feed.NewManager(redisClient.Redis(), db.Pool, logClient)
 	sseManager := sse.NewManager(redisClient.Redis())
 
 	go feedManager.StartScheduler(context.Background(), time.Duration(cfg.ScrapeIntervalMin)*time.Minute)
 
-	go processScrapeNewsJobs(context.Background(), redisClient, feedManager, logWriter)
-	go processTranscribeJobs(context.Background(), redisClient, youtubeClient, geminiClient, sseManager, logWriter)
+	go processScrapeNewsJobs(context.Background(), redisClient, feedManager)
+	go processTranscribeJobs(context.Background(), redisClient, youtubeClient, geminiClient, sseManager, logClient)
 
 	port := cfg.Port
 	if port == "" {
@@ -122,13 +121,13 @@ func main() {
 	_ = srv.Shutdown(ctx)
 }
 
-func processScrapeNewsJobs(ctx context.Context, rdb *redis.Client, mgr *feed.Manager, logWriter *logging.LogWriter) {
+func processScrapeNewsJobs(ctx context.Context, rdb *redis.Client, mgr *feed.Manager) {
 	for {
 		result, err := rdb.BRPop(ctx, 0, "queue:scrape-news")
 		if err != nil {
 			continue
 		}
-		fmt.Fprintf(logWriter, "processing scrape job: %s\n", result[1])
+		fmt.Println("processing scrape job:", result[1])
 		_ = mgr.ScrapeFeeds(ctx)
 	}
 }
@@ -137,7 +136,7 @@ type transcribeJob struct {
 	VideoID string `json:"video_id"`
 }
 
-func processTranscribeJobs(ctx context.Context, rdb *redis.Client, ytClient *youtube.Client, gemClient *gemini.Client, sseMgr *sse.Manager, logWriter *logging.LogWriter) {
+func processTranscribeJobs(ctx context.Context, rdb *redis.Client, ytClient *youtube.Client, gemClient *gemini.Client, sseMgr *sse.Manager, logClient *logging.Client) {
 	for {
 		result, err := rdb.BRPop(ctx, 0, "queue:transcribe")
 		if err != nil {
@@ -146,11 +145,11 @@ func processTranscribeJobs(ctx context.Context, rdb *redis.Client, ytClient *you
 
 		var job transcribeJob
 		if err := json.Unmarshal([]byte(result[1]), &job); err != nil {
-			fmt.Fprintf(logWriter, "parse job error: %v\n", err)
+			fmt.Println("parse job error:", err)
 			continue
 		}
 
-		fmt.Fprintf(logWriter, "processing transcribe job: %s\n", job.VideoID)
+		fmt.Println("processing transcribe job:", job.VideoID)
 
 		if ytClient == nil || gemClient == nil {
 			continue
@@ -158,13 +157,13 @@ func processTranscribeJobs(ctx context.Context, rdb *redis.Client, ytClient *you
 
 		transcript, err := ytClient.GetTranscript(ctx, job.VideoID)
 		if err != nil {
-			fmt.Fprintf(logWriter, "transcript error: %v\n", err)
+			fmt.Println("transcript error:", err)
 			continue
 		}
 
 		summary, err := gemClient.Summarize(ctx, transcript)
 		if err != nil {
-			fmt.Fprintf(logWriter, "summarize error: %v\n", err)
+			fmt.Println("summarize error:", err)
 			continue
 		}
 

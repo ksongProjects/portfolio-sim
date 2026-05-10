@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -27,7 +26,6 @@ type MarketDataService struct {
 	cfg            *config.Config
 	db             *database.Postgres
 	redis          *redis.Client
-	logger         *slog.Logger
 	storage        *storage.Storage
 	logClient      *loggingpkg.Client
 	sseMgr         *sse.Manager
@@ -37,8 +35,11 @@ type MarketDataService struct {
 }
 
 func NewMarketDataService(cfg *config.Config) *MarketDataService {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	slog.SetDefault(logger)
+	logURL := os.Getenv("LOGGING_SERVICE_URL")
+	if logURL == "" {
+		logURL = "http://main-api:8080/api/logs"
+	}
+	logClient := loggingpkg.NewClient("market-data-service", logURL)
 
 	db, err := database.NewPostgres(database.Config{
 		Host:     cfg.Database.Host,
@@ -49,27 +50,22 @@ func NewMarketDataService(cfg *config.Config) *MarketDataService {
 		MaxConns: cfg.Database.MaxConns,
 	})
 	if err != nil {
-		logger.Error("failed to connect to database", "error", err)
+		logClient.Error(context.Background(), fmt.Sprintf("failed to connect to database: %v", err))
 		os.Exit(1)
 	}
 
 	redisClient, err := redis.NewClient(cfg.Redis.Host, cfg.Redis.Port, cfg.Redis.Password)
 	if err != nil {
-		logger.Error("failed to connect to redis", "error", err)
+		logClient.Error(context.Background(), fmt.Sprintf("failed to connect to redis: %v", err))
 		os.Exit(1)
 	}
 
-	logURL := os.Getenv("LOGGING_SERVICE_URL")
-	if logURL == "" {
-		logURL = "http://main-api:8080/api/logs"
-	}
 	return &MarketDataService{
 		cfg:       cfg,
 		db:        db,
 		redis:     redisClient,
-		logger:    logger,
 		storage:   storage.NewStorage(db.Pool()),
-		logClient: loggingpkg.NewClient("market-data-service", logURL),
+		logClient: logClient,
 		sseMgr:    sse.NewManager(redisClient),
 		normalizer: normalizer.NewNormalizer(),
 	}
@@ -81,14 +77,14 @@ func (s *MarketDataService) Start() error {
 	go s.handleTickerSubscribe()
 	go s.startHTTPServer()
 
-	s.logger.Info("market data service starting")
+	s.logClient.Info(context.Background(), "market data service starting")
 	s.runPriceFetchers()
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
 
-	s.logger.Info("shutting down")
+	s.logClient.Info(context.Background(), "shutting down")
 	s.redis.Close()
 	s.db.Close()
 	return nil
@@ -105,9 +101,9 @@ func (s *MarketDataService) startHTTPServer() {
 	http.HandleFunc("/api/tickers/", loggingMiddleware(s.logClient, s.handleTickerRequest))
 
 	addr := fmt.Sprintf(":%d", s.cfg.Server.HTTPPort)
-	s.logger.Info("HTTP server starting", "addr", addr)
+	s.logClient.InfoWithMeta(context.Background(), "HTTP server starting", map[string]interface{}{"addr": addr})
 	if err := http.ListenAndServe(addr, nil); err != nil {
-		s.logger.Error("HTTP server error", "error", err)
+		s.logClient.ErrorWithMeta(context.Background(), "HTTP server error", map[string]interface{}{"error": err.Error()})
 	}
 }
 
@@ -211,7 +207,7 @@ func (s *MarketDataService) unregisterFetcher(ticker string, provider providers.
 func (s *MarketDataService) runPriceFetchers() {
 	tickerSymbols := s.storage.GetActiveTickers(context.Background())
 	if len(tickerSymbols) == 0 {
-		s.logger.Info("no tickers to fetch")
+		s.logClient.Info(context.Background(), "no tickers to fetch")
 		return
 	}
 	for _, ticker := range tickerSymbols {
@@ -225,14 +221,14 @@ func (s *MarketDataService) runPriceFetchers() {
 
 func (s *MarketDataService) fetchPriceLoop(ticker string, provider providers.Provider) {
 	if !s.registerFetcher(ticker, provider) {
-		s.logger.Info("fetcher already running, skipping", "ticker", ticker, "provider", provider.Name())
+		s.logClient.InfoWithMeta(context.Background(), "fetcher already running, skipping", map[string]interface{}{"ticker": ticker, "provider": provider.Name()})
 		return
 	}
 	defer s.unregisterFetcher(ticker, provider)
 
 	tickerID, err := s.storage.GetTickerID(context.Background(), ticker)
 	if err != nil {
-		s.logger.Warn("ticker not found", "ticker", ticker)
+		s.logClient.Warn(context.Background(), fmt.Sprintf("ticker not found: %s", ticker))
 		return
 	}
 
@@ -241,19 +237,19 @@ func (s *MarketDataService) fetchPriceLoop(ticker string, provider providers.Pro
 	for {
 		price, err := provider.FetchPrice(ticker)
 		if err != nil {
-			s.logger.Error("failed to fetch price", "ticker", ticker, "provider", provider.Name(), "error", err)
+			s.logClient.ErrorWithMeta(context.Background(), "failed to fetch price", map[string]interface{}{"ticker": ticker, "provider": provider.Name(), "error": err.Error()})
 			time.Sleep(5 * time.Second)
 			continue
 		}
 
 		normPrice, err := s.normalizer.NormalizePrice(price, tickerID)
 		if err != nil {
-			s.logger.Error("failed to normalize price", "error", err)
+			s.logClient.Error(context.Background(), fmt.Sprintf("failed to normalize price: %v", err))
 			continue
 		}
 
 		if err := s.storage.UpsertNormalizedPrice(context.Background(), normPrice.TickerID, normPrice.Price, normPrice.Bid, normPrice.Ask, normPrice.Volume, normPrice.SourceID, normPrice.Timestamp); err != nil {
-			s.logger.Error("failed to store price", "error", err)
+			s.logClient.ErrorWithMeta(context.Background(), "failed to store price", map[string]interface{}{"error": err.Error()})
 		}
 
 		s.sseMgr.PublishTick(ticker, normPrice)
@@ -277,13 +273,13 @@ func (s *MarketDataService) handleTickerSubscribe() {
 			Action string `json:"action"`
 		}
 		if err := json.Unmarshal([]byte(result[1]), &req); err != nil {
-			s.logger.Error("failed to unmarshal ticker subscription", "error", err)
+			s.logClient.ErrorWithMeta(context.Background(), "failed to unmarshal ticker subscription", map[string]interface{}{"error": err.Error()})
 			continue
 		}
 
 		tickerID, err := s.storage.GetTickerID(context.Background(), req.Symbol)
 		if err != nil {
-			s.logger.Warn("ticker not found", "ticker", req.Symbol)
+			s.logClient.Warn(context.Background(), fmt.Sprintf("ticker not found: %s", req.Symbol))
 			continue
 		}
 		_ = tickerID // validated that ticker exists
@@ -292,9 +288,9 @@ func (s *MarketDataService) handleTickerSubscribe() {
 			for _, provider := range s.providers {
 				if s.registerFetcher(req.Symbol, provider) {
 					go s.fetchPriceLoop(req.Symbol, provider)
-					s.logger.Info("started price fetcher for ticker", "ticker", req.Symbol, "provider", provider.Name())
+					s.logClient.InfoWithMeta(context.Background(), "started price fetcher for ticker", map[string]interface{}{"ticker": req.Symbol, "provider": provider.Name()})
 				} else {
-					s.logger.Info("fetcher already running, skipping", "ticker", req.Symbol, "provider", provider.Name())
+					s.logClient.InfoWithMeta(context.Background(), "fetcher already running, skipping", map[string]interface{}{"ticker": req.Symbol, "provider": provider.Name()})
 				}
 			}
 		}
@@ -313,7 +309,7 @@ func (s *MarketDataService) handleBackfillQueue() {
 
 		var req sse.BackfillRequest
 		if err := json.Unmarshal([]byte(result[1]), &req); err != nil {
-			s.logger.Error("failed to unmarshal backfill request", "error", err)
+			s.logClient.ErrorWithMeta(context.Background(), "failed to unmarshal backfill request", map[string]interface{}{"error": err.Error()})
 			continue
 		}
 
@@ -322,11 +318,11 @@ func (s *MarketDataService) handleBackfillQueue() {
 }
 
 func (s *MarketDataService) processBackfill(req *sse.BackfillRequest) {
-	s.logger.Info("processing backfill", "ticker", req.Ticker, "data_type", req.DataType)
+	s.logClient.InfoWithMeta(context.Background(), "processing backfill", map[string]interface{}{"ticker": req.Ticker, "data_type": req.DataType})
 
 	tickerID, err := s.storage.GetTickerID(context.Background(), req.Ticker)
 	if err != nil {
-		s.logger.Error("ticker not found", "ticker", req.Ticker)
+		s.logClient.ErrorWithMeta(context.Background(), "ticker not found", map[string]interface{}{"ticker": req.Ticker})
 		return
 	}
 
@@ -344,7 +340,7 @@ func (s *MarketDataService) processBackfill(req *sse.BackfillRequest) {
 	case "intraday_bars":
 		bars, err := provider.FetchIntradayBars(req.Ticker, req.Interval)
 		if err != nil {
-			s.logger.Error("failed to fetch intraday bars", "error", err)
+			s.logClient.ErrorWithMeta(context.Background(), "failed to fetch intraday bars", map[string]interface{}{"error": err.Error()})
 			return
 		}
 		for _, bar := range bars {
@@ -357,7 +353,7 @@ func (s *MarketDataService) processBackfill(req *sse.BackfillRequest) {
 	case "option_chain":
 		chains, err := provider.FetchOptionChain(req.Ticker)
 		if err != nil {
-			s.logger.Error("failed to fetch option chain", "error", err)
+			s.logClient.ErrorWithMeta(context.Background(), "failed to fetch option chain", map[string]interface{}{"error": err.Error()})
 			return
 		}
 		records := make([]*storage.OptionChainRecord, len(chains))
@@ -385,7 +381,7 @@ func (s *MarketDataService) processBackfill(req *sse.BackfillRequest) {
 		s.storage.InsertOptionChain(context.Background(), tickerID, req.Source, records)
 	}
 
-	s.logger.Info("backfill complete", "ticker", req.Ticker)
+	s.logClient.InfoWithMeta(context.Background(), "backfill complete", map[string]interface{}{"ticker": req.Ticker})
 }
 
 func (s *MarketDataService) handleSearchTickers(w http.ResponseWriter, r *http.Request) {
@@ -399,7 +395,7 @@ func (s *MarketDataService) handleSearchTickers(w http.ResponseWriter, r *http.R
 	for _, provider := range s.providers {
 		results, err := provider.SearchTickers(query)
 		if err != nil {
-			s.logger.Warn("search failed for provider", "provider", provider.Name(), "error", err)
+			s.logClient.WarnWithMeta(context.Background(), "search failed for provider", map[string]interface{}{"provider": provider.Name(), "error": err.Error()})
 			continue
 		}
 		allResults = append(allResults, results...)
@@ -439,7 +435,7 @@ func (s *MarketDataService) handleTickerDetails(w http.ResponseWriter, r *http.R
 	}
 	details, err := s.storage.GetTickerDetails(r.Context(), symbol)
 	if err != nil {
-		s.logger.Error("get ticker details failed", "symbol", symbol, "error", err)
+		s.logClient.ErrorWithMeta(r.Context(), "get ticker details failed", map[string]interface{}{"symbol": symbol, "error": err.Error()})
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(map[string]string{"error": "ticker not found"})
@@ -462,21 +458,21 @@ func (s *MarketDataService) handleIntradayBars(w http.ResponseWriter, r *http.Re
 	}
 	bars, err := s.storage.GetIntradayBars(r.Context(), symbol, 100)
 	if err != nil {
-		s.logger.Error("get intraday bars failed", "symbol", symbol, "error", err)
+		s.logClient.ErrorWithMeta(r.Context(), "get intraday bars failed", map[string]interface{}{"symbol": symbol, "error": err.Error()})
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode([]interface{}{})
 		return
 	}
 
 	if len(bars) == 0 {
-		s.logger.Info("no intraday data for ticker, triggering backfill", "symbol", symbol)
+		s.logClient.InfoWithMeta(r.Context(), "no intraday data for ticker, triggering backfill", map[string]interface{}{"symbol": symbol})
 		s.triggerBackfill(symbol, "intraday_bars", "1min")
 		s.triggerTickerSubscribe(symbol)
 		bars = []storage.IntradayBarRecord{}
 	} else {
 		oldest := bars[len(bars)-1].Timestamp
 		if time.Since(oldest) > 5*time.Minute {
-			s.logger.Info("intraday data stale for ticker, triggering refresh", "symbol", symbol)
+			s.logClient.InfoWithMeta(r.Context(), "intraday data stale for ticker, triggering refresh", map[string]interface{}{"symbol": symbol})
 			s.triggerBackfill(symbol, "intraday_bars", "1min")
 		}
 	}
