@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type LogEntry struct {
@@ -40,7 +42,7 @@ func NewClient(serviceName string, logURL string) *Client {
 
 func (c *Client) Emit(ctx context.Context, level string, msg string) error {
 	entry := LogEntry{
-		ID:        fmt.Sprintf("%d", time.Now().UnixNano()),
+		ID:        uuid.New().String(),
 		Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
 		Level:     level,
 		Service:   c.serviceName,
@@ -51,7 +53,7 @@ func (c *Client) Emit(ctx context.Context, level string, msg string) error {
 
 func (c *Client) EmitWithMetadata(ctx context.Context, level string, msg string, metadata map[string]interface{}) error {
 	entry := LogEntry{
-		ID:        fmt.Sprintf("%d", time.Now().UnixNano()),
+		ID:        uuid.New().String(),
 		Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
 		Level:     level,
 		Service:   c.serviceName,

@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -71,24 +73,34 @@ func (s *ObservabilityService) CheckServices(ctx context.Context) []ServiceHealt
 			status := "error"
 			healthy := false
 
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, check.HealthURL, nil)
+			hostPort := check.HealthURL[strings.Index(check.HealthURL, "://")+3:]
+			hostPort = strings.Split(hostPort, "/")[0]
+
+			dialer := &net.Dialer{Timeout: check.Timeout}
+			conn, err := dialer.DialContext(ctx, "tcp", hostPort)
 			if err == nil {
-				client := &http.Client{Timeout: check.Timeout}
-				resp, err := client.Do(req)
+				conn.Close()
+				req, err := http.NewRequestWithContext(ctx, http.MethodGet, check.HealthURL, nil)
 				if err == nil {
-					defer resp.Body.Close()
-					if resp.StatusCode == http.StatusOK {
-						body, _ := io.ReadAll(resp.Body)
-						bodyStr := string(body)
-						if bodyStr == "ok" || bodyStr == `"ok"` || contains(body, `"status":"ok"`) {
-							status = "healthy"
-							healthy = true
+					client := &http.Client{Timeout: check.Timeout}
+					resp, err := client.Do(req)
+					if err == nil {
+						defer resp.Body.Close()
+						if resp.StatusCode == http.StatusOK {
+							body, _ := io.ReadAll(resp.Body)
+							bodyStr := string(body)
+							if bodyStr == "ok" || bodyStr == `"ok"` || contains(body, `"status":"ok"`) {
+								status = "healthy"
+								healthy = true
+							} else {
+								status = "healthy"
+								healthy = true
+							}
 						} else {
-							status = "healthy"
-							healthy = true
+							status = "warning"
 						}
 					} else {
-						status = "warning"
+						status = "unreachable"
 					}
 				}
 			}

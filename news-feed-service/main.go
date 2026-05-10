@@ -67,10 +67,31 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, "ok")
 	})
+	mux.HandleFunc("/health-simple", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "ok")
+	})
+	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "ok")
+	})
 
 	wrappedMux := logging.LoggingMiddleware(mux, logClient)
 
-	srv := &http.Server{Addr: ":" + port, Handler: wrappedMux}
+	srv := &http.Server{
+		Addr:              ":" + port,
+		Handler:           http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/health" {
+				mux.ServeHTTP(w, r)
+				return
+			}
+			wrappedMux.ServeHTTP(w, r)
+		}),
+		ReadTimeout:       5 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("listen: %v", err)
