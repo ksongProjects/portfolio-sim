@@ -85,7 +85,9 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
   const [price, setPrice] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
 
-  const { searchResults, selectedTicker, intradayData, ratios, loading, searchLoading, searchTickers, lookupTicker, clearSelection, setSearchResults } = useTickerLookup();
+  const { searchResults, selectedTicker, intradayData, ratios, loading: searchLoading, searchTickers, lookupTicker, clearSelection } = useTickerLookup();
+
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (open && searchRef.current) {
@@ -93,16 +95,18 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
     }
   }, [open]);
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (query) {
-        searchTickers(query);
-      } else {
-        setSearchResults([]);
-      }
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [query, searchTickers]);
+  const handleSearch = async () => {
+    if (!query.trim()) return;
+    setLoading(true);
+    await searchTickers(query);
+    setLoading(false);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      handleSearch();
+    }
+  };
 
   useEffect(() => {
     if (selectedTicker) {
@@ -163,19 +167,26 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
           <div className="flex-1 overflow-y-auto p-5">
             {step === "search" && (
               <div className="space-y-4">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-on-surface-variant" />
-                  <input
-                    ref={searchRef}
-                    type="text"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value.toUpperCase())}
-                    placeholder="Search by ticker or company name..."
-                    className="w-full h-10 pl-10 pr-4 bg-surface-container-low border border-outline/30 text-sm text-on-surface placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
-                  />
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-on-surface-variant" />
+                    <input
+                      ref={searchRef}
+                      type="text"
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value.toUpperCase())}
+                      onKeyDown={handleKeyDown}
+                      placeholder="Search by ticker or company name..."
+                      className="w-full h-10 pl-10 pr-4 bg-surface-container-low border border-outline/30 text-sm text-on-surface placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+                    />
+                  </div>
+                  <Button variant="default" size="default" onClick={handleSearch} disabled={loading || !query.trim()}>
+                    <Search className="h-4 w-4" />
+                    {loading ? "..." : "Search"}
+                  </Button>
                 </div>
 
-                {searchLoading && (
+                {loading && (
                   <div className="text-sm text-on-surface-variant py-4 text-center">Searching...</div>
                 )}
 
