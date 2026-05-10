@@ -102,9 +102,7 @@ func (s *MarketDataService) startHTTPServer() {
 	})
 	http.HandleFunc("/api/questrade/oauth/save", loggingMiddleware(s.logClient, s.handleSaveQuestradeOAuth))
 	http.HandleFunc("/api/tickers/search", loggingMiddleware(s.logClient, s.handleSearchTickers))
-	http.HandleFunc("/api/tickers/", loggingMiddleware(s.logClient, s.handleTickerDetails))
-	http.HandleFunc("/api/tickers/", loggingMiddleware(s.logClient, s.handleIntradayBars))
-	http.HandleFunc("/api/tickers/", loggingMiddleware(s.logClient, s.handleFinancialRatios))
+	http.HandleFunc("/api/tickers/", loggingMiddleware(s.logClient, s.handleTickerRequest))
 
 	addr := fmt.Sprintf(":%d", s.cfg.Server.HTTPPort)
 	s.logger.Info("HTTP server starting", "addr", addr)
@@ -118,22 +116,32 @@ func loggingMiddleware(logClient *loggingpkg.Client, next http.HandlerFunc) http
 		start := time.Now()
 		ctx := r.Context()
 
-		logClient.InfoWithMeta(ctx, fmt.Sprintf("API Request: %s %s", r.Method, r.URL.Path), map[string]interface{}{
+		logClient.InfoWithMeta(ctx, "API Request", map[string]interface{}{
 			"method": r.Method,
 			"path":   r.URL.Path,
 			"query":  r.URL.RawQuery,
+			"type":   "api_request",
 		})
 
 		wrapper := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
 		next(wrapper, r)
 
 		duration := time.Since(start)
-		logClient.InfoWithMeta(ctx, fmt.Sprintf("API Response: %s %s %d", r.Method, r.URL.Path, wrapper.statusCode), map[string]interface{}{
-			"method":   r.Method,
-			"path":     r.URL.Path,
-			"status":   wrapper.statusCode,
-			"duration": duration.Milliseconds(),
-		})
+		meta := map[string]interface{}{
+			"method":      r.Method,
+			"path":        r.URL.Path,
+			"status":      wrapper.statusCode,
+			"duration_ms": duration.Milliseconds(),
+			"type":        "api_response",
+		}
+
+		if wrapper.statusCode >= 500 {
+			logClient.ErrorWithMeta(ctx, "API Response Error", meta)
+		} else if wrapper.statusCode >= 400 {
+			logClient.WarnWithMeta(ctx, "API Response Warning", meta)
+		} else {
+			logClient.InfoWithMeta(ctx, "API Response", meta)
+		}
 	}
 }
 
@@ -178,10 +186,10 @@ func (s *MarketDataService) handleSaveQuestradeOAuth(w http.ResponseWriter, r *h
 func (s *MarketDataService) setupProviders() {
 	s.providers = append(s.providers, providers.NewQuestradeProvider(s.cfg.Questrade, s.storage))
 	if s.cfg.Polygon.APIKey != "" {
-		s.providers = append(s.providers, providers.NewPolygonProvider(s.cfg.Polygon))
+		s.providers = append(s.providers, providers.NewPolygonProvider(s.cfg.Polygon, s.logClient))
 	}
 	if s.cfg.FMP.APIKey != "" {
-		s.providers = append(s.providers, providers.NewFMPProvider(s.cfg.FMP))
+		s.providers = append(s.providers, providers.NewFMPProvider(s.cfg.FMP, s.logClient))
 	}
 }
 
@@ -325,9 +333,9 @@ func (s *MarketDataService) processBackfill(req *sse.BackfillRequest) {
 	var provider providers.Provider
 	switch req.Source {
 	case "polygon":
-		provider = providers.NewPolygonProvider(s.cfg.Polygon)
+		provider = providers.NewPolygonProvider(s.cfg.Polygon, s.logClient)
 	case "fmp":
-		provider = providers.NewFMPProvider(s.cfg.FMP)
+		provider = providers.NewFMPProvider(s.cfg.FMP, s.logClient)
 	default:
 		provider = providers.NewQuestradeProvider(s.cfg.Questrade, s.storage)
 	}
@@ -386,18 +394,36 @@ func (s *MarketDataService) handleSearchTickers(w http.ResponseWriter, r *http.R
 		http.Error(w, "q parameter required", http.StatusBadRequest)
 		return
 	}
-	results, err := s.storage.SearchTickers(r.Context(), query)
-	if err != nil {
-		s.logger.Error("search tickers failed", "error", err)
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]interface{}{})
-		return
+
+	var allResults []providers.TickerSearchResult
+	for _, provider := range s.providers {
+		results, err := provider.SearchTickers(query)
+		if err != nil {
+			s.logger.Warn("search failed for provider", "provider", provider.Name(), "error", err)
+			continue
+		}
+		allResults = append(allResults, results...)
 	}
-	if results == nil {
-		results = []storage.TickerSearchResult{}
+
+	if allResults == nil {
+		allResults = []providers.TickerSearchResult{}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(results)
+	json.NewEncoder(w).Encode(allResults)
+}
+
+func (s *MarketDataService) handleTickerRequest(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+	switch {
+	case strings.HasSuffix(path, "/details"):
+		s.handleTickerDetails(w, r)
+	case strings.HasSuffix(path, "/intraday"):
+		s.handleIntradayBars(w, r)
+	case strings.HasSuffix(path, "/ratios"):
+		s.handleFinancialRatios(w, r)
+	default:
+		http.NotFound(w, r)
+	}
 }
 
 func (s *MarketDataService) handleTickerDetails(w http.ResponseWriter, r *http.Request) {

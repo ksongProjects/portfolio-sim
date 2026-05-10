@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
+import { useFrontendLogging, logPageView, logUserAction } from "./useFrontendLogging";
 
 export type ServiceStatus = "healthy" | "warning" | "error";
 
@@ -32,29 +33,46 @@ export function useObservability(options?: { autoRefresh?: boolean; interval?: n
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const { logAPICall } = useFrontendLogging();
 
   const fetchServices = useCallback(async () => {
+    const startTime = Date.now();
     try {
       const res = await fetch(`${API_BASE}/api/observability/services`);
-      if (!res.ok) throw new Error("Failed to fetch services");
+      const duration = Date.now() - startTime;
+      if (!res.ok) {
+        logAPICall("GET", "/api/observability/services", res.status, duration, "Failed to fetch services");
+        throw new Error("Failed to fetch services");
+      }
+      logAPICall("GET", "/api/observability/services", res.status, duration);
       const data = await res.json();
       setServices(data);
       setLastUpdated(new Date());
     } catch (err) {
+      const duration = Date.now() - startTime;
+      logAPICall("GET", "/api/observability/services", 0, duration, err instanceof Error ? err.message : "Unknown error");
       setError(err instanceof Error ? err.message : "Unknown error");
     }
-  }, []);
+  }, [logAPICall]);
 
   const fetchLogs = useCallback(async (limit = 100) => {
+    const startTime = Date.now();
     try {
       const res = await fetch(`${API_BASE}/api/observability/logs?limit=${limit}`);
-      if (!res.ok) throw new Error("Failed to fetch logs");
+      const duration = Date.now() - startTime;
+      if (!res.ok) {
+        logAPICall("GET", `/api/observability/logs?limit=${limit}`, res.status, duration, "Failed to fetch logs");
+        throw new Error("Failed to fetch logs");
+      }
+      logAPICall("GET", `/api/observability/logs?limit=${limit}`, res.status, duration);
       const data = await res.json();
       setLogs(data);
     } catch (err) {
+      const duration = Date.now() - startTime;
+      logAPICall("GET", `/api/observability/logs?limit=${limit}`, 0, duration, err instanceof Error ? err.message : "Unknown error");
       setError(err instanceof Error ? err.message : "Unknown error");
     }
-  }, []);
+  }, [logAPICall]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -81,6 +99,7 @@ export function useObservability(options?: { autoRefresh?: boolean; interval?: n
 
   useEffect(() => {
     const init = () => {
+      logPageView("observability");
       refresh();
     };
     init();

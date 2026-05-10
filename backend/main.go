@@ -112,14 +112,14 @@ func NewServer(cfg *Config) (*Server, error) {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
 
-	db, err := database.NewPostgres(database.Config{
+	db, err := database.NewPostgresWithLogger(database.Config{
 		Host:     cfg.Database.Host,
 		Port:     cfg.Database.Port,
 		User:     cfg.Database.User,
 		Password: cfg.Database.Password,
 		DBName:   cfg.Database.DBName,
 		MaxConns: cfg.Database.MaxConns,
-	})
+	}, logger)
 	if err != nil {
 		return nil, fmt.Errorf("connect database: %w", err)
 	}
@@ -143,7 +143,7 @@ func NewServer(cfg *Config) (*Server, error) {
 		redisClient:  redisClient,
 		obsService:   services.NewObservabilityService(),
 		portfolioSvc: services.NewPortfolioService(),
-		providerSvc:  services.NewProviderService(),
+		providerSvc:  services.NewProviderService(logger),
 		tickerSvc:    services.NewTickerService(os.Getenv("MARKET_DATA_SERVICE_URL")),
 	}, nil
 }
@@ -509,17 +509,32 @@ func (s *Server) handleValidateProvider(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	s.logger.Info("validating provider key", "provider", req.ProviderID, "has_key", len(req.APIKey) > 0)
+	s.middleware.LogInfo(r.Context(), "validating provider key", map[string]interface{}{"provider": req.ProviderID, "has_key": len(req.APIKey) > 0})
+
 	valid, err := s.providerSvc.ValidateProviderKey(r.Context(), s.db, req.ProviderID, req.APIKey)
 	if err != nil {
+		s.logger.Error("provider validation failed", "provider", req.ProviderID, "error", err)
+		s.middleware.LogError(r.Context(), "provider validation failed", map[string]interface{}{"provider": req.ProviderID, "error": err.Error()})
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"valid": false, "error": err.Error()})
 		return
 	}
 
+	s.logger.Info("provider validation succeeded", "provider", req.ProviderID, "valid", valid)
+	s.middleware.LogInfo(r.Context(), "provider validation succeeded", map[string]interface{}{"provider": req.ProviderID, "valid": valid})
+
 	if valid && req.ProviderID == "questrade" {
+		s.logger.Info("exchanging questrade OAuth token", "provider", req.ProviderID)
+		s.middleware.LogInfo(r.Context(), "exchanging questrade OAuth token", map[string]interface{}{"provider": req.ProviderID})
 		accessToken, refreshToken, apiServer, expiresIn, err := s.providerSvc.ExchangeQuestradeToken(req.APIKey)
 		if err == nil && refreshToken != "" {
+			s.logger.Info("saving questrade OAuth tokens", "provider", req.ProviderID, "expires_in", expiresIn)
+			s.middleware.LogInfo(r.Context(), "saving questrade OAuth tokens", map[string]interface{}{"provider": req.ProviderID, "expires_in": expiresIn})
 			s.providerSvc.SaveQuestradeOAuth(r.Context(), s.db, req.ProviderID, accessToken, refreshToken, apiServer, expiresIn)
+		} else if err != nil {
+			s.logger.Error("questrade token exchange failed", "provider", req.ProviderID, "error", err)
+			s.middleware.LogError(r.Context(), "questrade token exchange failed", map[string]interface{}{"provider": req.ProviderID, "error": err.Error()})
 		}
 	}
 
@@ -645,25 +660,7 @@ func (s *Server) handleGetTickerDetails(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var details struct {
-		Symbol      string  `json:"symbol"`
-		Name        string  `json:"name"`
-		Exchange    string  `json:"exchange"`
-		Sector      string  `json:"sector"`
-		Industry    string  `json:"industry"`
-		Price       float64 `json:"price"`
-		Change      float64 `json:"change"`
-		ChangePct   float64 `json:"changePct"`
-		Volume      int64   `json:"volume"`
-		AvgVolume   int64   `json:"avgVolume"`
-		MarketCap   float64 `json:"marketCap"`
-		PeRatio     float64 `json:"peRatio"`
-		Eps         float64 `json:"eps"`
-		DividendYield float64 `json:"dividendYield"`
-		Week52High  float64 `json:"week52High"`
-		Week52Low   float64 `json:"week52Low"`
-	}
-	details, err = *s.tickerSvc.GetTickerDetails(r.Context(), symbol)
+	details, err := s.tickerSvc.GetTickerDetails(r.Context(), symbol)
 	if err != nil {
 		s.logger.Error("get ticker details failed", "symbol", symbol, "error", err)
 		w.Header().Set("Content-Type", "application/json")

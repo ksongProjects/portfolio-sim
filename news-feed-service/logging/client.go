@@ -114,3 +114,7 @@ func (c *Client) ErrorWithMeta(ctx context.Context, msg string, meta map[string]
 func (c *Client) WarnWithMeta(ctx context.Context, msg string, meta map[string]interface{}) error {
 	return c.EmitWithMetadata(ctx, "WARN", msg, meta)
 }
+
+func (c *Client) DebugWithMeta(ctx context.Context, msg string, meta map[string]interface{}) error {
+	return c.EmitWithMetadata(ctx, "DEBUG", msg, meta)
+}

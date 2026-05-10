@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -87,15 +86,14 @@ func (c *Client) send(ctx context.Context, entry LogEntry) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
+	go func() {
+		resp, err := c.client.Do(req)
+		if err != nil {
+			return
+		}
+		defer resp.Body.Close()
+	}()
 
-	if resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("logging server returned %d", resp.StatusCode)
-	}
 	return nil
 }
 
@@ -121,4 +119,12 @@ func (c *Client) InfoWithMeta(ctx context.Context, msg string, meta map[string]i
 
 func (c *Client) ErrorWithMeta(ctx context.Context, msg string, meta map[string]interface{}) error {
 	return c.EmitWithMetadata(ctx, "ERROR", msg, meta)
+}
+
+func (c *Client) WarnWithMeta(ctx context.Context, msg string, meta map[string]interface{}) error {
+	return c.EmitWithMetadata(ctx, "WARN", msg, meta)
+}
+
+func (c *Client) DebugWithMeta(ctx context.Context, msg string, meta map[string]interface{}) error {
+	return c.EmitWithMetadata(ctx, "DEBUG", msg, meta)
 }

@@ -5,12 +5,25 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 )
+
+type ProviderService struct {
+	logger *slog.Logger
+}
+
+func NewProviderService(logger *slog.Logger) *ProviderService {
+	if logger == nil {
+		logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	}
+	return &ProviderService{logger: logger}
+}
 
 type ProviderConfig struct {
 	ID           string `json:"id"`
@@ -26,17 +39,11 @@ type ProviderConfig struct {
 }
 
 type ConnectionStatus struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Type     string `json:"type"`
-	IsUp     bool   `json:"is_up"`
-	LatencyMs int64 `json:"latency_ms"`
-}
-
-type ProviderService struct{}
-
-func NewProviderService() *ProviderService {
-	return &ProviderService{}
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	IsUp      bool   `json:"is_up"`
+	LatencyMs int64  `json:"latency_ms"`
 }
 
 func (s *ProviderService) GetProviders(ctx context.Context, db interface {
@@ -224,18 +231,26 @@ func (s *ProviderService) CheckConnection(ctx context.Context, db interface {
 func (s *ProviderService) ValidateProviderKey(ctx context.Context, db interface {
 	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
 }, providerID, apiKey string) (bool, error) {
+	s.logger.Info("ProviderService.ValidateProviderKey called", "provider", providerID)
+
 	switch providerID {
 	case "polygon":
+		s.logger.Info("validating polygon key")
 		return validatePolygonKey(apiKey)
 	case "fmp":
+		s.logger.Info("validating fmp key")
 		return validateFMPKey(apiKey)
 	case "questrade":
+		s.logger.Info("validating questrade key")
 		return validateQuestradeKey(apiKey)
 	case "youtube":
+		s.logger.Info("validating youtube key")
 		return validateYouTubeKey(apiKey)
 	case "gemini":
+		s.logger.Info("validating gemini key")
 		return validateGeminiKey(apiKey)
 	default:
+		s.logger.Warn("unknown provider", "provider", providerID)
 		return false, fmt.Errorf("unknown provider: %s", providerID)
 	}
 }

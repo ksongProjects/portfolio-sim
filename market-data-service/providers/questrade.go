@@ -302,6 +302,26 @@ func (p *QuestradeProvider) FetchSymbol(symbolID string) (*QuestradeSymbol, erro
 	return &result.Symbols[0], nil
 }
 
+func (p *QuestradeProvider) SearchTickers(prefix string) ([]TickerSearchResult, error) {
+	symbols, err := p.FetchSymbolSearch(prefix)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]TickerSearchResult, 0, len(symbols))
+	for _, s := range symbols {
+		if s.Active {
+			results = append(results, TickerSearchResult{
+				Symbol:   s.Symbol,
+				Name:     s.Name,
+				Exchange: s.BoardID,
+				Type:     s.Type,
+				SymbolID: s.SymbolID,
+			})
+		}
+	}
+	return results, nil
+}
+
 func (p *QuestradeProvider) FetchSymbolSearch(prefix string) ([]QuestradeSymbol, error) {
 	body, err := p.doRequest("/v1/symbols/search?prefix=" + url.QueryEscape(prefix))
 	if err != nil {

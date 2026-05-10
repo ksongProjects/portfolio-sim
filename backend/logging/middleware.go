@@ -46,9 +46,9 @@ func (m *Middleware) WrapHandlerFunc(next func(http.ResponseWriter, *http.Reques
 		rw := &ResponseWriter{ResponseWriter: w, StatusCode: http.StatusOK}
 
 		m.client.InfoWithMeta(ctx, "Request started", map[string]interface{}{
-			"method":     r.Method,
-			"path":       r.URL.Path,
-			"query":      r.URL.RawQuery,
+			"method":      r.Method,
+			"path":        r.URL.Path,
+			"query":       r.URL.RawQuery,
 			"remote_addr": r.RemoteAddr,
 		})
 
@@ -59,14 +59,18 @@ func (m *Middleware) WrapHandlerFunc(next func(http.ResponseWriter, *http.Reques
 		meta := map[string]interface{}{
 			"method":      r.Method,
 			"path":        r.URL.Path,
-			"status":     rw.StatusCode,
+			"status":      rw.StatusCode,
 			"duration_ms": duration.Milliseconds(),
 			"size_bytes":  rw.Size,
 		}
 
 		if rw.StatusCode >= 500 {
+			meta["error"] = true
+			meta["error_type"] = "server_error"
 			m.client.ErrorWithMeta(ctx, "Request error", meta)
 		} else if rw.StatusCode >= 400 {
+			meta["error"] = true
+			meta["error_type"] = "client_error"
 			m.client.WarnWithMeta(ctx, "Request warning", meta)
 		} else {
 			m.client.InfoWithMeta(ctx, "Request completed", meta)
@@ -99,5 +103,17 @@ func (m *Middleware) Error(ctx context.Context, msg string, meta map[string]inte
 }
 
 func (m *Middleware) Warn(ctx context.Context, msg string, meta map[string]interface{}) {
+	m.client.WarnWithMeta(ctx, msg, meta)
+}
+
+func (m *Middleware) LogInfo(ctx context.Context, msg string, meta map[string]interface{}) {
+	m.client.InfoWithMeta(ctx, msg, meta)
+}
+
+func (m *Middleware) LogError(ctx context.Context, msg string, meta map[string]interface{}) {
+	m.client.ErrorWithMeta(ctx, msg, meta)
+}
+
+func (m *Middleware) LogWarn(ctx context.Context, msg string, meta map[string]interface{}) {
 	m.client.WarnWithMeta(ctx, msg, meta)
 }

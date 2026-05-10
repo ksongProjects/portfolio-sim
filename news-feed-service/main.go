@@ -57,17 +57,20 @@ func main() {
 	go processScrapeNewsJobs(context.Background(), redisClient, feedManager, logWriter)
 	go processTranscribeJobs(context.Background(), redisClient, youtubeClient, geminiClient, sseManager, logWriter)
 
-	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, "ok")
-	})
-
 	port := cfg.Port
 	if port == "" {
 		port = "8080"
 	}
 
-	srv := &http.Server{Addr: ":" + port, Handler: nil}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "ok")
+	})
+
+	wrappedMux := logging.LoggingMiddleware(mux, logClient)
+
+	srv := &http.Server{Addr: ":" + port, Handler: wrappedMux}
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("listen: %v", err)

@@ -10,6 +10,7 @@ import { DataTable } from "@/components/ui/data-table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertTriangle, CheckCircle, Clock, RefreshCw, Zap, Pause, Play } from "lucide-react";
 import { useObservability } from "@/hooks/useObservability";
+import { useFrontendLogging, logUserAction, logComponentMount } from "@/hooks/useFrontendLogging";
 
 function formatTimestamp(ts: string): string {
   try {
@@ -69,18 +70,26 @@ const logColumns: ColumnDef<{
 export default function ObservabilityPage() {
   const { services, logs, loading, error, lastUpdated, refresh, startAutoRefresh, stopAutoRefresh } = useObservability();
   const [autoRefresh, setAutoRefresh] = useState(false);
+  useFrontendLogging();
+  logComponentMount("ObservabilityPage");
 
   const healthyCount = services.filter((s) => s.status === "healthy").length;
   const warningCount = services.filter((s) => s.status === "warning").length;
   const errorCount = services.filter((s) => s.status === "error").length;
 
   const handleToggleAutoRefresh = () => {
+    logUserAction(autoRefresh ? "stop_auto_refresh" : "start_auto_refresh");
     if (autoRefresh) {
       stopAutoRefresh();
     } else {
       startAutoRefresh();
     }
     setAutoRefresh(!autoRefresh);
+  };
+
+  const handleRefresh = () => {
+    logUserAction("manual_refresh");
+    refresh();
   };
 
   return (

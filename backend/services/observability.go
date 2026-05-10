@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"sync"
@@ -16,7 +17,16 @@ type ServiceHealth struct {
 }
 
 type ObservabilityService struct {
-	checks []ServiceCheck
+	checks     []ServiceCheck
+	tracker    map[string]*serviceTracker
+	mu         sync.Mutex
+}
+
+type serviceTracker struct {
+	name         string
+	uptimeCount  int
+	totalChecks  int
+	startTime    time.Time
 }
 
 type ServiceCheck struct {
@@ -28,11 +38,12 @@ type ServiceCheck struct {
 func NewObservabilityService() *ObservabilityService {
 	return &ObservabilityService{
 		checks: []ServiceCheck{
-			{Name: "main-api", HealthURL: "http://localhost:8080/health", Timeout: 500 * time.Millisecond},
+			{Name: "main-api", HealthURL: "http://main-api:8080/health", Timeout: 500 * time.Millisecond},
 			{Name: "market-data-service", HealthURL: "http://market-data-service:8080/health", Timeout: 500 * time.Millisecond},
 			{Name: "news-feed-service", HealthURL: "http://news-feed-service:8080/health", Timeout: 500 * time.Millisecond},
 			{Name: "analyst-service", HealthURL: "http://analyst-service:8080/health", Timeout: 500 * time.Millisecond},
 		},
+		tracker: make(map[string]*serviceTracker),
 	}
 }
 
@@ -45,8 +56,20 @@ func (s *ObservabilityService) CheckServices(ctx context.Context) []ServiceHealt
 		wg.Add(1)
 		go func(idx int, check ServiceCheck) {
 			defer wg.Done()
+
+			s.mu.Lock()
+			if s.tracker[check.Name] == nil {
+				s.tracker[check.Name] = &serviceTracker{
+					name:      check.Name,
+					startTime: now,
+				}
+			}
+			tracker := s.tracker[check.Name]
+			tracker.totalChecks++
+			s.mu.Unlock()
+
 			status := "error"
-			uptime := "0%"
+			healthy := false
 
 			req, err := http.NewRequestWithContext(ctx, http.MethodGet, check.HealthURL, nil)
 			if err == nil {
@@ -56,19 +79,33 @@ func (s *ObservabilityService) CheckServices(ctx context.Context) []ServiceHealt
 					defer resp.Body.Close()
 					if resp.StatusCode == http.StatusOK {
 						body, _ := io.ReadAll(resp.Body)
-						if len(body) > 0 && (string(body) == "ok" || string(body) == `"ok"` || contains(body, `"status":"ok"`)) {
+						bodyStr := string(body)
+						if bodyStr == "ok" || bodyStr == `"ok"` || contains(body, `"status":"ok"`) {
 							status = "healthy"
-							uptime = "100%"
+							healthy = true
 						} else {
 							status = "healthy"
-							uptime = "100%"
+							healthy = true
 						}
 					} else {
 						status = "warning"
-						uptime = "50%"
 					}
 				}
 			}
+
+			if healthy {
+				s.mu.Lock()
+				tracker.uptimeCount++
+				s.mu.Unlock()
+			}
+
+			s.mu.Lock()
+			uptime := "0%"
+			if tracker.totalChecks > 0 {
+				uptimePct := float64(tracker.uptimeCount) / float64(tracker.totalChecks) * 100
+				uptime = fmt.Sprintf("%.0f%%", uptimePct)
+			}
+			s.mu.Unlock()
 
 			results[idx] = ServiceHealth{
 				Name:      check.Name,

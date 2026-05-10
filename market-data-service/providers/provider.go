@@ -47,5 +47,14 @@ type Provider interface {
 	FetchPrice(ticker string) (*Price, error)
 	FetchOptionChain(ticker string) ([]*OptionChain, error)
 	FetchIntradayBars(ticker string, interval string) ([]*IntradayBar, error)
+	SearchTickers(prefix string) ([]TickerSearchResult, error)
 	Name() string
+}
+
+type TickerSearchResult struct {
+	Symbol    string  `json:"symbol"`
+	Name      string  `json:"name"`
+	Exchange  string  `json:"exchange"`
+	Type      string  `json:"type"`
+	SymbolID  int     `json:"symbolId"`
 }

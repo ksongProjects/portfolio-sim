@@ -29,7 +29,7 @@ type Client struct {
 
 func NewClient(serviceName string, logURL string) *Client {
 	if logURL == "" {
-		logURL = "http://main-api:8080/api/logs"
+		logURL = "http://localhost:8080/api/logs"
 	}
 	return &Client{
 		serviceName: serviceName,
@@ -73,13 +73,15 @@ func (c *Client) send(ctx context.Context, entry LogEntry) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	go func() {
-		resp, err := c.client.Do(req)
-		if err != nil {
-			return
-		}
-		defer resp.Body.Close()
-	}()
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("log ingestion returned: %d", resp.StatusCode)
+	}
 
 	return nil
 }
