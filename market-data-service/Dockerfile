@@ -3,12 +3,14 @@ FROM golang:1.24-alpine AS builder
 
 RUN apk add --no-cache git
 
-WORKDIR /app
+WORKDIR /workspace
 
-COPY go.mod go.sum ./
+COPY shared /workspace/shared
+COPY market-data-service /workspace/market-data-service
+
+WORKDIR /workspace/market-data-service
+
 RUN go mod download
-
-COPY . .
 
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /bin/market-data-service .
 

@@ -5,6 +5,7 @@ go 1.22
 require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.5.3
+	github.com/portfolio-sim/shared v0.0.0
 	github.com/redis/go-redis/v9 v9.4.0
 )
 
@@ -18,3 +19,5 @@ require (
 	golang.org/x/sync v0.1.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 )
+
+replace github.com/portfolio-sim/shared => ../shared

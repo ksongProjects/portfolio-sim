@@ -14,19 +14,20 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/portfolio-sim/backend/logging"
-	"github.com/portfolio-sim/backend/secrets"
+	"github.com/portfolio-sim/shared/secrets"
 )
 
 type ProviderService struct {
 	logger    *slog.Logger
 	logClient *logging.Client
+	codec     *secrets.Codec
 }
 
-func NewProviderService(logger *slog.Logger, logClient *logging.Client) *ProviderService {
+func NewProviderService(logger *slog.Logger, logClient *logging.Client, codec *secrets.Codec) *ProviderService {
 	if logger == nil {
 		logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	}
-	return &ProviderService{logger: logger, logClient: logClient}
+	return &ProviderService{logger: logger, logClient: logClient, codec: codec}
 }
 
 type ProviderConfig struct {
@@ -143,7 +144,7 @@ func (s *ProviderService) GetProviders(ctx context.Context, db interface {
 func (s *ProviderService) SaveProviderKey(ctx context.Context, db interface {
 	Exec(ctx context.Context, sql string, args ...interface{}) (int64, error)
 }, providerID, apiKey string) error {
-	encryptedKey, err := secrets.EncryptString(apiKey)
+	encryptedKey, err := s.codec.EncryptString(apiKey)
 	if err != nil {
 		return err
 	}
@@ -160,15 +161,15 @@ func (s *ProviderService) SaveQuestradeOAuth(ctx context.Context, db interface {
 	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
 	Exec(ctx context.Context, sql string, args ...interface{}) (int64, error)
 }, providerID, accessToken, refreshToken, apiServer string, expiresIn int) error {
-	encryptedAccessToken, err := secrets.EncryptString(accessToken)
+	encryptedAccessToken, err := s.codec.EncryptString(accessToken)
 	if err != nil {
 		return err
 	}
-	encryptedRefreshToken, err := secrets.EncryptString(refreshToken)
+	encryptedRefreshToken, err := s.codec.EncryptString(refreshToken)
 	if err != nil {
 		return err
 	}
-	encryptedAPIServer, err := secrets.EncryptString(apiServer)
+	encryptedAPIServer, err := s.codec.EncryptString(apiServer)
 	if err != nil {
 		return err
 	}
@@ -196,9 +197,9 @@ func (s *ProviderService) GetQuestradeOAuth(ctx context.Context, db interface {
 	if err := row.Scan(&encryptedAccessToken, &encryptedRefreshToken, &encryptedAPIServer); err != nil {
 		return "", "", ""
 	}
-	accessToken, _ = secrets.DecryptString(encryptedAccessToken)
-	refreshToken, _ = secrets.DecryptString(encryptedRefreshToken)
-	apiServer, _ = secrets.DecryptString(encryptedAPIServer)
+	accessToken, _ = s.codec.DecryptString(encryptedAccessToken)
+	refreshToken, _ = s.codec.DecryptString(encryptedRefreshToken)
+	apiServer, _ = s.codec.DecryptString(encryptedAPIServer)
 	return
 }
 

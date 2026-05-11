@@ -9,15 +9,16 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/portfolio-sim/market-data-service/secrets"
+	"github.com/portfolio-sim/shared/secrets"
 )
 
 type Storage struct {
-	pool *pgxpool.Pool
+	pool  *pgxpool.Pool
+	codec *secrets.Codec
 }
 
-func NewStorage(pool *pgxpool.Pool) *Storage {
-	return &Storage{pool: pool}
+func NewStorage(pool *pgxpool.Pool, codec *secrets.Codec) *Storage {
+	return &Storage{pool: pool, codec: codec}
 }
 
 func (s *Storage) GetTickerID(ctx context.Context, symbol string) (uuid.UUID, error) {
@@ -165,7 +166,7 @@ func (s *Storage) GetProviderAPIKey(ctx context.Context, providerID string) (str
 		}
 		return "", err
 	}
-	return secrets.DecryptString(encryptedKey)
+	return s.codec.DecryptString(encryptedKey)
 }
 
 func (s *Storage) GetQuestradeTokens(ctx context.Context) (*QuestradeTokens, error) {
@@ -179,15 +180,15 @@ func (s *Storage) GetQuestradeTokens(ctx context.Context) (*QuestradeTokens, err
 	if err != nil {
 		return nil, err
 	}
-	accessToken, err := secrets.DecryptString(encryptedAccessToken)
+	accessToken, err := s.codec.DecryptString(encryptedAccessToken)
 	if err != nil {
 		return nil, err
 	}
-	refreshToken, err := secrets.DecryptString(encryptedRefreshToken)
+	refreshToken, err := s.codec.DecryptString(encryptedRefreshToken)
 	if err != nil {
 		return nil, err
 	}
-	apiServer, err := secrets.DecryptString(encryptedAPIServer)
+	apiServer, err := s.codec.DecryptString(encryptedAPIServer)
 	if err != nil {
 		return nil, err
 	}
@@ -204,15 +205,15 @@ func (s *Storage) GetQuestradeTokens(ctx context.Context) (*QuestradeTokens, err
 }
 
 func (s *Storage) UpdateQuestradeTokens(ctx context.Context, accessToken, refreshToken, apiServer string, expiresIn int) error {
-	encryptedAccessToken, err := secrets.EncryptString(accessToken)
+	encryptedAccessToken, err := s.codec.EncryptString(accessToken)
 	if err != nil {
 		return err
 	}
-	encryptedRefreshToken, err := secrets.EncryptString(refreshToken)
+	encryptedRefreshToken, err := s.codec.EncryptString(refreshToken)
 	if err != nil {
 		return err
 	}
-	encryptedAPIServer, err := secrets.EncryptString(apiServer)
+	encryptedAPIServer, err := s.codec.EncryptString(apiServer)
 	if err != nil {
 		return err
 	}

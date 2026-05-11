@@ -22,6 +22,7 @@ import (
 	"github.com/portfolio-sim/market-data-service/redis"
 	"github.com/portfolio-sim/market-data-service/sse"
 	"github.com/portfolio-sim/market-data-service/storage"
+	"github.com/portfolio-sim/shared/secrets"
 )
 
 type MarketDataService struct {
@@ -61,11 +62,21 @@ func NewMarketDataService(cfg *config.Config) *MarketDataService {
 		os.Exit(1)
 	}
 
+	providerSecret := os.Getenv("PROVIDER_SECRET_KEY")
+	if providerSecret == "" {
+		providerSecret = cfg.Database.Password
+	}
+	secretCodec, err := secrets.NewCodec(providerSecret)
+	if err != nil {
+		logClient.Error(context.Background(), fmt.Sprintf("failed to initialize provider secret codec: %v", err))
+		os.Exit(1)
+	}
+
 	return &MarketDataService{
 		cfg:        cfg,
 		db:         db,
 		redis:      redisClient,
-		storage:    storage.NewStorage(db.Pool()),
+		storage:    storage.NewStorage(db.Pool(), secretCodec),
 		logClient:  logClient,
 		sseMgr:     sse.NewManager(redisClient),
 		normalizer: normalizer.NewNormalizer(),

@@ -28,8 +28,8 @@ services:
 
   main-api:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     depends_on:
       postgres:
         condition: service_healthy
@@ -50,8 +50,8 @@ services:
 
   market-data-service:
     build:
-      context: ./market-data-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: market-data-service/Dockerfile
     depends_on:
       postgres:
         condition: service_healthy

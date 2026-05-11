@@ -19,6 +19,7 @@ import (
 	"github.com/portfolio-sim/backend/logging"
 	"github.com/portfolio-sim/backend/redis"
 	"github.com/portfolio-sim/backend/services"
+	"github.com/portfolio-sim/shared/secrets"
 )
 
 type Config struct {
@@ -138,6 +139,15 @@ func NewServer(cfg *Config) (*Server, error) {
 	logClient := logging.NewClient("backend", logURL)
 	logging.SetClient(logClient)
 
+	providerSecret := os.Getenv("PROVIDER_SECRET_KEY")
+	if providerSecret == "" {
+		providerSecret = cfg.Database.Password
+	}
+	secretCodec, err := secrets.NewCodec(providerSecret)
+	if err != nil {
+		return nil, fmt.Errorf("init provider secret codec: %w", err)
+	}
+
 	return &Server{
 		cfg:          cfg,
 		logger:       logger,
@@ -146,7 +156,7 @@ func NewServer(cfg *Config) (*Server, error) {
 		redisClient:  redisClient,
 		obsService:   services.NewObservabilityService(),
 		portfolioSvc: services.NewPortfolioService(),
-		providerSvc:  services.NewProviderService(logger, logClient),
+		providerSvc:  services.NewProviderService(logger, logClient, secretCodec),
 		tickerSvc:    services.NewTickerService(os.Getenv("MARKET_DATA_SERVICE_URL"), logClient),
 	}, nil
 }
