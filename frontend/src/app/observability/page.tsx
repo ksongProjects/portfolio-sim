@@ -259,7 +259,7 @@ export default function ObservabilityPage() {
             </div>
             <div className="flex flex-wrap gap-3 mb-4 p-3 bg-surface-container-low rounded-md">
               <div className="flex items-center gap-2">
-                <label className="text-xs text-on-surface-variant">Level:</label>
+                <span className="text-xs text-on-surface-variant whitespace-nowrap">Level:</span>
                 <select
                   value={filters.level || ""}
                   onChange={(e) => setLogFilters({ ...filters, level: e.target.value || undefined })}
@@ -273,7 +273,7 @@ export default function ObservabilityPage() {
                 </select>
               </div>
               <div className="flex items-center gap-2">
-                <label className="text-xs text-on-surface-variant">Service:</label>
+                <span className="text-xs text-on-surface-variant whitespace-nowrap">Service:</span>
                 <select
                   value={filters.service || ""}
                   onChange={(e) => setLogFilters({ ...filters, service: e.target.value || undefined })}
@@ -287,22 +287,22 @@ export default function ObservabilityPage() {
                 </select>
               </div>
               <div className="flex items-center gap-2">
-                <label className="text-xs text-on-surface-variant">Route:</label>
+                <span className="text-xs text-on-surface-variant whitespace-nowrap">Route:</span>
                 <Combobox
                   items={["observability", "portfolio", "market", "news", "strategies", "signals", "notifications", "providers", "connections", "rss-feeds", "tickers", "api"]}
                   multiple
                   value={filters.routes || []}
                   onValueChange={(val) => setLogFilters({ ...filters, routes: val.length > 0 ? val : undefined })}
                 >
-                  <ComboboxChips className="border border-outline bg-surface-container-high min-h-9">
+                  <ComboboxChips className="h-9 min-w-[180px] border border-outline bg-surface-container px-2 gap-1.5">
                     <ComboboxValue>
                       {(val: string[]) => val.map((item) => (
-                        <ComboboxChip key={item} className="bg-primary/20 text-on-surface border border-outline">
+                        <ComboboxChip key={item} className="h-5 text-[10px] font-semibold uppercase tracking-[0.08em] px-1.5 bg-primary text-on-primary rounded-sm">
                           {item}
                         </ComboboxChip>
                       ))}
                     </ComboboxValue>
-                    <ComboboxChipsInput placeholder="Select routes..." className="bg-transparent" />
+                    <ComboboxChipsInput placeholder="Select routes..." className="h-7 text-sm bg-transparent" />
                   </ComboboxChips>
                   <ComboboxContent>
                     <ComboboxEmpty>No routes found.</ComboboxEmpty>
