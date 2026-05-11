@@ -10,17 +10,8 @@ import { DataTable } from "@/components/ui/data-table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertTriangle, CheckCircle, Clock, Zap, ChevronDown, ChevronRight, Copy, Check } from "lucide-react";
 import { useObservability } from "@/hooks/useObservability";
-import {
-  Combobox,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxItem,
-  ComboboxList,
-  ComboboxChips,
-  ComboboxChip,
-  ComboboxChipsInput,
-  ComboboxValue,
-} from "@/components/ui/combobox";
+
+const ROUTE_OPTIONS = ["backend", "market", "news", "strategies", "api"];
 
 function formatTimestamp(ts: string): string {
   try {
@@ -288,33 +279,30 @@ export default function ObservabilityPage() {
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-on-surface-variant whitespace-nowrap">Route:</span>
-                <Combobox
-                  items={["observability", "portfolio", "market", "news", "strategies", "signals", "notifications", "providers", "connections", "rss-feeds", "tickers", "api"]}
-                  multiple
-                  value={filters.routes || []}
-                  onValueChange={(val) => setLogFilters({ ...filters, routes: val.length > 0 ? val : undefined })}
-                >
-                  <ComboboxChips className="h-9 min-w-[180px] border border-outline bg-surface-container px-2 gap-1.5">
-                    <ComboboxValue>
-                      {(val: string[]) => val.map((item) => (
-                        <ComboboxChip key={item} className="h-5 text-[10px] font-semibold uppercase tracking-[0.08em] px-1.5 bg-primary text-on-primary rounded-sm">
-                          {item}
-                        </ComboboxChip>
-                      ))}
-                    </ComboboxValue>
-                    <ComboboxChipsInput placeholder="Select routes..." className="h-7 text-sm bg-transparent" />
-                  </ComboboxChips>
-                  <ComboboxContent>
-                    <ComboboxEmpty>No routes found.</ComboboxEmpty>
-                    <ComboboxList>
-                      {(item: string) => (
-                        <ComboboxItem key={item} value={item}>
-                          {item}
-                        </ComboboxItem>
-                      )}
-                    </ComboboxList>
-                  </ComboboxContent>
-                </Combobox>
+                <div className="flex flex-wrap gap-1">
+                  {ROUTE_OPTIONS.map((route) => {
+                    const selected = (filters.routes || []).includes(route);
+                    return (
+                      <button
+                        key={route}
+                        onClick={() => {
+                          const current = filters.routes || [];
+                          const next = current.includes(route)
+                            ? current.filter((r) => r !== route)
+                            : [...current, route];
+                          setLogFilters({ ...filters, routes: next.length > 0 ? next : undefined });
+                        }}
+                        className={`px-2 py-1 text-xs rounded border transition-colors ${
+                          selected
+                            ? "bg-primary text-on-primary border-primary"
+                            : "bg-surface-container border-outline hover:border-primary/50"
+                        }`}
+                      >
+                        {route}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <label className="text-xs text-on-surface-variant">Logs:</label>
