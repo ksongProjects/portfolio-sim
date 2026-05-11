@@ -82,8 +82,9 @@ function LogRow({ id, message, metadata, isExpanded, onToggle }: LogRowProps) {
 }
 
 export default function ObservabilityPage() {
-  const { services, logs, loading, error, lastUpdated, refresh, filters, setLogFilters } = useObservability({ autoRefresh: true });
+  const { services, logs, loading, error, lastUpdated, refresh, filters, setLogFilters, fetchLogs } = useObservability();
   const [expandedLogIds, setExpandedLogIds] = useState<Set<string>>(new Set());
+  const [logsLimit, setLogsLimit] = useState(100);
 
   const toggleLogExpansion = useCallback((id: string) => {
     setExpandedLogIds(prev => {
@@ -162,13 +163,9 @@ export default function ObservabilityPage() {
                 Updated: {formatTimeAgo(lastUpdated)}
               </span>
             )}
-            <div className="flex items-center gap-1 text-xs text-primary">
-              <div className="h-2 w-2 rounded-full bg-primary animate-pulse" />
-              Live
-            </div>
-            <Button variant="secondary" size="sm" onClick={handleRefresh} disabled={loading}>
+            <Button variant="secondary" size="sm" onClick={() => fetchLogs(100, filters)} disabled={loading}>
               <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-              {loading ? "Refreshing..." : "Refresh"}
+              {loading ? "Loading..." : "Get Logs"}
             </Button>
           </div>
         </PageHeader>
@@ -294,25 +291,24 @@ export default function ObservabilityPage() {
                 </select>
               </div>
               <div className="flex items-center gap-2">
-                <label className="text-xs text-on-surface-variant">Time Range:</label>
+                <label className="text-xs text-on-surface-variant">Logs:</label>
                 <select
-                  value={filters.minutes || 60}
-                  onChange={(e) => setLogFilters({ ...filters, minutes: parseInt(e.target.value) || undefined })}
+                  value={logsLimit}
+                  onChange={(e) => setLogsLimit(parseInt(e.target.value))}
                   className="h-8 rounded-md border border-outline bg-surface-container px-2 text-sm text-on-surface focus:outline-none focus:ring-1 focus:ring-primary"
                 >
-                  <option value="30">Last 30 min</option>
-                  <option value="60">Last 1 hour</option>
-                  <option value="180">Last 3 hours</option>
-                  <option value="480">Last 8 hours</option>
+                  <option value="100">100</option>
+                  <option value="500">500</option>
+                  <option value="1000">1000</option>
                 </select>
               </div>
               <Button
-                variant="ghost"
+                variant="secondary"
                 size="sm"
-                onClick={() => setLogFilters({})}
+                onClick={() => fetchLogs(logsLimit, filters)}
                 className="h-8 text-xs"
               >
-                Clear
+                Get Logs
               </Button>
             </div>
             {error && logs.length === 0 && (
@@ -325,8 +321,8 @@ export default function ObservabilityPage() {
               data={logs}
               loading={loading}
               emptyMessage="No logs available"
-              enablePagination={true}
-              pageSizes={[25, 50, 100]}
+              enablePagination={false}
+              maxHeight="80vh"
             />
           </PageCell>
         </PageGrid>

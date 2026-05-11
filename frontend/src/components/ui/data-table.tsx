@@ -26,6 +26,7 @@ interface DataTableProps<TData, TValue> {
   onRowClick?: (row: TData) => void;
   pageSizes?: number[];
   enablePagination?: boolean;
+  maxHeight?: string;
 }
 
 function SortIcon({ column }: { column: { getIsSorted: () => string | false } }) {
@@ -44,6 +45,7 @@ export function DataTable<TData, TValue>({
   onRowClick,
   pageSizes = [10, 25, 50, 100],
   enablePagination = true,
+  maxHeight,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
@@ -126,43 +128,47 @@ export function DataTable<TData, TValue>({
               </tr>
             ))}
           </thead>
-          <tbody className="[&_tr:last-child]:border-0">
-            {loading ? (
-              Array.from({ length: pagination.pageSize }).map((_, i) => (
-                <tr key={i} className="border-b border-outline-variant/30">
-                  {columns.map((_, j) => (
-                    <td key={j} className="h-9 px-4 align-middle">
-                      <div className="h-4 bg-surface-container-high rounded animate-pulse" />
-                    </td>
-                  ))}
-                </tr>
-              ))
-            ) : table.getRowModel().rows.length > 0 ? (
-              table.getRowModel().rows.map((row) => (
-                <tr
-                  key={row.id}
-                  className={cn(
-                    "border-b border-outline-variant/30 transition-colors hover:bg-surface-container-low/50",
-                    onRowClick && "cursor-pointer"
-                  )}
-                  onClick={() => onRowClick?.(row.original)}
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="h-9 px-4 align-middle text-sm text-on-surface">
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  ))}
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={columns.length} className="h-24 text-center text-on-surface-variant text-sm">
-                  {emptyMessage}
-                </td>
-              </tr>
-            )}
-          </tbody>
         </table>
+        <div className="overflow-auto" style={maxHeight ? { maxHeight } : undefined}>
+          <table className="w-full caption-bottom text-sm">
+            <tbody className="[&_tr:last-child]:border-0">
+              {loading ? (
+                Array.from({ length: pagination.pageSize }).map((_, i) => (
+                  <tr key={i} className="border-b border-outline-variant/30">
+                    {columns.map((_, j) => (
+                      <td key={j} className="h-9 px-4 align-middle">
+                        <div className="h-4 bg-surface-container-high rounded animate-pulse" />
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              ) : table.getRowModel().rows.length > 0 ? (
+                table.getRowModel().rows.map((row) => (
+                  <tr
+                    key={row.id}
+                    className={cn(
+                      "border-b border-outline-variant/30 transition-colors hover:bg-surface-container-low/50",
+                      onRowClick && "cursor-pointer"
+                    )}
+                    onClick={() => onRowClick?.(row.original)}
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <td key={cell.id} className="h-9 px-4 align-middle text-sm text-on-surface">
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={columns.length} className="h-24 text-center text-on-surface-variant text-sm">
+                    {emptyMessage}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {enablePagination && (
