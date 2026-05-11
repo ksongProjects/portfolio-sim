@@ -296,9 +296,9 @@ func (s *Server) handleIngestLog(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 	limitStr := r.URL.Query().Get("limit")
-	limit := 50
+	limit := 100
 	if limitStr != "" {
-		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 1000 {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
 			limit = l
 		}
 	}
