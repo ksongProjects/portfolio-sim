@@ -101,15 +101,17 @@ export function DataTable<TData, TValue>({
       )}
 
       <div className="border border-outline-variant/30 rounded-md overflow-hidden">
-        <table className="w-full caption-bottom text-sm">
+        <table className="w-full caption-bottom text-sm table-fixed">
           <thead className="bg-surface-container-low">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
                 {headerGroup.headers.map((header) => {
                   const canSort = header.column.getCanSort();
+                  const size = header.column.columnDef.size;
                   return (
                     <th
                       key={header.id}
+                      style={size ? { width: size } : undefined}
                       className={cn(
                         "h-9 px-4 text-left align-middle text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant",
                         canSort && "cursor-pointer select-none hover:text-on-surface"
@@ -130,7 +132,7 @@ export function DataTable<TData, TValue>({
           </thead>
         </table>
         <div className="overflow-auto" style={maxHeight ? { maxHeight } : undefined}>
-          <table className="w-full caption-bottom text-sm">
+          <table className="w-full caption-bottom text-sm table-fixed">
             <tbody className="[&_tr:last-child]:border-0">
               {loading ? (
                 Array.from({ length: pagination.pageSize }).map((_, i) => (
@@ -152,11 +154,18 @@ export function DataTable<TData, TValue>({
                     )}
                     onClick={() => onRowClick?.(row.original)}
                   >
-                    {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className="h-9 px-4 align-middle text-sm text-on-surface">
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </td>
-                    ))}
+                    {row.getVisibleCells().map((cell) => {
+                      const size = cell.column.columnDef.size;
+                      return (
+                        <td
+                          key={cell.id}
+                          style={size ? { width: size } : undefined}
+                          className="h-9 px-4 align-middle text-sm text-on-surface overflow-hidden text-ellipsis whitespace-nowrap"
+                        >
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))
               ) : (

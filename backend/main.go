@@ -360,6 +360,11 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 		}
 		if metadata != nil {
 			json.Unmarshal(metadata, &le.Metadata)
+			if le.Action == "" && le.Metadata != nil {
+				if a, ok := le.Metadata["action"].(string); ok {
+					le.Action = a
+				}
+			}
 		}
 		logs = append(logs, le)
 	}
