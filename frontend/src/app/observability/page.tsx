@@ -209,55 +209,33 @@ export default function ObservabilityPage() {
 
         <PageGrid className="mt-px" style={{ gridTemplateColumns: "1fr" }}>
           <PageCell>
-            <div className="flex items-center justify-between mb-4">
-              <CardTitle>Services</CardTitle>
-            </div>
-            {error && services.length === 0 && (
-              <div className="text-error text-sm mb-4 p-3 border border-error/30 rounded bg-error/10">
-                Error: {error}
-              </div>
-            )}
-            <div className="grid grid-cols-3 gap-2">
+<div className="flex flex-wrap gap-2">
               {loading && services.length === 0 ? (
                 Array.from({ length: 5 }).map((_, i) => (
-                  <div key={i} className="flex items-center justify-between p-4 border border-outline-variant/30">
-                    <div className="flex items-center gap-3">
-                      <Skeleton className="h-3 w-3 rounded-full" />
-                      <div className="space-y-1">
-                        <Skeleton className="h-4 w-24" />
-                        <Skeleton className="h-3 w-16" />
-                      </div>
-                    </div>
-                    <Skeleton className="h-5 w-14 rounded" />
+                  <div key={i} className="flex items-center gap-2 px-2 py-1 border border-outline-variant/30">
+                    <Skeleton className="h-3 w-3 rounded-full" />
+                    <Skeleton className="h-4 w-20" />
                   </div>
                 ))
               ) : (
                 services.map((service) => (
-                  <div key={service.name} className="flex items-center justify-between p-4 border border-outline-variant/30">
-                    <div className="flex items-center gap-3">
-                      <StatusIndicator
-                        active={service.status === "healthy"}
-                        className={
-                          service.status === "warning" ? "bg-warning" :
-                          service.status === "error" ? "bg-error" : ""
-                        }
-                      />
-                      <div>
-                        <div className="text-sm font-medium">{service.name}</div>
-                        <div className="text-[11px] text-on-surface-variant">Uptime: {service.uptime}</div>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <Badge variant={service.status === "healthy" ? "success" : service.status === "warning" ? "warning" : "error"}>
-                        {service.status}
-                      </Badge>
-                      <div className="text-[11px] text-on-surface-variant mt-1">{service.lastCheck}</div>
-                    </div>
+                  <div key={service.name} className="flex items-center gap-2 px-2 py-1 border border-outline-variant/30">
+                    <StatusIndicator
+                      active={service.status === "healthy"}
+                      className={
+                        service.status === "warning" ? "bg-warning" :
+                        service.status === "error" ? "bg-error" : ""
+                      }
+                    />
+                    <span className="text-xs font-medium">{service.name}</span>
+                    <Badge variant={service.status === "healthy" ? "success" : service.status === "warning" ? "warning" : "error"}>
+                      {service.status}
+                    </Badge>
                   </div>
                 ))
               )}
               {services.length === 0 && !loading && (
-                <div className="col-span-3 text-center text-on-surface-variant text-sm py-8">No services data available</div>
+                <span className="text-xs text-on-surface-variant">No services data</span>
               )}
             </div>
           </PageCell>
@@ -299,27 +277,42 @@ export default function ObservabilityPage() {
               </div>
               <div className="flex items-center gap-2">
                 <label className="text-xs text-on-surface-variant">Route:</label>
-                <select
-                  value={filters.route || ""}
-                  onChange={(e) => setLogFilters({ ...filters, route: e.target.value || undefined })}
-                  className="h-8 rounded-md border border-outline bg-surface-container px-2 text-sm text-on-surface focus:outline-none focus:ring-1 focus:ring-primary"
-                >
-                  <option value="">All</option>
-                  <option value="observability">observability</option>
-                  <option value="portfolio">portfolio</option>
-                  <option value="market">market</option>
-                  <option value="news">news</option>
-                  <option value="strategies">strategies</option>
-                  <option value="signals">signals</option>
-                  <option value="notifications">notifications</option>
-                  <option value="providers">providers</option>
-                  <option value="connections">connections</option>
-                  <option value="rss-feeds">rss-feeds</option>
-                  <option value="tickers">tickers</option>
-                  <option value="api">api</option>
-                </select>
+                <div className="flex flex-wrap gap-1">
+                  <button
+                    onClick={() => setLogFilters({ ...filters, routes: undefined })}
+                    className={`px-2 py-1 text-xs rounded-full border transition-colors ${
+                      !filters.routes || filters.routes.length === 0
+                        ? "bg-surface-container-high text-on-surface border-outline-variant"
+                        : "bg-surface-container border-outline hover:border-outline-variant"
+                    }`}
+                  >
+                    All
+                  </button>
+                  {["observability", "portfolio", "market", "news", "strategies", "signals", "notifications", "providers", "connections", "rss-feeds", "tickers", "api"].map(route => {
+                    const selected = (filters.routes || []).includes(route);
+                    return (
+                      <button
+                        key={route}
+                        onClick={() => {
+                          const current = filters.routes || [];
+                          const next = current.includes(route)
+                            ? current.filter(r => r !== route)
+                            : [...current, route];
+                          setLogFilters({ ...filters, routes: next.length > 0 ? next : undefined });
+                        }}
+                        className={`px-2 py-1 text-xs rounded-full border transition-colors ${
+                          selected
+                            ? "bg-primary text-on-primary border-primary"
+                            : "bg-surface-container border-outline hover:border-outline-variant"
+                        }`}
+                      >
+                        {route}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2">
                 <label className="text-xs text-on-surface-variant">Logs:</label>
                 <select
                   value={logsLimit}

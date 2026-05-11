@@ -21,13 +21,13 @@ export type LogEntry = {
   metadata: Record<string, unknown> | null;
   trace_id: string | null;
   span_id: string | null;
-  route: string | null;
+  route: string;
 };
 
 export interface LogFilters {
   level?: string;
   service?: string;
-  route?: string;
+  routes?: string[];
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
@@ -60,7 +60,9 @@ const buildLogsUrl = useCallback((limit: number, logFilters: LogFilters) => {
     params.set("limit", limit.toString());
     if (logFilters.level) params.set("level", logFilters.level);
     if (logFilters.service) params.set("service", logFilters.service);
-    if (logFilters.route) params.set("route", logFilters.route);
+    if (logFilters.routes && logFilters.routes.length > 0) {
+      logFilters.routes.forEach(r => params.append("route", r));
+    }
     return `${API_BASE}/api/observability/logs?${params.toString()}`;
   }, []);
 
