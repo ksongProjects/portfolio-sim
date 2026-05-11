@@ -111,14 +111,14 @@ export default function ObservabilityPage() {
     timestamp: string;
     level: string;
     service: string;
-    action: string;
+    route: string;
     message: string;
     metadata: Record<string, unknown> | null;
   }>[] = [
     {
       accessorKey: "level",
       header: "Level",
-      size: 70,
+      size: 10,
       cell: ({ row }) => {
         const level = row.original.level;
         const variant = level === "INFO" || level === "DEBUG" ? "secondary" : level === "WARN" ? "warning" : "error";
@@ -128,19 +128,19 @@ export default function ObservabilityPage() {
     {
       accessorKey: "service",
       header: "Service",
-      size: 140,
+      size: 20,
       cell: ({ row }) => <span className="font-mono text-xs">{row.original.service}</span>,
     },
     {
-      accessorKey: "action",
-      header: "Action",
-      size: 100,
-      cell: ({ row }) => <span className="font-mono text-xs text-on-surface-variant">{row.original.action || "-"}</span>,
+      accessorKey: "route",
+      header: "Route",
+      size: 15,
+      cell: ({ row }) => <span className="font-mono text-xs text-on-surface-variant">{row.original.route || "-"}</span>,
     },
     {
       accessorKey: "message",
       header: "Message",
-      size: 600,
+      size: 55,
       cell: ({ row }) => (
         <LogRow
           id={row.original.id}
@@ -154,7 +154,7 @@ export default function ObservabilityPage() {
     {
       accessorKey: "timestamp",
       header: "Time",
-      size: 100,
+      size: 10,
       cell: ({ row }) => (
         <span className="font-mono text-xs text-on-surface-variant flex items-center gap-1">
           <Clock className="h-3 w-3" />
@@ -298,14 +298,26 @@ export default function ObservabilityPage() {
                 </select>
               </div>
               <div className="flex items-center gap-2">
-                <label className="text-xs text-on-surface-variant">Action:</label>
-                <input
-                  type="text"
-                  value={filters.action || ""}
-                  onChange={(e) => setLogFilters({ ...filters, action: e.target.value || undefined })}
-                  placeholder="e.g. subscribe"
-                  className="h-8 w-28 rounded-md border border-outline bg-surface-container px-2 text-sm text-on-surface placeholder:text-on-surface-variant focus:outline-none focus:ring-1 focus:ring-primary"
-                />
+                <label className="text-xs text-on-surface-variant">Route:</label>
+                <select
+                  value={filters.route || ""}
+                  onChange={(e) => setLogFilters({ ...filters, route: e.target.value || undefined })}
+                  className="h-8 rounded-md border border-outline bg-surface-container px-2 text-sm text-on-surface focus:outline-none focus:ring-1 focus:ring-primary"
+                >
+                  <option value="">All</option>
+                  <option value="observability">observability</option>
+                  <option value="portfolio">portfolio</option>
+                  <option value="market">market</option>
+                  <option value="news">news</option>
+                  <option value="strategies">strategies</option>
+                  <option value="signals">signals</option>
+                  <option value="notifications">notifications</option>
+                  <option value="providers">providers</option>
+                  <option value="connections">connections</option>
+                  <option value="rss-feeds">rss-feeds</option>
+                  <option value="tickers">tickers</option>
+                  <option value="api">api</option>
+                </select>
               </div>
               <div className="flex items-center gap-2">
                 <label className="text-xs text-on-surface-variant">Logs:</label>

@@ -44,7 +44,7 @@ func WrapHandlerFunc(next func(http.ResponseWriter, *http.Request)) http.Handler
 			"request_headers": redactHeaders(r.Header),
 			"remote_addr":     r.RemoteAddr,
 			"content_length":  r.ContentLength,
-			"action":          getActionFromPath(r.URL.Path),
+			"route":           getActionFromPath(r.URL.Path),
 		}
 		if captureBody && len(reqBody) > 0 {
 			reqMeta["request_body"] = sanitizeBody(r.Header.Get("Content-Type"), reqBody)
@@ -70,7 +70,7 @@ func WrapHandlerFunc(next func(http.ResponseWriter, *http.Request)) http.Handler
 			"duration_ms":        time.Since(start).Milliseconds(),
 			"response_headers":   redactHeaders(wrapper.Header()),
 			"response_body_size": wrapper.size,
-			"action":             getActionFromPath(r.URL.Path),
+			"route":              getActionFromPath(r.URL.Path),
 		}
 		if captureBody && len(wrapper.body) > 0 {
 			respMeta["response_body"] = sanitizeBody(wrapper.Header().Get("Content-Type"), wrapper.body)
@@ -119,12 +119,40 @@ func shouldCaptureHTTPBody(path string) bool {
 }
 
 func getActionFromPath(path string) string {
-	switch {
-	case strings.HasPrefix(path, "/api/observability/"):
-		return "view_logs"
-	default:
-		return "api_call"
+	if strings.HasPrefix(path, "/api/observability/") {
+		return "observability"
 	}
+	if strings.HasPrefix(path, "/api/portfolio/") {
+		return "portfolio"
+	}
+	if strings.HasPrefix(path, "/api/market/") {
+		return "market"
+	}
+	if strings.HasPrefix(path, "/api/news") {
+		return "news"
+	}
+	if strings.HasPrefix(path, "/api/strategies") {
+		return "strategies"
+	}
+	if strings.HasPrefix(path, "/api/signals") {
+		return "signals"
+	}
+	if strings.HasPrefix(path, "/api/notifications") {
+		return "notifications"
+	}
+	if strings.HasPrefix(path, "/api/providers") {
+		return "providers"
+	}
+	if strings.HasPrefix(path, "/api/connections") {
+		return "connections"
+	}
+	if strings.HasPrefix(path, "/api/rss-feeds") {
+		return "rss-feeds"
+	}
+	if strings.HasPrefix(path, "/api/tickers/") {
+		return "tickers"
+	}
+	return "api"
 }
 
 func sanitizeURLQuery(rawQuery string) string {

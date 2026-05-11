@@ -313,9 +313,9 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	action := r.URL.Query().Get("action")
+	route := r.URL.Query().Get("route")
 
-	s.logger.Info("handleGetLogs: fetching logs", "limit", limit, "level", level, "service", service, "minutes", minutes, "action", action)
+	s.logger.Info("handleGetLogs: fetching logs", "limit", limit, "level", level, "service", service, "minutes", minutes, "route", route)
 
 	query := `
 		SELECT id, timestamp::text, level, service, component, message, metadata, trace_id, span_id, COALESCE(action, '')
@@ -327,7 +327,7 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 		ORDER BY timestamp DESC
 		LIMIT $4
 	`
-	rows, err := s.db.Query(r.Context(), query, level, service, minutes, limit, action)
+	rows, err := s.db.Query(r.Context(), query, level, service, minutes, limit, route)
 	if err != nil {
 		s.logger.Error("handleGetLogs: query failed", "error", err)
 		w.Header().Set("Content-Type", "application/json")
@@ -347,22 +347,22 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 		Metadata  map[string]interface{} `json:"metadata,omitempty"`
 		TraceID   string                 `json:"trace_id,omitempty"`
 		SpanID    string                 `json:"span_id,omitempty"`
-		Action    string                 `json:"action,omitempty"`
+		Route     string                 `json:"route,omitempty"`
 	}
 
 	logs := []LogEntry{}
 	for rows.Next() {
 		var le LogEntry
 		var metadata []byte
-		if err := rows.Scan(&le.ID, &le.Timestamp, &le.Level, &le.Service, &le.Component, &le.Message, &metadata, &le.TraceID, &le.SpanID, &le.Action); err != nil {
+		if err := rows.Scan(&le.ID, &le.Timestamp, &le.Level, &le.Service, &le.Component, &le.Message, &metadata, &le.TraceID, &le.SpanID, &le.Route); err != nil {
 			s.logger.Error("handleGetLogs: scan failed", "error", err)
 			continue
 		}
 		if metadata != nil {
 			json.Unmarshal(metadata, &le.Metadata)
-			if le.Action == "" && le.Metadata != nil {
-				if a, ok := le.Metadata["action"].(string); ok {
-					le.Action = a
+			if le.Route == "" && le.Metadata != nil {
+				if r, ok := le.Metadata["route"].(string); ok {
+					le.Route = r
 				}
 			}
 		}
