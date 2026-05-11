@@ -8,8 +8,19 @@ import { Badge, StatusIndicator } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlertTriangle, CheckCircle, Clock, RefreshCw, Zap, ChevronDown, ChevronRight, Copy, Check } from "lucide-react";
+import { AlertTriangle, CheckCircle, Clock, Zap, ChevronDown, ChevronRight, Copy, Check } from "lucide-react";
 import { useObservability } from "@/hooks/useObservability";
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxChips,
+  ComboboxChip,
+  ComboboxChipsInput,
+  ComboboxValue,
+} from "@/components/ui/combobox";
 
 function formatTimestamp(ts: string): string {
   try {
@@ -277,29 +288,33 @@ export default function ObservabilityPage() {
               </div>
               <div className="flex items-center gap-2">
                 <label className="text-xs text-on-surface-variant">Route:</label>
-                <select
+                <Combobox
+                  items={["observability", "portfolio", "market", "news", "strategies", "signals", "notifications", "providers", "connections", "rss-feeds", "tickers", "api"]}
                   multiple
                   value={filters.routes || []}
-                  onChange={(e) => {
-                    const selected = Array.from(e.target.selectedOptions).map(o => o.value);
-                    setLogFilters({ ...filters, routes: selected.length > 0 ? selected : undefined });
-                  }}
-                  className="h-8 rounded-md border border-outline bg-surface-container px-2 text-sm text-on-surface focus:outline-none focus:ring-1 focus:ring-primary min-w-[140px]"
-                  size={1}
+                  onValueChange={(val) => setLogFilters({ ...filters, routes: val.length > 0 ? val : undefined })}
                 >
-                  <option value="observability">observability</option>
-                  <option value="portfolio">portfolio</option>
-                  <option value="market">market</option>
-                  <option value="news">news</option>
-                  <option value="strategies">strategies</option>
-                  <option value="signals">signals</option>
-                  <option value="notifications">notifications</option>
-                  <option value="providers">providers</option>
-                  <option value="connections">connections</option>
-                  <option value="rss-feeds">rss-feeds</option>
-                  <option value="tickers">tickers</option>
-                  <option value="api">api</option>
-                </select>
+                  <ComboboxChips className="border border-outline bg-surface-container-high min-h-9">
+                    <ComboboxValue>
+                      {(val: string[]) => val.map((item) => (
+                        <ComboboxChip key={item} className="bg-primary/20 text-on-surface border border-outline">
+                          {item}
+                        </ComboboxChip>
+                      ))}
+                    </ComboboxValue>
+                    <ComboboxChipsInput placeholder="Select routes..." className="bg-transparent" />
+                  </ComboboxChips>
+                  <ComboboxContent>
+                    <ComboboxEmpty>No routes found.</ComboboxEmpty>
+                    <ComboboxList>
+                      {(item: string) => (
+                        <ComboboxItem key={item} value={item}>
+                          {item}
+                        </ComboboxItem>
+                      )}
+                    </ComboboxList>
+                  </ComboboxContent>
+                </Combobox>
               </div>
               <div className="flex items-center gap-2">
                 <label className="text-xs text-on-surface-variant">Logs:</label>
