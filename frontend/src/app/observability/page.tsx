@@ -277,42 +277,31 @@ export default function ObservabilityPage() {
               </div>
               <div className="flex items-center gap-2">
                 <label className="text-xs text-on-surface-variant">Route:</label>
-                <div className="flex flex-wrap gap-1">
-                  <button
-                    onClick={() => setLogFilters({ ...filters, routes: undefined })}
-                    className={`px-2 py-1 text-xs rounded-full border transition-colors ${
-                      !filters.routes || filters.routes.length === 0
-                        ? "bg-surface-container-high text-on-surface border-outline-variant"
-                        : "bg-surface-container border-outline hover:border-outline-variant"
-                    }`}
-                  >
-                    All
-                  </button>
-                  {["observability", "portfolio", "market", "news", "strategies", "signals", "notifications", "providers", "connections", "rss-feeds", "tickers", "api"].map(route => {
-                    const selected = (filters.routes || []).includes(route);
-                    return (
-                      <button
-                        key={route}
-                        onClick={() => {
-                          const current = filters.routes || [];
-                          const next = current.includes(route)
-                            ? current.filter(r => r !== route)
-                            : [...current, route];
-                          setLogFilters({ ...filters, routes: next.length > 0 ? next : undefined });
-                        }}
-                        className={`px-2 py-1 text-xs rounded-full border transition-colors ${
-                          selected
-                            ? "bg-primary text-on-primary border-primary"
-                            : "bg-surface-container border-outline hover:border-outline-variant"
-                        }`}
-                      >
-                        {route}
-                      </button>
-                    );
-                  })}
-                </div>
+                <select
+                  multiple
+                  value={filters.routes || []}
+                  onChange={(e) => {
+                    const selected = Array.from(e.target.selectedOptions).map(o => o.value);
+                    setLogFilters({ ...filters, routes: selected.length > 0 ? selected : undefined });
+                  }}
+                  className="h-8 rounded-md border border-outline bg-surface-container px-2 text-sm text-on-surface focus:outline-none focus:ring-1 focus:ring-primary min-w-[140px]"
+                  size={1}
+                >
+                  <option value="observability">observability</option>
+                  <option value="portfolio">portfolio</option>
+                  <option value="market">market</option>
+                  <option value="news">news</option>
+                  <option value="strategies">strategies</option>
+                  <option value="signals">signals</option>
+                  <option value="notifications">notifications</option>
+                  <option value="providers">providers</option>
+                  <option value="connections">connections</option>
+                  <option value="rss-feeds">rss-feeds</option>
+                  <option value="tickers">tickers</option>
+                  <option value="api">api</option>
+                </select>
               </div>
-                <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
                 <label className="text-xs text-on-surface-variant">Logs:</label>
                 <select
                   value={logsLimit}

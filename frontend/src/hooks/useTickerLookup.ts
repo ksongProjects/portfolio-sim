@@ -8,6 +8,7 @@ export interface TickerDetails {
   symbol: string;
   name: string;
   exchange: string;
+  isTradeable: boolean;
   sector: string;
   industry: string;
   price: number;
@@ -57,7 +58,9 @@ export function useTickerLookup() {
       const res = await fetch(`${API_BASE}/api/tickers/search?q=${encodeURIComponent(query)}`);
       if (!res.ok) throw new Error("Search failed");
       const data = await res.json();
-      setSearchResults(Array.isArray(data) ? data : []);
+      const results = Array.isArray(data) ? data : [];
+      const seen = new Set<string>();
+      setSearchResults(results.filter((t) => seen.has(t.symbol) ? false : seen.add(t.symbol)));
     } catch {
       setSearchResults([]);
     } finally {

@@ -19,6 +19,10 @@ func SetClient(client *Client) {
 
 func WrapHandlerFunc(next func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if shouldSkipLogging(r.URL.Path) {
+			next(w, r)
+			return
+		}
 		if defaultClient == nil {
 			next(w, r)
 			return
@@ -116,6 +120,10 @@ func shouldCaptureHTTPBody(path string) bool {
 		return false
 	}
 	return !strings.HasPrefix(path, "/api/observability/")
+}
+
+func shouldSkipLogging(path string) bool {
+	return path == "/api/logs" || path == "/api/observability/logs" || path == "/api/observability/services"
 }
 
 func getActionFromPath(path string) string {
