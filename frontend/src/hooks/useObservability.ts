@@ -21,6 +21,7 @@ export type LogEntry = {
   metadata: Record<string, unknown> | null;
   trace_id: string | null;
   span_id: string | null;
+  action: string | null;
 };
 
 export interface LogFilters {

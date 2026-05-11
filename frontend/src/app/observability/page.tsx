@@ -111,6 +111,7 @@ export default function ObservabilityPage() {
     timestamp: string;
     level: string;
     service: string;
+    action: string;
     message: string;
     metadata: Record<string, unknown> | null;
   }>[] = [
@@ -127,6 +128,11 @@ export default function ObservabilityPage() {
       accessorKey: "service",
       header: "Service",
       cell: ({ row }) => <span className="font-mono text-xs">{row.original.service}</span>,
+    },
+    {
+      accessorKey: "action",
+      header: "Action",
+      cell: ({ row }) => <span className="font-mono text-xs text-on-surface-variant">{row.original.action || "-"}</span>,
     },
     {
       accessorKey: "message",
@@ -288,15 +294,13 @@ export default function ObservabilityPage() {
               </div>
               <div className="flex items-center gap-2">
                 <label className="text-xs text-on-surface-variant">Action:</label>
-                <select
+                <input
+                  type="text"
                   value={filters.action || ""}
                   onChange={(e) => setLogFilters({ ...filters, action: e.target.value || undefined })}
-                  className="h-8 rounded-md border border-outline bg-surface-container px-2 text-sm text-on-surface focus:outline-none focus:ring-1 focus:ring-primary"
-                >
-                  <option value="">All</option>
-                  <option value="subscribe">subscribe</option>
-                  <option value="unsubscribe">unsubscribe</option>
-                </select>
+                  placeholder="e.g. subscribe"
+                  className="h-8 w-28 rounded-md border border-outline bg-surface-container px-2 text-sm text-on-surface placeholder:text-on-surface-variant focus:outline-none focus:ring-1 focus:ring-primary"
+                />
               </div>
               <div className="flex items-center gap-2">
                 <label className="text-xs text-on-surface-variant">Logs:</label>
