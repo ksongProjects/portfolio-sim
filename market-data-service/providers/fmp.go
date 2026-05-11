@@ -37,7 +37,7 @@ func (p *FMPProvider) GetSymbolID(ticker string) (int, error) {
 }
 
 func (p *FMPProvider) FetchCompanyProfile(ticker string) (*CompanyProfile, error) {
-	url := fmt.Sprintf("https://financialmodelingprep.com/api/v3/profile/%s", ticker)
+	url := fmt.Sprintf("https://financialmodelingprep.com/stable/profile?symbol=%s", ticker)
 	body, status, _, err := p.get(url)
 	if err != nil {
 		return nil, err
@@ -91,7 +91,7 @@ func (p *FMPProvider) FetchCompanyProfile(ticker string) (*CompanyProfile, error
 }
 
 func (p *FMPProvider) FetchFinancialRatios(ticker string) ([]*FinancialRatio, error) {
-	url := fmt.Sprintf("https://financialmodelingprep.com/api/v3/ratios/%s", ticker)
+	url := fmt.Sprintf("https://financialmodelingprep.com/stable/ratios?symbol=%s", ticker)
 	body, status, _, err := p.get(url)
 	if err != nil {
 		return nil, err
@@ -153,7 +153,7 @@ func (p *FMPProvider) FetchFinancialRatios(ticker string) ([]*FinancialRatio, er
 }
 
 func (p *FMPProvider) FetchPrice(ticker string) (*Price, error) {
-	url := fmt.Sprintf("https://financialmodelingprep.com/api/v3/quote/%s", ticker)
+	url := fmt.Sprintf("https://financialmodelingprep.com/stable/quote?symbol=%s", ticker)
 	body, status, _, err := p.get(url)
 	if err != nil {
 		return nil, err
@@ -298,7 +298,7 @@ func (p *FMPProvider) FetchOptionChain(ticker string) ([]*OptionChain, error) {
 }
 
 func (p *FMPProvider) FetchIntradayBars(ticker string, interval string) ([]*IntradayBar, error) {
-	url := fmt.Sprintf("https://financialmodelingprep.com/api/v3/historical-chart/%s/%s", interval, ticker)
+	url := fmt.Sprintf("https://financialmodelingprep.com/stable/historical-chart/%s?symbol=%s", interval, ticker)
 	body, status, _, err := p.get(url)
 	if err != nil {
 		return nil, err
@@ -338,7 +338,7 @@ func (p *FMPProvider) FetchIntradayBars(ticker string, interval string) ([]*Intr
 }
 
 func (p *FMPProvider) SearchTickers(prefix string) ([]TickerSearchResult, error) {
-	searchURL := fmt.Sprintf("https://financialmodelingprep.com/api/v3/search?query=%s&limit=20", url.QueryEscape(prefix))
+	searchURL := fmt.Sprintf("https://financialmodelingprep.com/stable/search-symbol?query=%s&limit=20", url.QueryEscape(prefix))
 	body, status, _, err := p.get(searchURL)
 	if err != nil {
 		return nil, err
@@ -401,7 +401,7 @@ type CashFlow struct {
 }
 
 func (p *FMPProvider) FetchIncomeStatement(ticker string) ([]*IncomeStatement, error) {
-	url := fmt.Sprintf("https://financialmodelingprep.com/api/v3/income-statement/%s?apikey=%s", ticker, p.cfg.APIKey)
+	url := fmt.Sprintf("https://financialmodelingprep.com/stable/income-statement?symbol=%s", ticker)
 	body, status, _, err := p.get(url)
 	if err != nil {
 		return nil, err
@@ -418,7 +418,7 @@ func (p *FMPProvider) FetchIncomeStatement(ticker string) ([]*IncomeStatement, e
 }
 
 func (p *FMPProvider) FetchBalanceSheet(ticker string) ([]*BalanceSheet, error) {
-	url := fmt.Sprintf("https://financialmodelingprep.com/api/v3/balance-sheet-statement/%s?apikey=%s", ticker, p.cfg.APIKey)
+	url := fmt.Sprintf("https://financialmodelingprep.com/stable/balance-sheet-statement?symbol=%s", ticker)
 	body, status, _, err := p.get(url)
 	if err != nil {
 		return nil, err
@@ -435,7 +435,7 @@ func (p *FMPProvider) FetchBalanceSheet(ticker string) ([]*BalanceSheet, error) 
 }
 
 func (p *FMPProvider) FetchCashFlow(ticker string) ([]*CashFlow, error) {
-	url := fmt.Sprintf("https://financialmodelingprep.com/api/v3/cash-flow-statement/%s?apikey=%s", ticker, p.cfg.APIKey)
+	url := fmt.Sprintf("https://financialmodelingprep.com/stable/cash-flow-statement?symbol=%s", ticker)
 	body, status, _, err := p.get(url)
 	if err != nil {
 		return nil, err

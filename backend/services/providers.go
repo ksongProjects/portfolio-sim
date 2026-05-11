@@ -76,7 +76,7 @@ func (s *ProviderService) GetProviders(ctx context.Context, db interface {
 	}{
 		"questrade": {"Questrade market data", "market_data", "https://www.questrade.com/api"},
 		"polygon":   {"Polygon.io real-time and historical market data", "market_data", "https://polygon.io/docs"},
-		"fmp":       {"Financial Modeling Prep financial data", "market_data", "https://site.financialmodelingprep.com/developers/docs"},
+		"fmp":       {"Financial Modeling Prep financial data", "market_data", "https://site.financialmodelingprep.com/developer/docs"},
 		"youtube":   {"YouTube Data API for video transcripts", "youtube", "https://developers.google.com/youtube/v3"},
 		"gemini":    {"Google Gemini API for content summarization", "gemini", "https://ai.google.dev/docs"},
 	}
@@ -87,7 +87,7 @@ func (s *ProviderService) GetProviders(ctx context.Context, db interface {
 	}{
 		"questrade": {100, "https://www.questrade.com/api"},
 		"polygon":   {60, "https://polygon.io/docs"},
-		"fmp":       {250, "https://site.financialmodelingprep.com/developers/docs"},
+		"fmp":       {250, "https://site.financialmodelingprep.com/developer/docs"},
 		"youtube":   {0, "https://developers.google.com/youtube/v3"},
 		"gemini":    {0, "https://ai.google.dev/docs"},
 	}
@@ -122,7 +122,7 @@ func (s *ProviderService) GetProviders(ctx context.Context, db interface {
 		results = []ProviderConfig{
 			{ID: "polygon", ProviderID: "polygon", Name: "Polygon.io", Description: "Real-time and historical market data", Type: "market_data", RateLimit: 60, DocURL: "https://polygon.io/docs", TokenExpired: false},
 			{ID: "questrade", ProviderID: "questrade", Name: "Questrade", Description: "Questrade market data API", Type: "market_data", RateLimit: 100, DocURL: "https://www.questrade.com/api", TokenExpired: false},
-			{ID: "fmp", ProviderID: "fmp", Name: "Financial Modeling Prep", Description: "Financial statements and fundamental data", Type: "market_data", RateLimit: 250, DocURL: "https://site.financialmodelingprep.com/developers/docs", TokenExpired: false},
+			{ID: "fmp", ProviderID: "fmp", Name: "Financial Modeling Prep", Description: "Financial statements and fundamental data", Type: "market_data", RateLimit: 250, DocURL: "https://site.financialmodelingprep.com/developer/docs", TokenExpired: false},
 			{ID: "youtube", ProviderID: "youtube", Name: "YouTube Data API", Description: "YouTube Data API for video transcripts", Type: "youtube", RateLimit: 0, DocURL: "https://developers.google.com/youtube/v3", TokenExpired: false},
 			{ID: "gemini", ProviderID: "gemini", Name: "Google Gemini", Description: "Gemini API for content summarization", Type: "gemini", RateLimit: 0, DocURL: "https://ai.google.dev/docs", TokenExpired: false},
 		}
@@ -377,7 +377,7 @@ func (s *ProviderService) validatePolygonKey(apiKey string) (bool, error) {
 }
 
 func (s *ProviderService) validateFMPKey(apiKey string) (bool, error) {
-	url := fmt.Sprintf("https://financialmodelingprep.com/api/v3/quote/AAPL?apikey=%s", apiKey)
+	url := fmt.Sprintf("https://financialmodelingprep.com/stable/quote?symbol=AAPL&apikey=%s", apiKey)
 
 	if s.logClient != nil {
 		s.logClient.InfoWithMeta(context.Background(), "FMP validation request", map[string]interface{}{
@@ -410,12 +410,20 @@ func (s *ProviderService) validateFMPKey(apiKey string) (bool, error) {
 		var result []struct {
 			Symbol string `json:"symbol"`
 		}
-		if json.Unmarshal(body, &result) == nil && len(result) > 0 {
+		if err := json.Unmarshal(body, &result); err == nil && len(result) > 0 {
 			return true, nil
 		}
 	}
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusPaymentRequired {
 		return false, nil
+	}
+	if resp.StatusCode == http.StatusForbidden {
+		var errResp struct {
+			Message string `json:"Error Message"`
+		}
+		if json.Unmarshal(body, &errResp) == nil && errResp.Message != "" {
+			return false, fmt.Errorf("fmp forbidden: %s", errResp.Message)
+		}
 	}
 	return false, fmt.Errorf("fmp returned status: %d", resp.StatusCode)
 }
