@@ -13,6 +13,7 @@ interface NotificationsDrawerProps {
   onMarkAsRead: (id: string) => void;
   onMarkAllAsRead: () => void;
   onRemove: (id: string) => void;
+  onClearAll: () => void;
 }
 
 function getTypeStyles(type: Notification["type"]) {
@@ -35,6 +36,7 @@ export function NotificationsDrawer({
   onMarkAsRead,
   onMarkAllAsRead,
   onRemove,
+  onClearAll,
 }: NotificationsDrawerProps) {
   const unreadCount = notifications.filter((n) => !n.read).length;
 
@@ -57,6 +59,11 @@ export function NotificationsDrawer({
             )}
           </div>
           <div className="flex items-center gap-1">
+            {notifications.length > 0 && (
+              <Button variant="ghost" size="icon" onClick={onClearAll} title="Clear all">
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            )}
             {unreadCount > 0 && (
               <Button variant="ghost" size="icon" onClick={onMarkAllAsRead} title="Mark all as read">
                 <Check className="h-4 w-4" />

@@ -13,6 +13,7 @@ export function Notifications() {
     markAsRead,
     markAllAsRead,
     removeNotification,
+    clearAll,
   } = useNotifications();
 
   return (
@@ -25,6 +26,7 @@ export function Notifications() {
         onMarkAsRead={markAsRead}
         onMarkAllAsRead={markAllAsRead}
         onRemove={removeNotification}
+        onClearAll={clearAll}
       />
     </>
   );
