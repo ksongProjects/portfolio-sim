@@ -1,0 +1,2 @@
+ALTER TABLE logs ADD COLUMN IF NOT EXISTS action TEXT DEFAULT '';
+CREATE INDEX IF NOT EXISTS idx_logs_action ON logs(action);

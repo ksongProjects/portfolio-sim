@@ -44,6 +44,7 @@ func WrapHandlerFunc(next func(http.ResponseWriter, *http.Request)) http.Handler
 			"request_headers": redactHeaders(r.Header),
 			"remote_addr":     r.RemoteAddr,
 			"content_length":  r.ContentLength,
+			"action":          getActionFromPath(r.URL.Path),
 		}
 		if captureBody && len(reqBody) > 0 {
 			reqMeta["request_body"] = sanitizeBody(r.Header.Get("Content-Type"), reqBody)
@@ -69,6 +70,7 @@ func WrapHandlerFunc(next func(http.ResponseWriter, *http.Request)) http.Handler
 			"duration_ms":        time.Since(start).Milliseconds(),
 			"response_headers":   redactHeaders(wrapper.Header()),
 			"response_body_size": wrapper.size,
+			"action":             getActionFromPath(r.URL.Path),
 		}
 		if captureBody && len(wrapper.body) > 0 {
 			respMeta["response_body"] = sanitizeBody(wrapper.Header().Get("Content-Type"), wrapper.body)
@@ -114,6 +116,15 @@ func shouldCaptureHTTPBody(path string) bool {
 		return false
 	}
 	return !strings.HasPrefix(path, "/api/observability/")
+}
+
+func getActionFromPath(path string) string {
+	switch {
+	case strings.HasPrefix(path, "/api/observability/"):
+		return "view_logs"
+	default:
+		return "api_call"
+	}
 }
 
 func sanitizeURLQuery(rawQuery string) string {

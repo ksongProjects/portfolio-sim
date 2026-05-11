@@ -21,6 +21,7 @@ type LogEntry struct {
 	Metadata  map[string]interface{} `json:"metadata,omitempty"`
 	TraceID   string                 `json:"trace_id,omitempty"`
 	SpanID    string                 `json:"span_id,omitempty"`
+	Action    string                 `json:"action,omitempty"`
 }
 
 type Client struct {
