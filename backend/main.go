@@ -254,7 +254,7 @@ func (s *Server) handleIngestLog(w http.ResponseWriter, r *http.Request) {
 		Metadata  map[string]interface{} `json:"metadata,omitempty"`
 		TraceID   string                 `json:"trace_id,omitempty"`
 		SpanID    string                 `json:"span_id,omitempty"`
-		Action    string                 `json:"action,omitempty"`
+		Route     string                 `json:"route,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&entry); err != nil {
 		s.logger.Error("handleIngestLog: failed to decode", "error", err)
@@ -283,9 +283,9 @@ func (s *Server) handleIngestLog(w http.ResponseWriter, r *http.Request) {
 		entry.Timestamp = time.Now().UTC().Format(time.RFC3339Nano)
 	}
 	_, err = s.db.Exec(r.Context(), `
-		INSERT INTO logs (id, timestamp, level, service, component, message, metadata, trace_id, span_id, action)
+		INSERT INTO logs (id, timestamp, level, service, component, message, metadata, trace_id, span_id, route)
 		VALUES ($1, $2::timestamptz, $3, $4, $5, $6, $7, $8, $9, $10)
-	`, entry.ID, entry.Timestamp, entry.Level, entry.Service, entry.Component, entry.Message, metadataJSON, entry.TraceID, entry.SpanID, entry.Action)
+	`, entry.ID, entry.Timestamp, entry.Level, entry.Service, entry.Component, entry.Message, metadataJSON, entry.TraceID, entry.SpanID, entry.Route)
 	if err != nil {
 		s.logger.Error("log insert failed", "error", err, "service", entry.Service, "id", entry.ID)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -318,11 +318,11 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 	s.logger.Info("handleGetLogs: fetching logs", "limit", limit, "level", level, "service", service, "minutes", minutes, "route", route)
 
 	query := `
-		SELECT id, timestamp::text, level, service, component, message, metadata, trace_id, span_id, COALESCE(action, '')
+		SELECT id, timestamp::text, level, service, component, message, metadata, trace_id, span_id, COALESCE(route, '')
 		FROM logs
 		WHERE ($1 = '' OR level = $1)
 		  AND ($2 = '' OR service = $2)
-		  AND ($5 = '' OR COALESCE(action, '') = $5)
+		  AND ($5 = '' OR COALESCE(route, '') = $5)
 		  AND timestamp >= NOW() - INTERVAL '1 minute' * $3
 		ORDER BY timestamp DESC
 		LIMIT $4
