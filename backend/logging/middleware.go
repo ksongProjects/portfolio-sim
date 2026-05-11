@@ -11,15 +11,96 @@ import (
 	"time"
 )
 
-var defaultClient *Client
+func Middleware(client *Client) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !shouldLog(r.URL.Path) || client == nil {
+				next.ServeHTTP(w, r)
+				return
+			}
 
-func SetClient(client *Client) {
-	defaultClient = client
+			start := time.Now()
+			captureBody := shouldCaptureBody(r.URL.Path)
+			var reqBody []byte
+			if captureBody {
+				reqBody, _ = io.ReadAll(r.Body)
+				r.Body = io.NopCloser(bytes.NewReader(reqBody))
+			}
+
+			reqMeta := map[string]interface{}{
+				"type":            "api_request",
+				"method":          r.Method,
+				"path":            r.URL.Path,
+				"query":           sanitizeURLQuery(r.URL.RawQuery),
+				"request_headers": redactHeaders(r.Header),
+				"remote_addr":     r.RemoteAddr,
+				"route":           getActionFromPath(r.URL.Path),
+			}
+			if len(reqBody) > 0 {
+				reqMeta["request_body"] = sanitizeBody(r.Header.Get("Content-Type"), reqBody)
+				reqMeta["request_body_size"] = len(reqBody)
+			} else {
+				reqMeta["request_body_skipped"] = true
+			}
+			client.log(r.Context(), "INFO", "API Request", reqMeta)
+
+			wrapper := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK, captureBody: captureBody}
+			next.ServeHTTP(w, r)
+
+			respMeta := map[string]interface{}{
+				"type":               "api_response",
+				"method":             r.Method,
+				"path":               r.URL.Path,
+				"query":              sanitizeURLQuery(r.URL.RawQuery),
+				"status":             wrapper.statusCode,
+				"duration_ms":        time.Since(start).Milliseconds(),
+				"response_headers":   redactHeaders(wrapper.Header()),
+				"response_body_size": wrapper.size,
+				"route":              getActionFromPath(r.URL.Path),
+			}
+			if captureBody && len(wrapper.body) > 0 {
+				respMeta["response_body"] = sanitizeBody(wrapper.Header().Get("Content-Type"), wrapper.body)
+			} else {
+				respMeta["response_body_skipped"] = true
+			}
+
+			level := "INFO"
+			if wrapper.statusCode >= 500 {
+				level = "ERROR"
+			} else if wrapper.statusCode >= 400 {
+				level = "WARN"
+			}
+			client.log(r.Context(), level, "API Response", respMeta)
+		})
+	}
+}
+
+func (c *Client) log(ctx context.Context, level string, msg string, meta map[string]interface{}) {
+	entry := LogEntry{
+		ID:        randomID(),
+		Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+		Level:     level,
+		Service:   c.serviceName,
+		Message:   msg,
+		Metadata:  meta,
+	}
+	body, _ := json.Marshal(entry)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.logURL, bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.client.Do(req)
+}
+
+func randomID() string {
+	b := make([]byte, 16)
+	for i := range b {
+		b[i] = "abcdefghijklmnopqrstuvwxyz0123456789"[time.Now().UnixNano()%36]
+	}
+	return string(b)
 }
 
 var skipPaths = map[string]bool{
-	"/api/logs":                  true,
-	"/api/observability/logs":    true,
+	"/api/logs":                   true,
+	"/api/observability/logs":     true,
 	"/api/observability/services": true,
 }
 
@@ -29,74 +110,6 @@ func shouldLog(path string) bool {
 
 func shouldCaptureBody(path string) bool {
 	return path != "/api/logs"
-}
-
-func WrapHandlerFunc(next func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !shouldLog(r.URL.Path) {
-			next(w, r)
-			return
-		}
-
-		if defaultClient == nil {
-			next(w, r)
-			return
-		}
-
-		start := time.Now()
-		captureBody := shouldCaptureBody(r.URL.Path)
-		var reqBody []byte
-		if captureBody {
-			reqBody, _ = io.ReadAll(r.Body)
-			r.Body = io.NopCloser(bytes.NewReader(reqBody))
-		}
-
-		reqMeta := map[string]interface{}{
-			"type":            "api_request",
-			"method":          r.Method,
-			"path":            r.URL.Path,
-			"query":           sanitizeURLQuery(r.URL.RawQuery),
-			"request_headers": redactHeaders(r.Header),
-			"remote_addr":     r.RemoteAddr,
-			"route":           getActionFromPath(r.URL.Path),
-		}
-		if len(reqBody) > 0 {
-			reqMeta["request_body"] = sanitizeBody(r.Header.Get("Content-Type"), reqBody)
-			reqMeta["request_body_size"] = len(reqBody)
-		} else {
-			reqMeta["request_body_skipped"] = true
-		}
-		defaultClient.InfoWithMeta(r.Context(), "API Request", reqMeta)
-
-		wrapper := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK, captureBody: captureBody}
-		next(wrapper, r)
-
-		respMeta := map[string]interface{}{
-			"type":               "api_response",
-			"method":             r.Method,
-			"path":               r.URL.Path,
-			"query":              sanitizeURLQuery(r.URL.RawQuery),
-			"status":             wrapper.statusCode,
-			"duration_ms":        time.Since(start).Milliseconds(),
-			"response_headers":   redactHeaders(wrapper.Header()),
-			"response_body_size": wrapper.size,
-			"route":              getActionFromPath(r.URL.Path),
-		}
-		if captureBody && len(wrapper.body) > 0 {
-			respMeta["response_body"] = sanitizeBody(wrapper.Header().Get("Content-Type"), wrapper.body)
-		} else {
-			respMeta["response_body_skipped"] = true
-		}
-
-		switch {
-		case wrapper.statusCode >= 500:
-			defaultClient.ErrorWithMeta(r.Context(), "API Response Error", respMeta)
-		case wrapper.statusCode >= 400:
-			defaultClient.WarnWithMeta(r.Context(), "API Response Warning", respMeta)
-		default:
-			defaultClient.InfoWithMeta(r.Context(), "API Response", respMeta)
-		}
-	})
 }
 
 type responseWriter struct {
@@ -234,32 +247,4 @@ func redactJSONValue(value interface{}) interface{} {
 	default:
 		return typed
 	}
-}
-
-func Log(ctx context.Context, client *Client, level, msg string, meta map[string]interface{}) {
-	if meta == nil {
-		meta = map[string]interface{}{}
-	}
-	switch level {
-	case "ERROR":
-		client.ErrorWithMeta(ctx, msg, meta)
-	case "WARN":
-		client.WarnWithMeta(ctx, msg, meta)
-	case "DEBUG":
-		client.DebugWithMeta(ctx, msg, meta)
-	default:
-		client.InfoWithMeta(ctx, msg, meta)
-	}
-}
-
-func Info(ctx context.Context, client *Client, msg string) {
-	client.Info(ctx, msg)
-}
-
-func Error(ctx context.Context, client *Client, msg string, meta map[string]interface{}) {
-	client.ErrorWithMeta(ctx, msg, meta)
-}
-
-func Warn(ctx context.Context, client *Client, msg string, meta map[string]interface{}) {
-	client.WarnWithMeta(ctx, msg, meta)
 }
