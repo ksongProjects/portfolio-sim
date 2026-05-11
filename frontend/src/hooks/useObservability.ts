@@ -26,6 +26,7 @@ export type LogEntry = {
 export interface LogFilters {
   level?: string;
   service?: string;
+  action?: string;
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
@@ -53,11 +54,12 @@ export function useObservability(options?: { autoRefresh?: boolean; interval?: n
     }
   }, []);
 
-  const buildLogsUrl = useCallback((limit: number, logFilters: LogFilters) => {
+const buildLogsUrl = useCallback((limit: number, logFilters: LogFilters) => {
     const params = new URLSearchParams();
     params.set("limit", limit.toString());
     if (logFilters.level) params.set("level", logFilters.level);
     if (logFilters.service) params.set("service", logFilters.service);
+    if (logFilters.action) params.set("action", logFilters.action);
     return `${API_BASE}/api/observability/logs?${params.toString()}`;
   }, []);
 

@@ -287,6 +287,18 @@ export default function ObservabilityPage() {
                 </select>
               </div>
               <div className="flex items-center gap-2">
+                <label className="text-xs text-on-surface-variant">Action:</label>
+                <select
+                  value={filters.action || ""}
+                  onChange={(e) => setLogFilters({ ...filters, action: e.target.value || undefined })}
+                  className="h-8 rounded-md border border-outline bg-surface-container px-2 text-sm text-on-surface focus:outline-none focus:ring-1 focus:ring-primary"
+                >
+                  <option value="">All</option>
+                  <option value="subscribe">subscribe</option>
+                  <option value="unsubscribe">unsubscribe</option>
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
                 <label className="text-xs text-on-surface-variant">Logs:</label>
                 <select
                   value={logsLimit}
