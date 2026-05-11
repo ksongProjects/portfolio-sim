@@ -327,7 +327,7 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 		ORDER BY timestamp DESC
 		LIMIT $4
 	`
-	rows, err := s.db.Query(r.Context(), query, level, service, minutes, limit)
+	rows, err := s.db.Query(r.Context(), query, level, service, minutes, limit, action)
 	if err != nil {
 		s.logger.Error("handleGetLogs: query failed", "error", err)
 		w.Header().Set("Content-Type", "application/json")
