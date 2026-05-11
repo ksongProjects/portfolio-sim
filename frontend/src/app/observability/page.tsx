@@ -163,10 +163,6 @@ export default function ObservabilityPage() {
                 Updated: {formatTimeAgo(lastUpdated)}
               </span>
             )}
-            <Button variant="secondary" size="sm" onClick={() => fetchLogs(100, filters)} disabled={loading}>
-              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-              {loading ? "Loading..." : "Get Logs"}
-            </Button>
           </div>
         </PageHeader>
       </div>
