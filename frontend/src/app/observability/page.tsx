@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { AlertTriangle, CheckCircle, Clock, Zap, ChevronDown, ChevronRight, Copy, Check } from "lucide-react";
 import { useObservability } from "@/hooks/useObservability";
 
-const ROUTE_OPTIONS = ["backend", "market", "news", "strategies", "api"];
+const ROUTE_OPTIONS = ["portfolio", "market", "news", "settings", "observability"];
 
 function formatTimestamp(ts: string): string {
   try {
