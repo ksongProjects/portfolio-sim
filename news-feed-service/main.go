@@ -48,7 +48,7 @@ func main() {
 	geminiClient := gemini.NewClient(cfg.GeminiAPIKey)
 	youtubeClient, _ := youtube.NewClient(cfg.YouTubeAPIKey)
 
-	feedManager := feed.NewManager(redisClient.Redis(), db.Pool, logClient)
+	feedManager := feed.NewManager(redisClient.Redis(), db.Pool, logClient, geminiClient)
 	sseManager := sse.NewManager(redisClient.Redis())
 
 	go feedManager.StartScheduler(context.Background(), time.Duration(cfg.ScrapeIntervalMin)*time.Minute)

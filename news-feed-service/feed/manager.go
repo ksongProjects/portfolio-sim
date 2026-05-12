@@ -20,19 +20,23 @@ type Manager struct {
 	mu          sync.Mutex
 	wg          sync.WaitGroup
 	logClient   interface{ Info(ctx context.Context, msg string) error; Error(ctx context.Context, msg string) error }
+	geminiClient interface {
+		AnalyzeArticle(ctx context.Context, title, summary string) (*SentimentResult, error)
+	}
 }
 
-func NewManager(redisClient *redis.Client, pgx *pgxpool.Pool, logClient interface{ Info(ctx context.Context, msg string) error; Error(ctx context.Context, msg string) error }) *Manager {
+func NewManager(redisClient *redis.Client, pgx *pgxpool.Pool, logClient interface{ Info(ctx context.Context, msg string) error; Error(ctx context.Context, msg string) error }, geminiClient interface{ AnalyzeArticle(ctx context.Context, title, summary string) (*SentimentResult, error) }) *Manager {
 	return &Manager{
-		redis:     redisClient,
-		pgx:       pgx,
-		logClient: logClient,
+		redis:       redisClient,
+		pgx:         pgx,
+		logClient:   logClient,
+		geminiClient: geminiClient,
 	}
 }
 
 type NewsArticle struct {
 	ID          uuid.UUID `json:"id"`
-	TickerIDs   []string  `json:"ticker_ids"`
+	Tickers     []string  `json:"tickers"`
 	Source      string    `json:"source"`
 	Title       string    `json:"title"`
 	URL         string    `json:"url"`
@@ -128,6 +132,17 @@ func (m *Manager) scrapeFeed(ctx context.Context, parser *gofeed.Parser, feed rs
 			PublishedAt: timePtr(item.Published),
 			FetchedAt:   time.Now().UTC(),
 		}
+
+		if m.geminiClient != nil {
+			result, err := m.geminiClient.AnalyzeArticle(ctx, item.Title, truncateString(item.Description, 1000))
+			if err == nil {
+				article.Sentiment = result.Sentiment
+				article.Tickers = result.RelatedTickers
+			} else if m.logClient != nil {
+				m.logClient.Error(ctx, fmt.Sprintf("Gemini analysis failed for %s: %v", article.Title, err))
+			}
+		}
+
 		if err := m.storeArticle(ctx, article); err != nil {
 			if m.logClient != nil {
 				m.logClient.Error(ctx, fmt.Sprintf("Failed to store article: %v", err))
@@ -162,14 +177,17 @@ func (m *Manager) storeArticle(ctx context.Context, article NewsArticle) error {
 	if m.logClient != nil {
 		m.logClient.Info(ctx, fmt.Sprintf("Storing article: %s from %s", article.Title, article.Source))
 	}
+	tickersJSON, _ := json.Marshal(article.Tickers)
 	_, err := m.pgx.Exec(ctx, `
-		INSERT INTO news_articles (id, ticker_ids, source, title, url, summary, sentiment, published_at, fetched_at)
+		INSERT INTO news_articles (id, tickers, source, title, url, summary, sentiment, published_at, fetched_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (url) DO UPDATE SET
 			title = EXCLUDED.title,
 			summary = EXCLUDED.summary,
+			tickers = EXCLUDED.tickers,
+			sentiment = EXCLUDED.sentiment,
 			fetched_at = EXCLUDED.fetched_at
-	`, article.ID, article.TickerIDs, article.Source, article.Title, article.URL, article.Summary, article.Sentiment, article.PublishedAt, article.FetchedAt)
+	`, article.ID, tickersJSON, article.Source, article.Title, article.URL, article.Summary, article.Sentiment, article.PublishedAt, article.FetchedAt)
 	if err != nil {
 		if m.logClient != nil {
 			m.logClient.Error(ctx, fmt.Sprintf("Store article error: %v", err))
