@@ -350,15 +350,15 @@ func (s *Storage) UpdateTickerPrice(ctx context.Context, symbol string, price, c
 	return err
 }
 
-func (s *Storage) GetIntradayBars(ctx context.Context, symbol string, limit int) ([]IntradayBarRecord, error) {
+func (s *Storage) GetIntradayBars(ctx context.Context, symbol string, interval string, limit int) ([]IntradayBarRecord, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT ib.timestamp, ib.open, ib.high, ib.low, ib.close, ib.volume
 		FROM intraday_bars ib
 		JOIN tickers t ON t.id = ib.ticker_id
-		WHERE t.symbol = $1
+		WHERE t.symbol = $1 AND ib.interval = $2
 		ORDER BY ib.timestamp DESC
-		LIMIT $2
-	`, symbol, limit)
+		LIMIT $3
+	`, symbol, interval, limit)
 	if err != nil {
 		return nil, err
 	}

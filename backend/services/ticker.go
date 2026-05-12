@@ -219,9 +219,13 @@ func (s *TickerService) GetTickerDetails(ctx context.Context, symbol string) (*T
 	return &details, nil
 }
 
-func (s *TickerService) GetIntradayBars(ctx context.Context, symbol string) ([]IntradayBar, error) {
-	url := fmt.Sprintf("%s/api/tickers/%s/intraday", s.marketDataURL, symbol)
-	s.logger.Info("Fetching intraday bars", "url", url, "symbol", symbol)
+func (s *TickerService) GetIntradayBars(ctx context.Context, symbol string, interval string) ([]IntradayBar, error) {
+	param := ""
+	if interval != "" && interval != "1min" {
+		param = "?interval=" + interval
+	}
+	url := fmt.Sprintf("%s/api/tickers/%s/intraday%s", s.marketDataURL, symbol, param)
+	s.logger.Info("Fetching intraday bars", "url", url, "symbol", symbol, "interval", interval)
 
 	body, status, _, err := s.doGet(ctx, url, map[string]interface{}{"symbol": symbol, "operation": "get_intraday_bars"})
 	if err != nil {

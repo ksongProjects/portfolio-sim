@@ -68,13 +68,13 @@ export function useTickerLookup() {
     }
   }, []);
 
-  const lookupTicker = useCallback(async (symbol: string) => {
+  const lookupTicker = useCallback(async (symbol: string, interval = "1min") => {
     setLoading(true);
     setError(null);
     try {
       const [detailsRes, intradayRes, ratiosRes] = await Promise.all([
         fetch(`${API_BASE}/api/tickers/${symbol}/details`),
-        fetch(`${API_BASE}/api/tickers/${symbol}/intraday`),
+        fetch(`${API_BASE}/api/tickers/${symbol}/intraday${interval !== "1min" ? `?interval=${interval}` : ""}`),
         fetch(`${API_BASE}/api/tickers/${symbol}/ratios`),
       ]);
 
