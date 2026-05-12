@@ -328,17 +328,13 @@ func (s *PortfolioService) GetMarketIndices(ctx context.Context, db interface {
 
 func (s *PortfolioService) GetNewsArticles(ctx context.Context, db interface {
 	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
-}, limit int) ([]NewsArticle, error) {
-	if limit <= 0 {
-		limit = 20
-	}
+}) ([]NewsArticle, error) {
 	query := `
 		SELECT id, title, source, url, summary, sentiment, published_at
 		FROM news_articles
 		ORDER BY published_at DESC
-		LIMIT $1
 	`
-	rows, err := db.Query(ctx, query, limit)
+	rows, err := db.Query(ctx, query)
 	if err != nil {
 		return nil, err
 	}

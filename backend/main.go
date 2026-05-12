@@ -615,7 +615,7 @@ func (s *Server) handleGetNews(w http.ResponseWriter, r *http.Request) {
 			l = parsed
 		}
 	}
-	articles, _ := s.portfolioSvc.GetNewsArticles(r.Context(), s.db, l)
+	articles, _ := s.portfolioSvc.GetNewsArticles(r.Context(), s.db)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(articles)
 }
