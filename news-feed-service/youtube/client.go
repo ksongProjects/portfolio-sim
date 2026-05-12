@@ -3,6 +3,7 @@ package youtube
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"google.golang.org/api/option"
 	"google.golang.org/api/youtube/v3"
@@ -21,6 +22,86 @@ func NewClient(apiKey string) (*Client, error) {
 	return &Client{apiKey: apiKey, svc: svc}, nil
 }
 
-func (c *Client) GetTranscript(ctx context.Context, videoID string) (string, error) {
-	return "", fmt.Errorf("transcript download not implemented - requires OAuth")
+type Video struct {
+	ID          string
+	Title       string
+	Description string
+	ChannelID   string
+	ChannelName string
+	PublishedAt time.Time
+	ThumbURL    string
+}
+
+func (c *Client) GetLatestVideos(ctx context.Context, channelID string, maxResults int64) ([]Video, error) {
+	if maxResults <= 0 {
+		maxResults = 10
+	}
+
+	call := c.svc.Search.List("snippet").ChannelId(channelID).Order("date").Type("video").MaxResults(maxResults)
+	resp, err := call.Context(ctx).Do()
+	if err != nil {
+		return nil, fmt.Errorf("search videos: %w", err)
+	}
+
+	videos := make([]Video, 0, len(resp.Items))
+	for _, item := range resp.Items {
+		if item.Id.VideoId == "" {
+			continue
+		}
+		videos = append(videos, Video{
+			ID:          item.Id.VideoId,
+			Title:       item.Snippet.Title,
+			Description: item.Snippet.Description,
+			ChannelID:   item.Snippet.ChannelId,
+			ChannelName: item.Snippet.ChannelTitle,
+			PublishedAt: item.Snippet.PublishedAt.Value,
+			ThumbURL:    item.Snippet.Thumbnails.Default.Url,
+		})
+	}
+	return videos, nil
+}
+
+func (c *Client) GetVideoCaption(ctx context.Context, videoID string) (string, error) {
+	call := c.svc.Captions.List(videoID, "snippet")
+	resp, err := call.Context(ctx).Do()
+	if err != nil {
+		return "", fmt.Errorf("list captions: %w", err)
+	}
+
+	if len(resp.Items) == 0 {
+		return "", nil
+	}
+
+	for _, cap := range resp.Items {
+		if cap.Snippet.TrackKind == "standard" || cap.Snippet.TrackKind == "ASR" {
+			dlCall := c.svc.Captions.Download(cap.Id, "application/taml").Context(ctx)
+			capData, err := dlCall.Download()
+			if err != nil {
+				continue
+			}
+			return string(capData), nil
+		}
+	}
+	return "", nil
+}
+
+func (c *Client) GetVideoDetails(ctx context.Context, videoID string) (*Video, error) {
+	call := c.svc.Videos.List("snippet").Id(videoID)
+	resp, err := call.Context(ctx).Do()
+	if err != nil {
+		return nil, fmt.Errorf("get video: %w", err)
+	}
+	if len(resp.Items) == 0 {
+		return nil, nil
+	}
+	item := resp.Items[0]
+	return &Video{
+		ID:          item.Id,
+		Title:       item.Snippet.Title,
+		Description: item.Snippet.Description,
+		ChannelID:   item.Snippet.ChannelId,
+		ChannelName: item.Snippet.ChannelTitle,
+		PublishedAt: item.Snippet.PublishedAt.Value,
+		ThumbURL:    item.Snippet.Thumbnails.Default.Url,
+	}, nil
 }

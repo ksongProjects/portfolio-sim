@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { PageGrid, PageCell, PageHeader, MetricLabel, MetricValue, MetricSubValue } from "@/components/page-layout";
+import { PageGrid, PageCell, PageHeader } from "@/components/page-layout";
 import { CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Clock, TrendingUp, ExternalLink, Search, Filter, Bookmark, RefreshCw, Plus, X, Rss } from "lucide-react";
+import { Clock, ExternalLink, Search, Bookmark, RefreshCw, Plus, X, Rss, Check, Video, ChevronRight, Play, Loader } from "lucide-react";
 import { useNews } from "@/hooks/useNews";
 import { useRSSFeeds } from "@/hooks/useRSSFeeds";
 
@@ -28,24 +28,33 @@ function timeAgo(dateStr: string): string {
 }
 
 export default function NewsFeedPage() {
-  const { articles, loading, fetchNews } = useNews();
+  const { articles, videos, channels, latestVideos, loading, fetchNews, fetchChannels, fetchLatestVideos, fetchStoredVideos, analyzeVideo } = useNews();
   const [search, setSearch] = useState("");
   const [saved, setSaved] = useState<string[]>([]);
   const [toast, setToast] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"all" | "bullish" | "bearish" | "neutral">("all");
-  const [refreshInterval, setRefreshInterval] = useState(5);
+  const [selectedFeeds, setSelectedFeeds] = useState<string[]>([]);
   const [showAddFeed, setShowAddFeed] = useState(false);
   const [newFeedName, setNewFeedName] = useState("");
   const [newFeedUrl, setNewFeedUrl] = useState("");
   const { feeds, loading: feedsLoading, fetchFeeds, addFeed, deleteFeed, scrapeFeeds } = useRSSFeeds();
+  const [showVideoSection, setShowVideoSection] = useState(false);
+  const [selectedChannel, setSelectedChannel] = useState<string>("");
+  const [selectedVideoIds, setSelectedVideoIds] = useState<Set<string>>(new Set());
+  const [analyzingIds, setAnalyzingIds] = useState<Set<string>>(new Set());
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [detailItem, setDetailItem] = useState<{type: "article" | "video"; data: any} | null>(null);
 
   useEffect(() => { fetchFeeds(); }, [fetchFeeds]);
-  useEffect(() => { fetchNews(20); }, [fetchNews]);
+  useEffect(() => { fetchNews(); }, [fetchNews]);
+  useEffect(() => { fetchChannels(); }, [fetchChannels]);
+  useEffect(() => { fetchStoredVideos(); }, [fetchStoredVideos]);
 
   useEffect(() => {
-    const intervalId = setInterval(() => fetchNews(20), refreshInterval * 60 * 1000);
-    return () => clearInterval(intervalId);
-  }, [refreshInterval, fetchNews]);
+    if (selectedChannel) {
+      fetchLatestVideos(selectedChannel);
+    }
+  }, [selectedChannel, fetchLatestVideos]);
 
   const handleAddFeed = async () => {
     if (newFeedName && newFeedUrl) {
@@ -62,7 +71,7 @@ export default function NewsFeedPage() {
   const handleRefresh = async () => {
     showToast("Scraping feeds...");
     await scrapeFeeds();
-    setTimeout(() => fetchNews(20), 2000);
+    setTimeout(() => fetchNews(), 2000);
   };
 
   const showToast = (msg: string) => {
@@ -74,13 +83,48 @@ export default function NewsFeedPage() {
     setSaved((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]));
   };
 
+  const toggleFeedFilter = (feedName: string) => {
+    setSelectedFeeds((prev) =>
+      prev.includes(feedName) ? prev.filter((f) => f !== feedName) : [...prev, feedName]
+    );
+  };
+
+  const toggleVideoSelection = (videoId: string) => {
+    setSelectedVideoIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(videoId)) next.delete(videoId);
+      else next.add(videoId);
+      return next;
+    });
+  };
+
+  const handleAnalyzeSelected = async () => {
+    if (selectedVideoIds.size === 0) return;
+    showToast("Analyzing videos...");
+    setAnalyzingIds(new Set(selectedVideoIds));
+    for (const vid of selectedVideoIds) {
+      const video = latestVideos.find((v) => v.id === vid);
+      if (video) {
+        await analyzeVideo(vid, video.title);
+      }
+    }
+    setAnalyzingIds(new Set());
+    setSelectedVideoIds(new Set());
+    showToast("Videos analyzed successfully");
+  };
+
+  const openDetail = (type: "article" | "video", data: any) => {
+    setDetailItem({ type, data });
+    setShowDetailModal(true);
+  };
+
   const filteredNews = articles.filter((n) => {
     const matchesSearch = n.Title.toLowerCase().includes(search.toLowerCase()) || n.Source.toLowerCase().includes(search.toLowerCase());
     const matchesTab = activeTab === "all" || n.Sentiment === activeTab;
-    return matchesSearch && matchesTab;
+    const matchesFeeds = selectedFeeds.length === 0 || selectedFeeds.includes(n.Source);
+    return matchesSearch && matchesTab && matchesFeeds;
   });
 
-  const bullishCount = articles.filter((n) => n.Sentiment === "bullish").length;
   const featured = articles[0] || null;
 
   return (
@@ -91,50 +135,114 @@ export default function NewsFeedPage() {
             <Button variant="default" size="sm" onClick={handleRefresh} disabled={feedsLoading}>
               <RefreshCw className="h-4 w-4" /> Refresh
             </Button>
-            <Button variant={saved.length > 0 ? "default" : "secondary"} size="sm" onClick={() => showToast(`Saved articles: ${saved.length}`)}>
-              <Bookmark className="h-4 w-4" /> Saved ({saved.length})
+            <Button variant="secondary" size="sm" onClick={() => setShowVideoSection(!showVideoSection)}>
+              <Video className="h-4 w-4" /> {showVideoSection ? "Hide Videos" : "YouTube Videos"}
             </Button>
             <Button variant="default" size="sm" onClick={() => setShowAddFeed(true)}>
               <Plus className="h-4 w-4" /> Add Feed
-            </Button>
-            <Button variant="default" size="sm" onClick={() => showToast("Market summary coming soon...")}>
-              <TrendingUp className="h-4 w-4" /> Market Summary
             </Button>
           </div>
         </PageHeader>
       </div>
 
       <div className="flex-1 px-6 pb-6 overflow-auto">
-        <PageGrid className="mb-4" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
-          <PageCell>
-            <MetricLabel>Articles Today</MetricLabel>
-            <MetricValue>{articles.length}</MetricValue>
-            <MetricSubValue positive>+{articles.length} articles</MetricSubValue>
-          </PageCell>
-          <PageCell>
-            <MetricLabel>Bullish Sentiment</MetricLabel>
-            <MetricValue highlight>{bullishCount}</MetricValue>
-            <MetricSubValue>{articles.length > 0 ? Math.round((bullishCount / articles.length) * 100) : 0}% of coverage</MetricSubValue>
-          </PageCell>
-          <PageCell>
-            <MetricLabel>Top Symbol</MetricLabel>
-            <MetricValue>--</MetricValue>
-            <MetricSubValue>No data</MetricSubValue>
-          </PageCell>
-        </PageGrid>
+        {showVideoSection && (
+          <PageGrid className="mb-6" style={{ gridTemplateColumns: "1fr 2fr" }}>
+            <PageCell>
+              <CardTitle className="mb-3">YouTube Channels</CardTitle>
+              <div className="space-y-2">
+                {channels.map((ch) => (
+                  <button
+                    key={ch.id}
+                    onClick={() => setSelectedChannel(ch.channel_id)}
+                    className={`w-full flex items-center gap-2 p-2 rounded border transition-colors text-left ${
+                      selectedChannel === ch.channel_id ? "bg-primary/10 border-primary" : "border-outline-variant hover:bg-surface-container"
+                    }`}
+                  >
+                    <Youtube className="h-4 w-4 text-error" />
+                    <span className="text-sm">{ch.name}</span>
+                  </button>
+                ))}
+              </div>
+            </PageCell>
+            <PageCell>
+              <div className="flex items-center justify-between mb-3">
+                <CardTitle>Latest Videos</CardTitle>
+                {selectedVideoIds.size > 0 && (
+                  <Button size="sm" onClick={handleAnalyzeSelected} disabled={analyzingIds.size > 0}>
+                    <Play className="h-4 w-4" /> Analyze {selectedVideoIds.size} Video{selectedVideoIds.size > 1 ? "s" : ""}
+                  </Button>
+                )}
+              </div>
+              <div className="space-y-2">
+                {loading && latestVideos.length === 0 ? (
+                  <div className="flex items-center gap-2 text-sm text-on-surface-variant"><Loader className="h-4 w-4 animate-spin" /> Loading...</div>
+                ) : latestVideos.map((video) => {
+                  const isSelected = selectedVideoIds.has(video.id);
+                  const isAnalyzing = analyzingIds.has(video.id);
+                  const isStored = videos.some((v) => v.youtube_id === video.id);
+                  return (
+                    <div key={video.id} className="flex items-center gap-3 p-3 border border-outline-variant/30">
+                      <button
+                        onClick={() => !isAnalyzing && !isStored && toggleVideoSelection(video.id)}
+                        disabled={isAnalyzing || isStored}
+                        className={`h-5 w-5 rounded border flex items-center justify-center transition-colors ${
+                          isSelected ? "bg-primary border-primary" : isStored ? "bg-primary/30 border-primary/30" : "border-outline hover:border-primary"
+                        }`}
+                      >
+                        {isSelected && <Check className="h-3 w-3 text-on-primary" />}
+                        {isStored && <Check className="h-3 w-3 text-primary" />}
+                      </button>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate">{video.title}</div>
+                        <div className="flex items-center gap-2 text-xs text-on-surface-variant">
+                          <span>{video.channel_name}</span>
+                          <span>&bull;</span>
+                          <span>{timeAgo(video.published_at)}</span>
+                        </div>
+                      </div>
+                      {isAnalyzing && <Loader className="h-4 w-4 animate-spin text-on-surface-variant" />}
+                      {isStored && <Badge variant="success" className="text-xs">Analyzed</Badge>}
+                    </div>
+                  );
+                })}
+                {selectedChannel && latestVideos.length === 0 && !loading && (
+                  <div className="text-sm text-on-surface-variant">No videos found</div>
+                )}
+                {!selectedChannel && (
+                  <div className="text-sm text-on-surface-variant">Select a channel to view videos</div>
+                )}
+              </div>
+            </PageCell>
+          </PageGrid>
+        )}
+
+        {videos.length > 0 && (
+          <PageGrid className="mb-6">
+            <PageCell>
+              <CardTitle className="mb-3">Analyzed Videos</CardTitle>
+              <div className="grid grid-cols-3 gap-3">
+                {videos.map((vid) => (
+                  <div key={vid.id} className="p-3 border border-outline-variant/30 hover:bg-surface-container-low cursor-pointer" onClick={() => openDetail("video", vid)}>
+                    <div className="text-sm font-medium mb-1 line-clamp-2">{vid.title}</div>
+                    <div className="flex items-center gap-2 text-xs text-on-surface-variant mb-2">
+                      <span>{vid.channel}</span>
+                    </div>
+                    <Badge variant={vid.sentiment === "bullish" ? "success" : vid.sentiment === "bearish" ? "error" : "secondary"}>{vid.sentiment}</Badge>
+                  </div>
+                ))}
+              </div>
+            </PageCell>
+          </PageGrid>
+        )}
 
         <PageGrid style={{ gridTemplateColumns: "2fr 1fr" }}>
           <PageCell>
             <div className="flex items-center justify-between mb-4">
               <CardTitle>Latest News</CardTitle>
-              <div className="flex gap-3">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-on-surface-variant" />
-                  <Input placeholder="Search news..." className="pl-9 w-[200px]" value={search} onChange={(e) => setSearch(e.target.value)} />
-                </div>
-                <Button variant="ghost" size="icon" onClick={() => showToast("Filter options coming soon...")}>
-                  <Filter className="h-4 w-4" />
-                </Button>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-on-surface-variant" />
+                <Input placeholder="Search news..." className="pl-9 w-[200px]" value={search} onChange={(e) => setSearch(e.target.value)} />
               </div>
             </div>
 
@@ -154,7 +262,7 @@ export default function NewsFeedPage() {
 
             <div className="space-y-2">
               {filteredNews.map((news) => (
-                <div key={news.ID} className="flex items-start gap-4 p-4 border border-outline-variant/30 hover:bg-surface-container-low transition-colors cursor-pointer">
+                <div key={news.ID} className="flex items-start gap-4 p-4 border border-outline-variant/30 hover:bg-surface-container-low transition-colors cursor-pointer" onClick={() => openDetail("article", news)}>
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
                       <Badge variant={news.Sentiment === "bullish" ? "success" : news.Sentiment === "bearish" ? "error" : "secondary"}>{news.Sentiment}</Badge>
@@ -167,7 +275,7 @@ export default function NewsFeedPage() {
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-2">
-                    <a href={news.URL} target="_blank" rel="noopener noreferrer" className="text-on-surface-variant hover:text-primary transition-colors">
+                    <a href={news.URL} target="_blank" rel="noopener noreferrer" className="text-on-surface-variant hover:text-primary transition-colors" onClick={(e) => e.stopPropagation()}>
                       <ExternalLink className="h-4 w-4" />
                     </a>
                     <button onClick={(e) => { e.stopPropagation(); toggleSaved(news.ID); }} className="text-on-surface-variant hover:text-primary transition-colors">
@@ -184,25 +292,18 @@ export default function NewsFeedPage() {
 
           <PageCell>
             <div className="space-y-[1px]">
-              {featured ? (
-                <div className="bg-surface-container p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <CardTitle>Featured Story</CardTitle>
-                    <Badge variant={featured.Sentiment === "bullish" ? "success" : featured.Sentiment === "bearish" ? "error" : "secondary"}>{featured.Sentiment}</Badge>
-                  </div>
+              {featured && (
+                <div className="bg-surface-container p-4 mb-4">
+                  <CardTitle className="mb-2">Featured Story</CardTitle>
+                  <Badge variant={featured.Sentiment === "bullish" ? "success" : featured.Sentiment === "bearish" ? "error" : "secondary"} className="mb-2">{featured.Sentiment}</Badge>
                   <h3 className="text-sm font-medium leading-snug mb-2">{featured.Title}</h3>
-                  <p className="text-xs text-on-surface-variant leading-relaxed mb-3">{featured.Summary}</p>
+                  <p className="text-xs text-on-surface-variant leading-relaxed mb-3 line-clamp-3">{featured.Summary}</p>
                   <div className="flex items-center gap-2 text-xs text-on-surface-variant">
                     <span>{featured.Source}</span><span>&bull;</span><span>{timeAgo(featured.PublishedAt)}</span>
                   </div>
-                  <div className="flex gap-2 mt-3">
-                    {featured.TickerSymbols?.map((sym) => <Badge key={sym} variant="outline">{sym}</Badge>)}
-                  </div>
-                </div>
-              ) : (
-                <div className="bg-surface-container p-4">
-                  <CardTitle>Featured Story</CardTitle>
-                  <div className="text-on-surface-variant text-sm py-4">No featured article available</div>
+                  <Button variant="secondary" size="sm" className="w-full mt-3" onClick={() => openDetail("article", featured)}>
+                    Read More <ChevronRight className="h-4 w-4" />
+                  </Button>
                 </div>
               )}
 
@@ -258,6 +359,52 @@ export default function NewsFeedPage() {
                 Add Feed
               </Button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showDetailModal && detailItem && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setShowDetailModal(false)}>
+          <div className="bg-surface-container-highest border border-outline rounded-lg p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            {detailItem.type === "article" ? (
+              <>
+                <div className="flex items-center gap-2 mb-3">
+                  <Badge variant={detailItem.data.Sentiment === "bullish" ? "success" : detailItem.data.Sentiment === "bearish" ? "error" : "secondary"}>{detailItem.data.Sentiment}</Badge>
+                  <span className="text-xs text-on-surface-variant">{detailItem.data.Source}</span>
+                  <span className="text-xs text-on-surface-variant">&bull;</span>
+                  <span className="text-xs text-on-surface-variant">{timeAgo(detailItem.data.PublishedAt)}</span>
+                </div>
+                <h2 className="text-lg font-semibold mb-3">{detailItem.data.Title}</h2>
+                <p className="text-sm text-on-surface-variant leading-relaxed mb-4">{detailItem.data.Summary}</p>
+                <div className="flex gap-2 mb-4">
+                  {detailItem.data.TickerSymbols?.map((sym: string) => <Badge key={sym} variant="outline">{sym}</Badge>)}
+                </div>
+                <a href={detailItem.data.URL} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-primary hover:underline">
+                  Read full article <ExternalLink className="h-4 w-4" />
+                </a>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-2 mb-3">
+                  <Video className="h-5 w-5 text-error" />
+                  <Badge variant={detailItem.data.sentiment === "bullish" ? "success" : detailItem.data.sentiment === "bearish" ? "error" : "secondary"}>{detailItem.data.sentiment}</Badge>
+                  <span className="text-xs text-on-surface-variant">{detailItem.data.channel}</span>
+                </div>
+                <h2 className="text-lg font-semibold mb-3">{detailItem.data.title}</h2>
+                {detailItem.data.summary && (
+                  <p className="text-sm text-on-surface-variant leading-relaxed mb-4">{detailItem.data.summary}</p>
+                )}
+                <div className="flex gap-2 mb-4">
+                  {detailItem.data.tickers && detailItem.data.tickers !== "[]" && JSON.parse(detailItem.data.tickers).map((sym: string) => <Badge key={sym} variant="outline">{sym}</Badge>)}
+                </div>
+                <a href={`https://youtube.com/watch?v=${detailItem.data.youtube_id}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-primary hover:underline">
+                  Watch on YouTube <ExternalLink className="h-4 w-4" />
+                </a>
+              </>
+            )}
+            <button onClick={() => setShowDetailModal(false)} className="absolute top-4 right-4 text-on-surface-variant hover:text-on-surface">
+              <X className="h-5 w-5" />
+            </button>
           </div>
         </div>
       )}

@@ -88,6 +88,123 @@ func main() {
 		fmt.Fprint(w, "ok")
 	})
 
+	mux.HandleFunc("/api/channels", func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.Pool.Query(r.Context(), "SELECT id::text, channel_id, name, youtube_handle FROM youtube_channels WHERE is_active = true")
+		if err != nil {
+			http.Error(w, "failed to query channels", http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+		var channels []map[string]string
+		for rows.Next() {
+			var id, channelID, name, handle string
+			if err := rows.Scan(&id, &channelID, &name, &handle); err != nil {
+				continue
+			}
+			channels = append(channels, map[string]string{"id": id, "channel_id": channelID, "name": name, "handle": handle})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(channels)
+	})
+
+	mux.HandleFunc("/api/videos/latest", func(w http.ResponseWriter, r *http.Request) {
+		if ytClient == nil {
+			http.Error(w, "youtube client not configured", http.StatusInternalServerError)
+			return
+		}
+		channelID := r.URL.Query().Get("channel_id")
+		if channelID == "" {
+			http.Error(w, "channel_id required", http.StatusBadRequest)
+			return
+		}
+		videos, err := ytClient.GetLatestVideos(r.Context(), channelID, 20)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to fetch videos: %v", err), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(videos)
+	})
+
+	mux.HandleFunc("/api/videos/analyze", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			VideoID string `json:"video_id"`
+			Title   string `json:"title"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+
+		details, err := ytClient.GetVideoDetails(r.Context(), req.VideoID)
+		if err != nil {
+			http.Error(w, "failed to get video details", http.StatusInternalServerError)
+			return
+		}
+
+		transcript, _ := ytClient.GetVideoCaption(r.Context(), req.VideoID)
+		if transcript == "" {
+			transcript = details.Description
+		}
+
+		result, err := geminiClient.AnalyzeArticle(r.Context(), req.Title, transcript)
+		if err != nil {
+			http.Error(w, "failed to analyze video", http.StatusInternalServerError)
+			return
+		}
+
+		tickersJSON, _ := json.Marshal(result.RelatedTickers)
+		_, err = db.Pool.Exec(r.Context(), `
+			INSERT INTO news_videos (youtube_id, title, channel, transcript_text, summary_text, sentiment, tickers, published_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			ON CONFLICT (youtube_id) DO UPDATE SET
+				transcript_text = EXCLUDED.transcript_text,
+				summary_text = $5,
+				sentiment = EXCLUDED.sentiment,
+				tickers = EXCLUDED.tickers
+		`, req.VideoID, req.Title, details.ChannelName, transcript, "", result.Sentiment, tickersJSON, details.PublishedAt)
+		if err != nil {
+			log.Printf("failed to store video: %v", err)
+			http.Error(w, "failed to store video", http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	mux.HandleFunc("/api/videos", func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.Pool.Query(r.Context(), `
+			SELECT id::text, youtube_id, title, channel, summary_text, sentiment, tickers, published_at
+			FROM news_videos
+			ORDER BY published_at DESC
+			LIMIT 50
+		`)
+		if err != nil {
+			http.Error(w, "failed to query videos", http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+		var videos []map[string]interface{}
+		for rows.Next() {
+			var id, ytID, title, channel, summary, sentiment string
+			var tickers []byte
+			var publishedAt *time.Time
+			if err := rows.Scan(&id, &ytID, &title, &channel, &summary, &sentiment, &tickers, &publishedAt); err != nil {
+				continue
+			}
+			videos = append(videos, map[string]interface{}{
+				"id": id, "youtube_id": ytID, "title": title, "channel": channel,
+				"summary": summary, "sentiment": sentiment, "tickers": string(tickers), "published_at": publishedAt,
+			})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(videos)
+	})
+
 	wrappedMux := logging.LoggingMiddleware(mux, logClient)
 
 	srv := &http.Server{
