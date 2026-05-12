@@ -136,13 +136,13 @@ export default function ObservabilityPage() {
     {
       accessorKey: "route",
       header: "Route",
-      size: 5,
+      size: 10,
       cell: ({ row }) => <span className="font-mono text-xs text-on-surface-variant">{row.original.route || "-"}</span>,
     },
     {
       accessorKey: "message",
       header: "Message",
-      size: 75,
+      size: 70,
       cell: ({ row }) => (
         <LogRow
           id={row.original.id}
