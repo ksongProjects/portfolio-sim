@@ -120,7 +120,7 @@ export default function ObservabilityPage() {
     {
       accessorKey: "level",
       header: "Level",
-      size: 10,
+      size: 5,
       cell: ({ row }) => {
         const level = row.original.level;
         const variant = level === "INFO" || level === "DEBUG" ? "secondary" : level === "WARN" ? "warning" : "error";
@@ -130,19 +130,19 @@ export default function ObservabilityPage() {
     {
       accessorKey: "service",
       header: "Service",
-      size: 20,
+      size: 5,
       cell: ({ row }) => <span className="font-mono text-xs">{row.original.service}</span>,
     },
     {
       accessorKey: "route",
       header: "Route",
-      size: 15,
+      size: 5,
       cell: ({ row }) => <span className="font-mono text-xs text-on-surface-variant">{row.original.route || "-"}</span>,
     },
     {
       accessorKey: "message",
       header: "Message",
-      size: 55,
+      size: 75,
       cell: ({ row }) => (
         <LogRow
           id={row.original.id}

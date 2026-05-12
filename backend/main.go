@@ -323,7 +323,7 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 		FROM logs
 		WHERE ($1 = '' OR level = $1)
 		  AND ($2 = '' OR service = $2)
-		  AND ($5 = '' OR COALESCE(route, '') = $5 OR metadata::text ILIKE '%"route":"' || $5 || '"%')
+		  AND ($5 = '' OR COALESCE(route, '') = $5)
 		  AND timestamp >= NOW() - INTERVAL '1 minute' * $3
 		ORDER BY timestamp DESC
 		LIMIT $4

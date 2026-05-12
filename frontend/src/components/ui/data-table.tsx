@@ -108,10 +108,15 @@ export function DataTable<TData, TValue>({
                 {headerGroup.headers.map((header) => {
                   const canSort = header.column.getCanSort();
                   const size = header.column.columnDef.size;
+                  const widthStyle = size
+                    ? typeof size === "number"
+                      ? { width: `${size}%` }
+                      : { width: size }
+                    : undefined;
                   return (
                     <th
                       key={header.id}
-                      style={size ? { width: size } : undefined}
+                      style={widthStyle}
                       className={cn(
                         "h-9 px-4 text-left align-middle text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant",
                         canSort && "cursor-pointer select-none hover:text-on-surface"
@@ -156,10 +161,15 @@ export function DataTable<TData, TValue>({
                   >
                     {row.getVisibleCells().map((cell) => {
                       const size = cell.column.columnDef.size;
+                      const widthStyle = size
+                        ? typeof size === "number"
+                          ? { width: `${size}%` }
+                          : { width: size }
+                        : undefined;
                       return (
                         <td
                           key={cell.id}
-                          style={size ? { width: size } : undefined}
+                          style={widthStyle}
                           className="h-9 px-4 align-middle text-sm text-on-surface overflow-hidden text-ellipsis whitespace-nowrap"
                         >
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}

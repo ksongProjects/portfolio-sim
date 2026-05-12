@@ -39,6 +39,7 @@ export function useObservability(options?: { autoRefresh?: boolean; interval?: n
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [filters, setFilters] = useState<LogFilters>({});
+  const [appliedFilters, setAppliedFilters] = useState<LogFilters>({});
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const fetchServices = useCallback(async () => {
@@ -67,7 +68,7 @@ const buildLogsUrl = useCallback((limit: number, logFilters: LogFilters) => {
   }, []);
 
   const fetchLogs = useCallback(async (limit = 100, logFilters?: LogFilters) => {
-    const activeFilters = logFilters ?? filters;
+    const activeFilters = logFilters ?? appliedFilters;
     try {
       const url = buildLogsUrl(limit, activeFilters);
       const res = await fetch(url);
@@ -79,31 +80,32 @@ const buildLogsUrl = useCallback((limit: number, logFilters: LogFilters) => {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     }
-  }, [filters, buildLogsUrl]);
+  }, [appliedFilters, buildLogsUrl]);
 
   const setLogFilters = useCallback((newFilters: LogFilters) => {
     setFilters(newFilters);
   }, []);
 
   const applyFilters = useCallback(() => {
+    setAppliedFilters(filters);
     fetchLogs(100, filters);
   }, [fetchLogs, filters]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
-    await Promise.all([fetchServices(), fetchLogs(100, filters)]);
+    await Promise.all([fetchServices(), fetchLogs(100, appliedFilters)]);
     setLoading(false);
-  }, [fetchServices, fetchLogs, filters]);
+  }, [fetchServices, fetchLogs, appliedFilters]);
 
   const startAutoRefresh = useCallback(() => {
     if (intervalRef.current) return;
     const interval = options?.interval ?? 5000;
     intervalRef.current = setInterval(() => {
       fetchServices();
-      fetchLogs(100, filters);
+      fetchLogs(100, appliedFilters);
     }, interval);
-  }, [options?.interval, fetchServices, fetchLogs, filters]);
+  }, [options?.interval, fetchServices, fetchLogs, appliedFilters]);
 
   const stopAutoRefresh = useCallback(() => {
     if (intervalRef.current) {

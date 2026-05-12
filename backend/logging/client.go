@@ -89,6 +89,21 @@ func (c *Client) send(ctx context.Context, entry LogEntry) error {
 	return nil
 }
 
+func (c *Client) log(ctx context.Context, level string, msg string, meta map[string]interface{}) {
+	entry := LogEntry{
+		ID:        randomID(),
+		Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+		Level:     level,
+		Service:   c.serviceName,
+		Message:   msg,
+		Metadata:  meta,
+	}
+	if route, ok := meta["route"].(string); ok {
+		entry.Route = route
+	}
+	c.send(ctx, entry)
+}
+
 func (c *Client) Info(ctx context.Context, msg string) error {
 	return c.Emit(ctx, "INFO", msg)
 }
