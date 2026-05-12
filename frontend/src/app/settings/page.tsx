@@ -117,11 +117,12 @@ function ProviderCard({
             placeholder="sk_xxxxxxxxxxxx"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
+            className="pr-10"
           />
           <button
             type="button"
             onClick={() => setShowSecret(!showSecret)}
-            className="absolute right-3 top-[34px] text-on-surface-variant hover:text-on-surface transition-colors"
+            className="absolute inset-y-0 right-0 flex items-center pr-3 text-on-surface-variant hover:text-on-surface transition-colors"
           >
             {showSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           </button>
