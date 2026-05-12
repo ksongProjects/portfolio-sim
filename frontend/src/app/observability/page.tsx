@@ -253,10 +253,7 @@ export default function ObservabilityPage() {
                 <span className="text-xs text-on-surface-variant whitespace-nowrap">Level:</span>
                 <select
                   value={filters.level || ""}
-                  onChange={(e) => {
-                    setLogFilters({ ...filters, level: e.target.value || undefined });
-                    setTimeout(() => applyFilters(), 0);
-                  }}
+                  onChange={(e) => setLogFilters({ ...filters, level: e.target.value || undefined })}
                   className="h-8 rounded-md border border-outline bg-surface-container px-2 text-sm text-on-surface focus:outline-none focus:ring-1 focus:ring-primary"
                 >
                   <option value="">All</option>
@@ -270,10 +267,7 @@ export default function ObservabilityPage() {
                 <span className="text-xs text-on-surface-variant whitespace-nowrap">Service:</span>
                 <select
                   value={filters.service || ""}
-                  onChange={(e) => {
-                    setLogFilters({ ...filters, service: e.target.value || undefined });
-                    setTimeout(() => applyFilters(), 0);
-                  }}
+                  onChange={(e) => setLogFilters({ ...filters, service: e.target.value || undefined })}
                   className="h-8 rounded-md border border-outline bg-surface-container px-2 text-sm text-on-surface focus:outline-none focus:ring-1 focus:ring-primary"
                 >
                   <option value="">All</option>
@@ -297,7 +291,6 @@ export default function ObservabilityPage() {
                             ? current.filter((r) => r !== route)
                             : [...current, route];
                           setLogFilters({ ...filters, routes: next.length > 0 ? next : undefined });
-                          setTimeout(() => applyFilters(), 0);
                         }}
                         className={`px-2 py-1 text-xs rounded border transition-colors ${
                           selected
