@@ -1,0 +1,1 @@
+ALTER TABLE news_articles DROP COLUMN IF EXISTS ticker_ids;
