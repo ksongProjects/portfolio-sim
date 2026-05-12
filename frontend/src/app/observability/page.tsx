@@ -84,7 +84,7 @@ function LogRow({ id, message, metadata, isExpanded, onToggle }: LogRowProps) {
 }
 
 export default function ObservabilityPage() {
-  const { services, logs, loading, error, lastUpdated, refresh, filters, setLogFilters, fetchLogs } = useObservability();
+  const { services, logs, loading, error, lastUpdated, refresh, filters, setLogFilters, applyFilters } = useObservability();
   const [expandedLogIds, setExpandedLogIds] = useState<Set<string>>(new Set());
   const [logsLimit, setLogsLimit] = useState(100);
 
@@ -253,7 +253,10 @@ export default function ObservabilityPage() {
                 <span className="text-xs text-on-surface-variant whitespace-nowrap">Level:</span>
                 <select
                   value={filters.level || ""}
-                  onChange={(e) => setLogFilters({ ...filters, level: e.target.value || undefined })}
+                  onChange={(e) => {
+                    setLogFilters({ ...filters, level: e.target.value || undefined });
+                    setTimeout(() => applyFilters(), 0);
+                  }}
                   className="h-8 rounded-md border border-outline bg-surface-container px-2 text-sm text-on-surface focus:outline-none focus:ring-1 focus:ring-primary"
                 >
                   <option value="">All</option>
@@ -267,7 +270,10 @@ export default function ObservabilityPage() {
                 <span className="text-xs text-on-surface-variant whitespace-nowrap">Service:</span>
                 <select
                   value={filters.service || ""}
-                  onChange={(e) => setLogFilters({ ...filters, service: e.target.value || undefined })}
+                  onChange={(e) => {
+                    setLogFilters({ ...filters, service: e.target.value || undefined });
+                    setTimeout(() => applyFilters(), 0);
+                  }}
                   className="h-8 rounded-md border border-outline bg-surface-container px-2 text-sm text-on-surface focus:outline-none focus:ring-1 focus:ring-primary"
                 >
                   <option value="">All</option>
@@ -291,6 +297,7 @@ export default function ObservabilityPage() {
                             ? current.filter((r) => r !== route)
                             : [...current, route];
                           setLogFilters({ ...filters, routes: next.length > 0 ? next : undefined });
+                          setTimeout(() => applyFilters(), 0);
                         }}
                         className={`px-2 py-1 text-xs rounded border transition-colors ${
                           selected
@@ -319,7 +326,7 @@ export default function ObservabilityPage() {
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => fetchLogs(logsLimit, filters)}
+                onClick={applyFilters}
                 className="h-8 text-xs"
               >
                 Get Logs
