@@ -489,11 +489,11 @@ func (s *ProviderService) validateQuestradeKey(apiKey string) (bool, *QuestradeO
 }
 
 func (s *ProviderService) validateYouTubeKey(apiKey string) (bool, error) {
-	url := fmt.Sprintf("https://www.googleapis.com/youtube/v3/channels?part=contentDetails&mine=true&key=%s", apiKey)
+	url := fmt.Sprintf("https://www.googleapis.com/youtube/v3/videos?part=snippet&id=dQw4w9WgXcQ&key=%s", apiKey)
 
 	if s.logClient != nil {
 		s.logClient.InfoWithMeta(context.Background(), "YouTube validation request", map[string]interface{}{
-			"url":    sanitizeProviderURL(url),
+			"url":    "https://www.googleapis.com/youtube/v3/videos?part=snippet&id=VIDEO_ID",
 			"method": "GET",
 			"type":   "provider_api_request",
 		})
