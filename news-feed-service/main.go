@@ -88,23 +88,66 @@ func main() {
 		fmt.Fprint(w, "ok")
 	})
 
-	mux.HandleFunc("/api/channels", func(w http.ResponseWriter, r *http.Request) {
-		rows, err := db.Pool.Query(r.Context(), "SELECT id::text, channel_id, name, youtube_handle FROM youtube_channels WHERE is_active = true")
-		if err != nil {
-			http.Error(w, "failed to query channels", http.StatusInternalServerError)
+	mux.HandleFunc("/api/channels/search", func(w http.ResponseWriter, r *http.Request) {
+		if youtubeClient == nil {
+			http.Error(w, "youtube client not configured", http.StatusInternalServerError)
 			return
 		}
-		defer rows.Close()
-		var channels []map[string]string
-		for rows.Next() {
-			var id, channelID, name, handle string
-			if err := rows.Scan(&id, &channelID, &name, &handle); err != nil {
-				continue
-			}
-			channels = append(channels, map[string]string{"id": id, "channel_id": channelID, "name": name, "handle": handle})
+		query := r.URL.Query().Get("q")
+		if query == "" {
+			http.Error(w, "q parameter required", http.StatusBadRequest)
+			return
+		}
+		channels, err := youtubeClient.SearchChannels(r.Context(), query)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("search failed: %v", err), http.StatusInternalServerError)
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(channels)
+	})
+
+	mux.HandleFunc("/api/channels", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" {
+			rows, err := db.Pool.Query(r.Context(), "SELECT id::text, channel_id, name, youtube_handle FROM youtube_channels WHERE is_active = true")
+			if err != nil {
+				http.Error(w, "failed to query channels", http.StatusInternalServerError)
+				return
+			}
+			defer rows.Close()
+			var channels []map[string]string
+			for rows.Next() {
+				var id, channelID, name, handle string
+				if err := rows.Scan(&id, &channelID, &name, &handle); err != nil {
+					continue
+				}
+				channels = append(channels, map[string]string{"id": id, "channel_id": channelID, "name": name, "handle": handle})
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(channels)
+			return
+		}
+		if r.Method == "POST" {
+			var req struct {
+				ChannelID string `json:"channel_id"`
+				Name      string `json:"name"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "invalid request", http.StatusBadRequest)
+				return
+			}
+			_, err := db.Pool.Exec(r.Context(), `
+				INSERT INTO youtube_channels (channel_id, name) VALUES ($1, $2)
+				ON CONFLICT (channel_id) DO UPDATE SET name = $2
+			`, req.ChannelID, req.Name)
+			if err != nil {
+				http.Error(w, "failed to add channel", http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	})
 
 	mux.HandleFunc("/api/videos/latest", func(w http.ResponseWriter, r *http.Request) {

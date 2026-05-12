@@ -28,7 +28,7 @@ function timeAgo(dateStr: string): string {
 }
 
 export default function NewsFeedPage() {
-  const { articles, videos, channels, latestVideos, loading, fetchNews, fetchChannels, fetchLatestVideos, fetchStoredVideos, analyzeVideo } = useNews();
+  const { articles, videos, channels, latestVideos, loading, error, fetchNews, fetchChannels, fetchLatestVideos, fetchStoredVideos, analyzeVideo, searchChannels } = useNews();
   const [search, setSearch] = useState("");
   const [saved, setSaved] = useState<string[]>([]);
   const [toast, setToast] = useState<string | null>(null);
@@ -37,13 +37,19 @@ export default function NewsFeedPage() {
   const [showAddFeed, setShowAddFeed] = useState(false);
   const [newFeedName, setNewFeedName] = useState("");
   const [newFeedUrl, setNewFeedUrl] = useState("");
-  const { feeds, loading: feedsLoading, fetchFeeds, addFeed, deleteFeed, scrapeFeeds } = useRSSFeeds();
+  const { feeds, loading: feedsLoading, fetchFeeds, addFeed, scrapeFeeds } = useRSSFeeds();
   const [showVideoSection, setShowVideoSection] = useState(false);
   const [selectedChannel, setSelectedChannel] = useState<string>("");
   const [selectedVideoIds, setSelectedVideoIds] = useState<Set<string>>(new Set());
   const [analyzingIds, setAnalyzingIds] = useState<Set<string>>(new Set());
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [detailItem, setDetailItem] = useState<{type: "article" | "video"; data: any} | null>(null);
+  const [showAddChannel, setShowAddChannel] = useState(false);
+  const [newChannelId, setNewChannelId] = useState("");
+  const [newChannelName, setNewChannelName] = useState("");
+  const [channelSearch, setChannelSearch] = useState("");
+  const [channelResults, setChannelResults] = useState<{id: string; name: string; handle: string}[]>([]);
+  const [searchingChannels, setSearchingChannels] = useState(false);
 
   useEffect(() => { fetchFeeds(); }, [fetchFeeds]);
   useEffect(() => { fetchNews(); }, [fetchNews]);
@@ -113,6 +119,46 @@ export default function NewsFeedPage() {
     showToast("Videos analyzed successfully");
   };
 
+  const handleAddChannel = async () => {
+    if (!newChannelId || !newChannelName) return;
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"}/api/channels`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channel_id: newChannelId, name: newChannelName }),
+      });
+      if (res.ok) {
+        setNewChannelId("");
+        setNewChannelName("");
+        setShowAddChannel(false);
+        setChannelSearch("");
+        setChannelResults([]);
+        fetchChannels();
+        showToast("Channel added");
+      }
+    } catch {
+      showToast("Failed to add channel");
+    }
+  };
+
+  const handleSearchChannels = async () => {
+    if (!channelSearch.trim()) return;
+    setSearchingChannels(true);
+    try {
+      const results = await searchChannels(channelSearch);
+      setChannelResults(results);
+    } finally {
+      setSearchingChannels(false);
+    }
+  };
+
+  const selectSearchResult = (ch: {id: string; name: string; handle: string}) => {
+    setNewChannelId(ch.id);
+    setNewChannelName(ch.name);
+    setChannelResults([]);
+    setChannelSearch("");
+  };
+
   const openDetail = (type: "article" | "video", data: any) => {
     setDetailItem({ type, data });
     setShowDetailModal(true);
@@ -124,8 +170,6 @@ export default function NewsFeedPage() {
     const matchesFeeds = selectedFeeds.length === 0 || selectedFeeds.includes(n.Source);
     return matchesSearch && matchesTab && matchesFeeds;
   });
-
-  const featured = articles[0] || null;
 
   return (
     <div className="flex flex-col h-full">
@@ -164,54 +208,77 @@ export default function NewsFeedPage() {
                   </button>
                 ))}
               </div>
+              <Button variant="secondary" size="sm" onClick={() => setShowAddChannel(true)} className="w-full mt-3">
+                <Plus className="h-3 w-3 mr-1" /> Add Channel
+              </Button>
             </PageCell>
             <PageCell>
+              <CardTitle>Latest Videos</CardTitle>
               <div className="flex items-center justify-between mb-3">
-                <CardTitle>Latest Videos</CardTitle>
-                {selectedVideoIds.size > 0 && (
-                  <Button size="sm" onClick={handleAnalyzeSelected} disabled={analyzingIds.size > 0}>
-                    <Play className="h-4 w-4" /> Analyze {selectedVideoIds.size} Video{selectedVideoIds.size > 1 ? "s" : ""}
+                <span className="text-xs text-on-surface-variant">{latestVideos.length} videos</span>
+                <div className="flex gap-2">
+                  {selectedVideoIds.size > 0 && (
+                    <Button size="sm" onClick={handleAnalyzeSelected} disabled={analyzingIds.size > 0}>
+                      <Play className="h-4 w-4" /> Analyze {selectedVideoIds.size}
+                    </Button>
+                  )}
+                  <Button variant="ghost" size="sm" onClick={() => setSelectedVideoIds(new Set(latestVideos.filter(v => !videos.some(x => x.youtube_id === v.id)).map(v => v.id)))}>
+                    Select All
                   </Button>
-                )}
+                </div>
               </div>
-              <div className="space-y-2">
-                {loading && latestVideos.length === 0 ? (
-                  <div className="flex items-center gap-2 text-sm text-on-surface-variant"><Loader className="h-4 w-4 animate-spin" /> Loading...</div>
-                ) : latestVideos.map((video) => {
-                  const isSelected = selectedVideoIds.has(video.id);
-                  const isAnalyzing = analyzingIds.has(video.id);
-                  const isStored = videos.some((v) => v.youtube_id === video.id);
-                  return (
-                    <div key={video.id} className="flex items-center gap-3 p-3 border border-outline-variant/30">
-                      <button
-                        onClick={() => !isAnalyzing && !isStored && toggleVideoSelection(video.id)}
-                        disabled={isAnalyzing || isStored}
-                        className={`h-5 w-5 rounded border flex items-center justify-center transition-colors ${
-                          isSelected ? "bg-primary border-primary" : isStored ? "bg-primary/30 border-primary/30" : "border-outline hover:border-primary"
-                        }`}
-                      >
-                        {isSelected && <Check className="h-3 w-3 text-on-primary" />}
-                        {isStored && <Check className="h-3 w-3 text-primary" />}
-                      </button>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium truncate">{video.title}</div>
-                        <div className="flex items-center gap-2 text-xs text-on-surface-variant">
-                          <span>{video.channel_name}</span>
-                          <span>&bull;</span>
-                          <span>{timeAgo(video.published_at)}</span>
-                        </div>
-                      </div>
-                      {isAnalyzing && <Loader className="h-4 w-4 animate-spin text-on-surface-variant" />}
-                      {isStored && <Badge variant="success" className="text-xs">Analyzed</Badge>}
-                    </div>
-                  );
-                })}
-                {selectedChannel && latestVideos.length === 0 && !loading && (
-                  <div className="text-sm text-on-surface-variant">No videos found</div>
-                )}
-                {!selectedChannel && (
-                  <div className="text-sm text-on-surface-variant">Select a channel to view videos</div>
-                )}
+              <div className="border border-outline-variant/30">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-outline-variant/30 bg-surface-container">
+                      <th className="w-10 p-2"></th>
+                      <th className="text-left p-2 text-xs font-semibold uppercase tracking-wider text-on-surface-variant">Title</th>
+                      <th className="text-left p-2 text-xs font-semibold uppercase tracking-wider text-on-surface-variant w-32">Channel</th>
+                      <th className="text-left p-2 text-xs font-semibold uppercase tracking-wider text-on-surface-variant w-24">Published</th>
+                      <th className="text-left p-2 text-xs font-semibold uppercase tracking-wider text-on-surface-variant w-20">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loading && latestVideos.length === 0 ? (
+                      <tr><td colSpan={5} className="p-4 text-center text-on-surface-variant"><Loader className="h-4 w-4 animate-spin inline mr-2" />Loading...</td></tr>
+                    ) : latestVideos.map((video) => {
+                      const isSelected = selectedVideoIds.has(video.id);
+                      const isAnalyzing = analyzingIds.has(video.id);
+                      const isStored = videos.some((v) => v.youtube_id === video.id);
+                      return (
+                        <tr key={video.id} className="border-b border-outline-variant/20 hover:bg-surface-container-low">
+                          <td className="p-2 text-center">
+                            <button
+                              onClick={() => !isAnalyzing && !isStored && toggleVideoSelection(video.id)}
+                              disabled={isAnalyzing || isStored}
+                              className={`h-5 w-5 rounded border flex items-center justify-center transition-colors ${
+                                isSelected ? "bg-primary border-primary" : isStored ? "bg-primary/30 border-primary/30" : "border-outline hover:border-primary"
+                              }`}
+                            >
+                              {isSelected && <Check className="h-3 w-3 text-on-primary" />}
+                              {isStored && <Check className="h-3 w-3 text-primary" />}
+                            </button>
+                          </td>
+                          <td className="p-2">
+                            <div className="font-medium truncate max-w-[300px]">{video.title}</div>
+                          </td>
+                          <td className="p-2 text-on-surface-variant text-xs">{video.channel_name}</td>
+                          <td className="p-2 text-on-surface-variant text-xs">{timeAgo(video.published_at)}</td>
+                          <td className="p-2">
+                            {isAnalyzing && <Badge variant="warning" className="text-xs"><Loader className="h-3 w-3 animate-spin inline mr-1"/>Analyzing</Badge>}
+                            {isStored && <Badge variant="success" className="text-xs">Analyzed</Badge>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {selectedChannel && latestVideos.length === 0 && !loading && (
+                      <tr><td colSpan={5} className="p-4 text-center text-on-surface-variant">No videos found</td></tr>
+                    )}
+                    {!selectedChannel && (
+                      <tr><td colSpan={5} className="p-4 text-center text-on-surface-variant">Select a channel to view videos</td></tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
             </PageCell>
           </PageGrid>
@@ -291,48 +358,35 @@ export default function NewsFeedPage() {
           </PageCell>
 
           <PageCell>
-            <div className="space-y-[1px]">
-              {featured && (
-                <div className="bg-surface-container p-4 mb-4">
-                  <CardTitle className="mb-2">Featured Story</CardTitle>
-                  <Badge variant={featured.Sentiment === "bullish" ? "success" : featured.Sentiment === "bearish" ? "error" : "secondary"} className="mb-2">{featured.Sentiment}</Badge>
-                  <h3 className="text-sm font-medium leading-snug mb-2">{featured.Title}</h3>
-                  <p className="text-xs text-on-surface-variant leading-relaxed mb-3 line-clamp-3">{featured.Summary}</p>
-                  <div className="flex items-center gap-2 text-xs text-on-surface-variant">
-                    <span>{featured.Source}</span><span>&bull;</span><span>{timeAgo(featured.PublishedAt)}</span>
-                  </div>
-                  <Button variant="secondary" size="sm" className="w-full mt-3" onClick={() => openDetail("article", featured)}>
-                    Read More <ChevronRight className="h-4 w-4" />
-                  </Button>
-                </div>
-              )}
-
-              <div className="bg-surface-container p-4">
-                <CardTitle className="mb-3">RSS Feeds</CardTitle>
-                {feedsLoading ? (
-                  <div className="text-on-surface-variant text-sm">Loading...</div>
-                ) : feeds.length === 0 ? (
-                  <div className="text-on-surface-variant text-sm mb-3">No feeds configured</div>
-                ) : (
-                  <div className="space-y-2 mb-3">
-                    {feeds.map((feed) => (
-                      <div key={feed.id} className="flex items-center justify-between text-sm">
-                        <div className="flex items-center gap-2">
-                          <Rss className="h-3 w-3 text-on-surface-variant" />
-                          <span className="text-on-surface">{feed.name}</span>
-                        </div>
-                        <button onClick={() => deleteFeed(feed.id)} className="text-on-surface-variant hover:text-error transition-colors">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <Button variant="secondary" size="sm" onClick={() => setShowAddFeed(true)} className="w-full">
-                  <Plus className="h-3 w-3 mr-1" /> Add Feed
-                </Button>
+            <CardTitle className="mb-3">Filter by Feed</CardTitle>
+            {feedsLoading ? (
+              <div className="text-on-surface-variant text-sm">Loading...</div>
+            ) : feeds.length === 0 ? (
+              <div className="text-on-surface-variant text-sm">No feeds configured</div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {feeds.map((feed) => {
+                  const selected = selectedFeeds.includes(feed.name);
+                  return (
+                    <button
+                      key={feed.id}
+                      onClick={() => toggleFeedFilter(feed.name)}
+                      className={`flex items-center gap-1.5 px-2 py-1 text-xs rounded border transition-colors ${
+                        selected ? "bg-primary text-on-primary border-primary" : "bg-surface-container border-outline-variant hover:border-primary/50"
+                      }`}
+                    >
+                      <Rss className="h-3 w-3" />
+                      {feed.name}
+                    </button>
+                  );
+                })}
               </div>
-            </div>
+            )}
+            {selectedFeeds.length > 0 && (
+              <Button variant="ghost" size="sm" onClick={() => setSelectedFeeds([])} className="mt-2">
+                Clear filters
+              </Button>
+            )}
           </PageCell>
         </PageGrid>
       </div>
@@ -357,6 +411,56 @@ export default function NewsFeedPage() {
               </div>
               <Button onClick={handleAddFeed} disabled={!newFeedName || !newFeedUrl || feedsLoading} className="w-full">
                 Add Feed
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAddChannel && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center">
+          <div className="bg-surface-container-highest border border-outline rounded-lg p-6 w-[450px] max-w-[90vw]">
+            <div className="flex items-center justify-between mb-4">
+              <CardTitle>Add YouTube Channel</CardTitle>
+              <button onClick={() => { setShowAddChannel(false); setChannelSearch(""); setChannelResults([]); setNewChannelId(""); setNewChannelName(""); }} className="text-on-surface-variant hover:text-on-surface">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs text-on-surface-variant mb-1 block">Search Channels</label>
+                <div className="flex gap-2">
+                  <Input placeholder="Search by name..." value={channelSearch} onChange={(e) => setChannelSearch(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleSearchChannels()} />
+                  <Button variant="secondary" onClick={handleSearchChannels} disabled={searchingChannels || !channelSearch.trim()}>
+                    {searchingChannels ? <Loader className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                  </Button>
+                </div>
+              </div>
+              {channelResults.length > 0 && (
+                <div className="border border-outline-variant/30 max-h-48 overflow-y-auto">
+                  {channelResults.map((ch) => (
+                    <button key={ch.id} onClick={() => selectSearchResult(ch)} className="w-full flex items-center gap-2 p-2 text-left hover:bg-surface-container transition-colors border-b border-outline-variant/20 last:border-b-0">
+                      <Youtube className="h-4 w-4 text-error" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate">{ch.name}</div>
+                        <div className="text-xs text-on-surface-variant">{ch.handle}</div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="border-t border-outline-variant/30 pt-4">
+                <div className="text-xs text-on-surface-variant mb-2">Selected Channel</div>
+                <div className="flex items-center gap-2 p-2 bg-surface-container rounded border border-outline-variant/30">
+                  <Youtube className="h-4 w-4 text-error" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium truncate">{newChannelName || "None selected"}</div>
+                    {newChannelId && <div className="text-xs text-on-surface-variant">{newChannelId}</div>}
+                  </div>
+                </div>
+              </div>
+              <Button onClick={handleAddChannel} disabled={!newChannelId || !newChannelName} className="w-full">
+                Add Channel
               </Button>
             </div>
           </div>

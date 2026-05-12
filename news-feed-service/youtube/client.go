@@ -106,3 +106,29 @@ func (c *Client) GetVideoDetails(ctx context.Context, videoID string) (*Video, e
 func (c *Client) GetTranscript(ctx context.Context, videoID string) (string, error) {
 	return "", fmt.Errorf("transcript download requires OAuth - not implemented via API key")
 }
+
+type Channel struct {
+	ID   string
+	Name string
+	Handle string
+}
+
+func (c *Client) SearchChannels(ctx context.Context, query string) ([]Channel, error) {
+	call := c.svc.Search.List([]string{"snippet"}).Q(query).Type("channel").MaxResults(10)
+	resp, err := call.Context(ctx).Do()
+	if err != nil {
+		return nil, fmt.Errorf("search channels: %w", err)
+	}
+	channels := make([]Channel, 0, len(resp.Items))
+	for _, item := range resp.Items {
+		if item.Id.ChannelId == "" {
+			continue
+		}
+		channels = append(channels, Channel{
+			ID:     item.Id.ChannelId,
+			Name:   item.Snippet.Title,
+			Handle: item.Snippet.ChannelTitle,
+		})
+	}
+	return channels, nil
+}

@@ -94,6 +94,20 @@ export function useNews() {
     setVideos(Array.isArray(data) ? data : []);
   }, []);
 
+  const searchChannels = useCallback(async (query: string) => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/channels/search?q=${encodeURIComponent(query)}`);
+      if (!res.ok) throw new Error("Search failed");
+      return await res.json();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+      return [];
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   const analyzeVideo = useCallback(async (videoId: string, title: string) => {
     setLoading(true);
     try {
@@ -111,5 +125,5 @@ export function useNews() {
     }
   }, [fetchStoredVideos]);
 
-  return { articles, videos, channels, latestVideos, loading, error, fetchNews, fetchChannels, fetchLatestVideos, fetchStoredVideos, analyzeVideo };
+  return { articles, videos, channels, latestVideos, loading, error, fetchNews, fetchChannels, fetchLatestVideos, fetchStoredVideos, analyzeVideo, searchChannels };
 }
