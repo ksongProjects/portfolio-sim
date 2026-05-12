@@ -82,9 +82,12 @@ type FinancialRatio struct {
 }
 
 type TickerSearchResult struct {
-	Symbol   string `json:"symbol"`
-	Name     string `json:"name"`
-	Exchange string `json:"exchange"`
-	Type     string `json:"type"`
-	SymbolID int    `json:"symbolId"`
+	Symbol    string  `json:"symbol"`
+	Name      string  `json:"name"`
+	Exchange  string  `json:"exchange"`
+	Type      string  `json:"type"`
+	SymbolID  int     `json:"symbolId"`
+	Price     float64 `json:"price"`
+	Change    float64 `json:"change"`
+	ChangePct float64 `json:"changePct"`
 }
