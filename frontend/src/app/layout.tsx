@@ -3,6 +3,7 @@ import { Inter, Work_Sans } from "next/font/google";
 import "./globals.css";
 import { Navbar } from "@/components/navbar";
 import { Toaster } from "sonner";
+import { Providers } from "@/components/providers";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -30,11 +31,13 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} ${workSans.variable}`}>
       <body className="min-h-full flex flex-col bg-surface text-on-background antialiased">
-        <Navbar />
-        <main className="flex-1 flex flex-col">
-          {children}
-        </main>
-        <Toaster position="top-right" />
+        <Providers>
+          <Navbar />
+          <main className="flex-1 flex flex-col">
+            {children}
+          </main>
+          <Toaster position="top-right" />
+        </Providers>
       </body>
     </html>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 
@@ -43,87 +43,78 @@ export interface NewsVideo {
   published_at: string;
 }
 
+async function fetchJSON(url: string) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+async function postJSON(url: string, body: unknown) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.status === 204 ? null : res.json();
+}
+
 export function useNews() {
-  const [articles, setArticles] = useState<NewsArticle[]>([]);
-  const [videos, setVideos] = useState<NewsVideo[]>([]);
-  const [channels, setChannels] = useState<YouTubeChannel[]>([]);
-  const [latestVideos, setLatestVideos] = useState<YouTubeVideo[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
-  const fetchNews = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`${API_BASE}/api/news`);
-      if (!res.ok) throw new Error("Failed to fetch news");
-      const data = await res.json();
-      setArticles(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const articles = useQuery<NewsArticle[]>({
+    queryKey: ["news", "articles"],
+    queryFn: () => fetchJSON(`${API_BASE}/api/news`),
+  });
 
-  const fetchChannels = useCallback(async () => {
-    const res = await fetch(`${API_BASE}/api/channels`);
-    if (!res.ok) return;
-    const data = await res.json();
-    setChannels(Array.isArray(data) ? data : []);
-  }, []);
+  const channels = useQuery<YouTubeChannel[]>({
+    queryKey: ["news", "channels"],
+    queryFn: () => fetchJSON(`${API_BASE}/api/channels`),
+  });
 
-  const fetchLatestVideos = useCallback(async (channelId: string) => {
-    setLoading(true);
-    try {
-      const res = await fetch(`${API_BASE}/api/videos/latest?channel_id=${encodeURIComponent(channelId)}`);
-      if (!res.ok) throw new Error("Failed to fetch videos");
-      const data = await res.json();
-      setLatestVideos(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const videos = useQuery<NewsVideo[]>({
+    queryKey: ["news", "videos"],
+    queryFn: () => fetchJSON(`${API_BASE}/api/videos`),
+  });
 
-  const fetchStoredVideos = useCallback(async () => {
-    const res = await fetch(`${API_BASE}/api/videos`);
-    if (!res.ok) return;
-    const data = await res.json();
-    setVideos(Array.isArray(data) ? data : []);
-  }, []);
+  const latestVideos = useQuery<YouTubeVideo[]>({
+    queryKey: ["news", "latestVideos"],
+    queryFn: () => fetchJSON(`${API_BASE}/api/videos/latest`),
+    enabled: false,
+  });
 
-  const searchChannels = useCallback(async (query: string) => {
-    setLoading(true);
-    try {
-      const res = await fetch(`${API_BASE}/api/channels/search?q=${encodeURIComponent(query)}`);
-      if (!res.ok) throw new Error("Search failed");
-      return await res.json();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-      return [];
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const searchChannelsMutation = useMutation({
+    mutationFn: (query: string) => fetchJSON(`${API_BASE}/api/channels/search?q=${encodeURIComponent(query)}`) as Promise<YouTubeChannel[]>,
+  });
 
-  const analyzeVideo = useCallback(async (videoId: string, title: string) => {
-    setLoading(true);
-    try {
-      const res = await fetch(`${API_BASE}/api/videos/analyze`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ video_id: videoId, title }),
-      });
-      if (!res.ok) throw new Error("Failed to analyze video");
-      await fetchStoredVideos();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-    } finally {
-      setLoading(false);
-    }
-  }, [fetchStoredVideos]);
+  const addChannelMutation = useMutation({
+    mutationFn: (data: { channel_id: string; name: string }) => postJSON(`${API_BASE}/api/channels`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["news", "channels"] });
+    },
+  });
 
-  return { articles, videos, channels, latestVideos, loading, error, fetchNews, fetchChannels, fetchLatestVideos, fetchStoredVideos, analyzeVideo, searchChannels };
+  const analyzeVideoMutation = useMutation({
+    mutationFn: (data: { video_id: string; title: string }) => postJSON(`${API_BASE}/api/videos/analyze`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["news", "videos"] });
+    },
+  });
+
+  return {
+    articles: articles.data ?? [],
+    videos: videos.data ?? [],
+    channels: channels.data ?? [],
+    latestVideos: latestVideos.data ?? [],
+    loading: articles.isLoading || videos.isLoading || channels.isLoading,
+    error: articles.error?.message ?? null,
+    fetchNews: () => queryClient.invalidateQueries({ queryKey: ["news", "articles"] }),
+    fetchChannels: () => queryClient.invalidateQueries({ queryKey: ["news", "channels"] }),
+    fetchLatestVideos: (channelId: string) =>
+      queryClient.fetchQuery({ queryKey: ["news", "latestVideos", channelId], queryFn: () => fetchJSON(`${API_BASE}/api/videos/latest?channel_id=${encodeURIComponent(channelId)}`) }),
+    fetchStoredVideos: () => queryClient.invalidateQueries({ queryKey: ["news", "videos"] }),
+    searchChannels: searchChannelsMutation.mutateAsync,
+    addChannel: addChannelMutation.mutateAsync,
+    analyzeVideo: analyzeVideoMutation.mutateAsync,
+  };
 }
