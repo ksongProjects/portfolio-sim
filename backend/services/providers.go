@@ -272,7 +272,6 @@ func (s *ProviderService) CheckConnection(ctx context.Context, db interface {
 	statuses := []ConnectionStatus{
 		{ID: "postgres", Name: "PostgreSQL", Type: "database", IsUp: isUp, LatencyMs: latency},
 		{ID: "redis", Name: "Redis", Type: "cache", IsUp: true, LatencyMs: 1},
-		{ID: "websocket", Name: "WebSocket", Type: "streaming", IsUp: true, LatencyMs: 0},
 	}
 	return statuses, nil
 }
