@@ -1,7 +1,9 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useCallback, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { buildApiUrl, fetchJson } from "@/lib/api";
 
 export interface Notification {
   id: string;
@@ -12,81 +14,88 @@ export interface Notification {
   read: boolean;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+type NotificationPayload = {
+  id: string;
+  title: string;
+  message: string;
+  type: string;
+  timestamp: string;
+  read?: boolean;
+};
+
+async function fetchNotificationsData() {
+  const data = await fetchJson<NotificationPayload[]>(
+    "/api/notifications",
+    undefined,
+    "Failed to fetch"
+  );
+
+  return Array.isArray(data)
+    ? data.map((notification) => ({
+        ...notification,
+        type: notification.type as Notification["type"],
+        timestamp: new Date(notification.timestamp),
+        read: notification.read ?? false,
+      }))
+    : [];
+}
 
 export function useNotifications() {
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const queryClient = useQueryClient();
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  const notificationsQuery = useQuery({
+    queryKey: ["notifications"],
+    queryFn: fetchNotificationsData,
+    retry: false,
+  });
+
+  const notifications = notificationsQuery.data ?? [];
+  const unreadCount = notifications.filter((notification) => !notification.read).length;
+
+  const updateNotifications = useCallback(
+    (updater: (current: Notification[]) => Notification[]) => {
+      queryClient.setQueryData<Notification[]>(["notifications"], (current = []) =>
+        updater(current)
+      );
+    },
+    [queryClient]
+  );
 
   const fetchNotifications = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/notifications`);
-      if (!res.ok) throw new Error("Failed to fetch");
-      const data = await res.json();
-      setNotifications(
-        Array.isArray(data)
-          ? data.map((n: { id: string; title: string; message: string; type: string; timestamp: string; read?: boolean }) => ({
-              ...n,
-              type: n.type as Notification["type"],
-              timestamp: new Date(n.timestamp),
-              read: n.read ?? false,
-            }))
-          : []
-      );
+      await notificationsQuery.refetch();
     } catch {
       // silent fail
     }
-  }, []);
+  }, [notificationsQuery]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    void (async () => {
+  const markAsRead = useCallback(
+    async (id: string) => {
       try {
-        const res = await fetch(`${API_BASE}/api/notifications`);
-        if (!res.ok) throw new Error("Failed to fetch");
-        const data = await res.json();
-        if (cancelled) return;
-        setNotifications(
-          Array.isArray(data)
-            ? data.map((n: { id: string; title: string; message: string; type: string; timestamp: string; read?: boolean }) => ({
-                ...n,
-                type: n.type as Notification["type"],
-                timestamp: new Date(n.timestamp),
-                read: n.read ?? false,
-              }))
-            : []
-        );
+        await fetch(buildApiUrl("/api/notifications/dismiss"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id }),
+        });
       } catch {
         // silent fail
       }
-    })();
 
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const unreadCount = notifications.filter((n) => !n.read).length;
-
-  const markAsRead = useCallback(async (id: string) => {
-    try {
-      await fetch(`${API_BASE}/api/notifications/dismiss`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id }),
-      });
-    } catch {
-      // silent fail
-    }
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
-    );
-  }, []);
+      updateNotifications((current) =>
+        current.map((notification) =>
+          notification.id === id ? { ...notification, read: true } : notification
+        )
+      );
+    },
+    [updateNotifications]
+  );
 
   const markAllAsRead = useCallback(() => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-  }, []);
+    updateNotifications((current) =>
+      current.map((notification) => ({ ...notification, read: true }))
+    );
+  }, [updateNotifications]);
 
   const addNotification = useCallback(
     (notification: Omit<Notification, "id" | "timestamp" | "read">) => {
@@ -96,7 +105,9 @@ export function useNotifications() {
         timestamp: new Date(),
         read: false,
       };
-      setNotifications((prev) => [newNotification, ...prev]);
+
+      updateNotifications((current) => [newNotification, ...current]);
+
       if (notification.type === "error") {
         toast.error(notification.title, { description: notification.message });
       } else if (notification.type === "warning") {
@@ -107,16 +118,21 @@ export function useNotifications() {
         toast(notification.title, { description: notification.message });
       }
     },
-    []
+    [updateNotifications]
   );
 
-  const removeNotification = useCallback((id: string) => {
-    setNotifications((prev) => prev.filter((n) => n.id !== id));
-  }, []);
+  const removeNotification = useCallback(
+    (id: string) => {
+      updateNotifications((current) =>
+        current.filter((notification) => notification.id !== id)
+      );
+    },
+    [updateNotifications]
+  );
 
   const clearAll = useCallback(() => {
-    setNotifications([]);
-  }, []);
+    updateNotifications(() => []);
+  }, [updateNotifications]);
 
   return {
     notifications,

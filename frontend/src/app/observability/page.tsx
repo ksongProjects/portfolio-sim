@@ -84,7 +84,7 @@ function LogRow({ id, message, metadata, isExpanded, onToggle }: LogRowProps) {
 }
 
 export default function ObservabilityPage() {
-  const { services, logs, loading, error, lastUpdated, refresh, filters, setLogFilters, applyFilters } = useObservability();
+  const { services, logs, loading, error, lastUpdated, filters, setLogFilters, applyFilters } = useObservability();
   const [expandedLogIds, setExpandedLogIds] = useState<Set<string>>(new Set());
   const [logsLimit, setLogsLimit] = useState(100);
 
@@ -103,10 +103,6 @@ export default function ObservabilityPage() {
   const healthyCount = services.filter((s) => s.status === "healthy").length;
   const warningCount = services.filter((s) => s.status === "warning").length;
   const errorCount = services.filter((s) => s.status === "error").length;
-
-  const handleRefresh = () => {
-    refresh();
-  };
 
   const expandedColumns: ColumnDef<{
     id: string;
@@ -319,7 +315,7 @@ export default function ObservabilityPage() {
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={applyFilters}
+                onClick={() => applyFilters(logsLimit)}
                 className="h-8 text-xs"
               >
                 Get Logs

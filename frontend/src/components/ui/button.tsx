@@ -13,6 +13,8 @@ const buttonVariants = cva(
           "bg-primary text-on-primary hover:bg-primary/90",
         secondary:
           "border border-on-surface/20 bg-transparent text-on-surface hover:bg-surface-container-high hover:border-on-surface/40",
+        warning:
+          "bg-warning text-on-primary hover:bg-warning/90",
         ghost:
           "bg-transparent text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface",
         link:
@@ -23,6 +25,7 @@ const buttonVariants = cva(
         sm: "h-8 px-3 text-xs",
         lg: "h-12 px-6",
         icon: "h-10 w-10",
+        "icon-xs": "h-6 w-6",
       },
     },
     defaultVariants: {

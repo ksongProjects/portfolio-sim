@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { PageGrid, PageCell, PageHeader, MetricLabel, MetricValue, MetricSubValue } from "@/components/page-layout";
 import { CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -51,12 +51,10 @@ function MiniChart() {
 }
 
 export default function DashboardPage() {
-  const { positions, summary, indices, loading, refresh } = usePortfolio();
+  const { positions, summary, indices, loading } = usePortfolio();
   const [simRunning, setSimRunning] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [activePeriod, setActivePeriod] = useState("1M");
-
-  useEffect(() => { refresh(); }, [refresh]);
 
   const showToast = (msg: string) => {
     setToast(msg);

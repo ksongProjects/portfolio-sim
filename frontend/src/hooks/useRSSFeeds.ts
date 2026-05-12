@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useCallback } from "react";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+import { useCallback } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { buildApiUrl, fetchJson, getErrorMessage } from "@/lib/api";
 
 export interface RSSFeed {
   id: string;
@@ -12,77 +12,114 @@ export interface RSSFeed {
   last_scrape_at: string | null;
 }
 
+async function fetchFeedsData() {
+  const data = await fetchJson<RSSFeed[]>("/api/rss-feeds", undefined, "Failed to fetch feeds");
+  return Array.isArray(data) ? data : [];
+}
+
 export function useRSSFeeds() {
-  const [feeds, setFeeds] = useState<RSSFeed[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  const feedsQuery = useQuery({
+    queryKey: ["rss-feeds"],
+    queryFn: fetchFeedsData,
+  });
+
+  const addFeedMutation = useMutation({
+    mutationFn: async ({ name, url }: { name: string; url: string }) => {
+      const data = await fetchJson<RSSFeed[]>(
+        "/api/rss-feeds",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, url }),
+        },
+        "Failed to add feed"
+      );
+
+      return Array.isArray(data) ? data : [];
+    },
+    onSuccess: (feeds) => {
+      queryClient.setQueryData(["rss-feeds"], feeds);
+    },
+  });
+
+  const deleteFeedMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(buildApiUrl(`/api/rss-feeds?id=${encodeURIComponent(id)}`), {
+        method: "DELETE",
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to delete feed");
+      }
+
+      return id;
+    },
+    onSuccess: (id) => {
+      queryClient.setQueryData<RSSFeed[]>(["rss-feeds"], (prev = []) =>
+        prev.filter((feed) => feed.id !== id)
+      );
+    },
+  });
+
+  const scrapeFeedsMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(buildApiUrl("/api/rss-feeds/scrape"), { method: "POST" });
+
+      if (!res.ok) {
+        throw new Error("Failed to trigger scrape");
+      }
+    },
+  });
 
   const fetchFeeds = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`${API_BASE}/api/rss-feeds`);
-      if (!res.ok) throw new Error("Failed to fetch feeds");
-      const data = await res.json();
-      setFeeds(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    await feedsQuery.refetch();
+  }, [feedsQuery]);
 
-  const addFeed = useCallback(async (name: string, url: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`${API_BASE}/api/rss-feeds`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, url }),
-      });
-      if (!res.ok) throw new Error("Failed to add feed");
-      const data = await res.json();
-      setFeeds(Array.isArray(data) ? data : []);
-      return true;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const addFeed = useCallback(
+    async (name: string, url: string) => {
+      try {
+        await addFeedMutation.mutateAsync({ name, url });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [addFeedMutation]
+  );
 
-  const deleteFeed = useCallback(async (id: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`${API_BASE}/api/rss-feeds?id=${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Failed to delete feed");
-      setFeeds((prev) => prev.filter((f) => f.id !== id));
-      return true;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const deleteFeed = useCallback(
+    async (id: string) => {
+      try {
+        await deleteFeedMutation.mutateAsync(id);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [deleteFeedMutation]
+  );
 
   const scrapeFeeds = useCallback(async () => {
-    setLoading(true);
-    setError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/rss-feeds/scrape`, { method: "POST" });
-      if (!res.ok) throw new Error("Failed to trigger scrape");
+      await scrapeFeedsMutation.mutateAsync();
       return true;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
+    } catch {
       return false;
-    } finally {
-      setLoading(false);
     }
-  }, []);
+  }, [scrapeFeedsMutation]);
 
-  return { feeds, loading, error, fetchFeeds, addFeed, deleteFeed, scrapeFeeds };
+  const combinedError =
+    feedsQuery.error ?? addFeedMutation.error ?? deleteFeedMutation.error ?? scrapeFeedsMutation.error;
+
+  return {
+    feeds: feedsQuery.data ?? [],
+    loading: feedsQuery.isFetching || addFeedMutation.isPending || deleteFeedMutation.isPending || scrapeFeedsMutation.isPending,
+    error: combinedError ? getErrorMessage(combinedError) : null,
+    fetchFeeds,
+    addFeed,
+    deleteFeed,
+    scrapeFeeds,
+  };
 }

@@ -2,9 +2,17 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
-function Input({ className, type, ...props }: React.ComponentProps<"input">) {
-  return (
+type InputProps = React.ComponentProps<"input"> & {
+  label?: string
+}
+
+function Input({ className, id, label, type, ...props }: InputProps) {
+  const generatedId = React.useId()
+  const resolvedId = id ?? generatedId
+
+  const input = (
     <input
+      id={resolvedId}
       type={type}
       data-slot="input"
       className={cn(
@@ -15,6 +23,17 @@ function Input({ className, type, ...props }: React.ComponentProps<"input">) {
       )}
       {...props}
     />
+  )
+
+  if (!label) {
+    return input
+  }
+
+  return (
+    <label htmlFor={resolvedId} className="block space-y-1">
+      <span className="text-xs text-on-surface-variant">{label}</span>
+      {input}
+    </label>
   )
 }
 

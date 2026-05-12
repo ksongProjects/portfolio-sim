@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { ColumnDef } from "@tanstack/react-table";
 import { PageGrid, PageCell, PageHeader, MetricLabel, MetricValue, MetricSubValue } from "@/components/page-layout";
@@ -128,10 +128,8 @@ const columns: ColumnDef<Position>[] = [
 ];
 
 export default function PortfolioPage() {
-  const { positions, summary, loading, refresh, addPosition } = usePortfolio();
+  const { positions, summary, loading, addPosition } = usePortfolio();
   const [modalOpen, setModalOpen] = useState(false);
-
-  useEffect(() => { refresh(); }, [refresh]);
 
   const handleAddPosition = async (position: { symbol: string; shares: number; price: number }) => {
     try {

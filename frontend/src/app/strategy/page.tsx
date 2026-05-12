@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { PageCell, PageHeader, MetricLabel, MetricValue } from "@/components/page-layout";
 import { CardTitle } from "@/components/ui/card";
 import { Badge, StatusIndicator } from "@/components/ui/badge";
@@ -14,10 +14,8 @@ function fmtPct(v: number): string {
 }
 
 export default function StrategyPage() {
-  const { strategies, signals, loading, refresh } = useStrategies();
+  const { strategies, signals, loading } = useStrategies();
   const [toast, setToast] = useState<string | null>(null);
-
-  useEffect(() => { refresh(); }, [refresh]);
 
   const showToast = (msg: string) => {
     setToast(msg);

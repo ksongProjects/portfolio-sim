@@ -6,8 +6,8 @@ import { CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Clock, ExternalLink, Search, Bookmark, RefreshCw, Plus, X, Rss, Check, Video, ChevronRight, Play, Loader } from "lucide-react";
-import { useNews } from "@/hooks/useNews";
+import { Clock, ExternalLink, Search, Bookmark, RefreshCw, Plus, X, Rss, Check, Video, Play, Loader } from "lucide-react";
+import { useNews, type NewsArticle, type NewsVideo } from "@/hooks/useNews";
 import { useRSSFeeds } from "@/hooks/useRSSFeeds";
 
 function timeAgo(dateStr: string): string {
@@ -28,7 +28,7 @@ function timeAgo(dateStr: string): string {
 }
 
 export default function NewsFeedPage() {
-  const { articles, videos, channels, latestVideos, loading, error, fetchNews, fetchChannels, fetchLatestVideos, fetchStoredVideos, analyzeVideo, searchChannels } = useNews();
+  const { articles, videos, channels, latestVideos, loading, fetchNews, fetchLatestVideos, analyzeVideo, searchChannels, addChannel } = useNews();
   const [search, setSearch] = useState("");
   const [saved, setSaved] = useState<string[]>([]);
   const [toast, setToast] = useState<string | null>(null);
@@ -37,24 +37,23 @@ export default function NewsFeedPage() {
   const [showAddFeed, setShowAddFeed] = useState(false);
   const [newFeedName, setNewFeedName] = useState("");
   const [newFeedUrl, setNewFeedUrl] = useState("");
-  const { feeds, loading: feedsLoading, fetchFeeds, addFeed, scrapeFeeds } = useRSSFeeds();
+  const { feeds, loading: feedsLoading, addFeed, scrapeFeeds } = useRSSFeeds();
   const [showVideoSection, setShowVideoSection] = useState(false);
   const [selectedChannel, setSelectedChannel] = useState<string>("");
   const [selectedVideoIds, setSelectedVideoIds] = useState<Set<string>>(new Set());
   const [analyzingIds, setAnalyzingIds] = useState<Set<string>>(new Set());
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [detailItem, setDetailItem] = useState<{type: "article" | "video"; data: any} | null>(null);
+  const [detailItem, setDetailItem] = useState<
+    | { type: "article"; data: NewsArticle }
+    | { type: "video"; data: NewsVideo }
+    | null
+  >(null);
   const [showAddChannel, setShowAddChannel] = useState(false);
   const [newChannelId, setNewChannelId] = useState("");
   const [newChannelName, setNewChannelName] = useState("");
   const [channelSearch, setChannelSearch] = useState("");
   const [channelResults, setChannelResults] = useState<{id: string; name: string; handle: string}[]>([]);
   const [searchingChannels, setSearchingChannels] = useState(false);
-
-  useEffect(() => { fetchFeeds(); }, [fetchFeeds]);
-  useEffect(() => { fetchNews(); }, [fetchNews]);
-  useEffect(() => { fetchChannels(); }, [fetchChannels]);
-  useEffect(() => { fetchStoredVideos(); }, [fetchStoredVideos]);
 
   useEffect(() => {
     if (selectedChannel) {
@@ -121,22 +120,17 @@ export default function NewsFeedPage() {
 
   const handleAddChannel = async () => {
     if (!newChannelId || !newChannelName) return;
-    try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"}/api/channels`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channel_id: newChannelId, name: newChannelName }),
-      });
-      if (res.ok) {
-        setNewChannelId("");
-        setNewChannelName("");
-        setShowAddChannel(false);
-        setChannelSearch("");
-        setChannelResults([]);
-        fetchChannels();
-        showToast("Channel added");
-      }
-    } catch {
+
+    const success = await addChannel(newChannelId, newChannelName);
+
+    if (success) {
+      setNewChannelId("");
+      setNewChannelName("");
+      setShowAddChannel(false);
+      setChannelSearch("");
+      setChannelResults([]);
+      showToast("Channel added");
+    } else {
       showToast("Failed to add channel");
     }
   };
@@ -159,8 +153,15 @@ export default function NewsFeedPage() {
     setChannelSearch("");
   };
 
-  const openDetail = (type: "article" | "video", data: any) => {
-    setDetailItem({ type, data });
+  const openDetail = (
+    type: "article" | "video",
+    data: NewsArticle | NewsVideo
+  ) => {
+    setDetailItem(
+      type === "article"
+        ? { type, data: data as NewsArticle }
+        : { type, data: data as NewsVideo }
+    );
     setShowDetailModal(true);
   };
 
@@ -203,7 +204,7 @@ export default function NewsFeedPage() {
                       selectedChannel === ch.channel_id ? "bg-primary/10 border-primary" : "border-outline-variant hover:bg-surface-container"
                     }`}
                   >
-                    <Youtube className="h-4 w-4 text-error" />
+                    <Video className="h-4 w-4 text-error" />
                     <span className="text-sm">{ch.name}</span>
                   </button>
                 ))}
@@ -440,7 +441,7 @@ export default function NewsFeedPage() {
                 <div className="border border-outline-variant/30 max-h-48 overflow-y-auto">
                   {channelResults.map((ch) => (
                     <button key={ch.id} onClick={() => selectSearchResult(ch)} className="w-full flex items-center gap-2 p-2 text-left hover:bg-surface-container transition-colors border-b border-outline-variant/20 last:border-b-0">
-                      <Youtube className="h-4 w-4 text-error" />
+                      <Video className="h-4 w-4 text-error" />
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-medium truncate">{ch.name}</div>
                         <div className="text-xs text-on-surface-variant">{ch.handle}</div>
@@ -452,7 +453,7 @@ export default function NewsFeedPage() {
               <div className="border-t border-outline-variant/30 pt-4">
                 <div className="text-xs text-on-surface-variant mb-2">Selected Channel</div>
                 <div className="flex items-center gap-2 p-2 bg-surface-container rounded border border-outline-variant/30">
-                  <Youtube className="h-4 w-4 text-error" />
+                  <Video className="h-4 w-4 text-error" />
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium truncate">{newChannelName || "None selected"}</div>
                     {newChannelId && <div className="text-xs text-on-surface-variant">{newChannelId}</div>}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { PageCell, PageHeader, MetricLabel, MetricValue } from "@/components/page-layout";
 import { CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -110,22 +110,30 @@ function ProviderCard({
         )}
       </div>
       <div className="space-y-3">
-        <div className="relative">
-          <Input
-            label="API Key"
-            type={showSecret ? "text" : "password"}
-            placeholder="sk_xxxxxxxxxxxx"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            className="pr-10"
-          />
-          <button
-            type="button"
-            onClick={() => setShowSecret(!showSecret)}
-            className="absolute inset-y-0 right-0 flex items-center pr-3 text-on-surface-variant hover:text-on-surface transition-colors"
+        <div className="space-y-1">
+          <label
+            htmlFor={`provider-api-key-${provider.provider_id}`}
+            className="text-xs text-on-surface-variant"
           >
-            {showSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-          </button>
+            API Key
+          </label>
+          <div className="relative">
+            <Input
+              id={`provider-api-key-${provider.provider_id}`}
+              type={showSecret ? "text" : "password"}
+              placeholder="sk_xxxxxxxxxxxx"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              className="pr-10"
+            />
+            <button
+              type="button"
+              onClick={() => setShowSecret(!showSecret)}
+              className="absolute inset-y-0 right-0 flex items-center pr-3 text-on-surface-variant hover:text-on-surface transition-colors"
+            >
+              {showSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
         </div>
         {testResult && (
           <div className="flex items-center gap-2 text-sm">
@@ -262,8 +270,6 @@ export default function SettingsPage() {
   const handleNotificationChange = (key: keyof typeof notificationSettings, value: boolean) => {
     setNotificationSettings((prev) => ({ ...prev, [key]: value }));
   };
-
-  useEffect(() => { refresh(); }, [refresh]);
 
   const connectedCount = connections.filter((c) => c.is_up).length;
 

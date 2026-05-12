@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useCallback } from "react";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+import { useCallback } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { buildApiUrl, fetchJson, getErrorMessage } from "@/lib/api";
 
 export interface ProviderConfig {
   id: string;
@@ -33,140 +33,222 @@ export interface RSSFeed {
   is_active: boolean;
 }
 
+async function fetchProvidersData() {
+  return fetchJson<ProviderConfig[]>("/api/providers", undefined, "Failed to fetch providers");
+}
+
+async function fetchConnectionsData() {
+  return fetchJson<ConnectionStatus[]>("/api/connections", undefined, "Failed to fetch connections");
+}
+
+async function fetchRSSFeedsData() {
+  const data = await fetchJson<RSSFeed[]>("/api/rss-feeds", undefined, "Failed to fetch RSS feeds");
+  return Array.isArray(data) ? data : [];
+}
+
 export function useProviders() {
-  const [providers, setProviders] = useState<ProviderConfig[]>([]);
-  const [connections, setConnections] = useState<ConnectionStatus[]>([]);
-  const [rssFeeds, setRssFeeds] = useState<RSSFeed[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
-  const fetchProviders = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`${API_BASE}/api/providers`);
-      if (!res.ok) throw new Error("Failed to fetch providers");
-      const data = await res.json();
-      setProviders(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const providersQuery = useQuery({
+    queryKey: ["providers"],
+    queryFn: fetchProvidersData,
+  });
 
-  const fetchConnections = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/connections`);
-      if (!res.ok) throw new Error("Failed to fetch connections");
-      const data = await res.json();
-      setConnections(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-    }
-  }, []);
+  const connectionsQuery = useQuery({
+    queryKey: ["connections"],
+    queryFn: fetchConnectionsData,
+  });
 
-  const fetchRSSFeeds = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/rss-feeds`);
-      if (!res.ok) throw new Error("Failed to fetch RSS feeds");
-      const data = await res.json();
-      setRssFeeds(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-    }
-  }, []);
+  const rssFeedsQuery = useQuery({
+    queryKey: ["rss-feeds"],
+    queryFn: fetchRSSFeedsData,
+  });
 
-  const saveProviderKey = useCallback(async (providerId: string, apiKey: string): Promise<boolean> => {
-    try {
-      const res = await fetch(`${API_BASE}/api/providers`, {
+  const saveProviderKeyMutation = useMutation({
+    mutationFn: async ({
+      providerId,
+      apiKey,
+    }: {
+      providerId: string;
+      apiKey: string;
+    }) => {
+      const res = await fetch(buildApiUrl("/api/providers"), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ provider_id: providerId, api_key: apiKey }),
       });
-      if (!res.ok) throw new Error("Failed to save");
-      await fetchProviders();
-      return true;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-      return false;
-    }
-  }, [fetchProviders]);
 
-  const validateProviderKey = useCallback(async (providerId: string, apiKey: string): Promise<{ valid: boolean; error?: string }> => {
-    try {
-      const res = await fetch(`${API_BASE}/api/providers/validate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider_id: providerId, api_key: apiKey }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.valid) throw new Error(data.error || "Failed to validate");
-      return data;
-    } catch (err) {
-      return { valid: false, error: err instanceof Error ? err.message : "Unknown error" };
-    }
-  }, []);
+      if (!res.ok) {
+        throw new Error("Failed to save");
+      }
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["providers"] });
+    },
+  });
 
-  const addRSSFeed = useCallback(async (name: string, url: string): Promise<boolean> => {
-    try {
-      const res = await fetch(`${API_BASE}/api/rss-feeds`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, url }),
-      });
-      if (!res.ok) throw new Error("Failed to add feed");
-      const data = await res.json();
-      setRssFeeds(data);
-      return true;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-      return false;
-    }
-  }, []);
+  const addRSSFeedMutation = useMutation({
+    mutationFn: async ({ name, url }: { name: string; url: string }) => {
+      const data = await fetchJson<RSSFeed[]>(
+        "/api/rss-feeds",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, url }),
+        },
+        "Failed to add feed"
+      );
 
-  const deleteRSSFeed = useCallback(async (feedId: string): Promise<boolean> => {
-    try {
-      const res = await fetch(`${API_BASE}/api/rss-feeds?id=${feedId}`, {
+      return Array.isArray(data) ? data : [];
+    },
+    onSuccess: (feeds) => {
+      queryClient.setQueryData(["rss-feeds"], feeds);
+    },
+  });
+
+  const deleteRSSFeedMutation = useMutation({
+    mutationFn: async (feedId: string) => {
+      const res = await fetch(buildApiUrl(`/api/rss-feeds?id=${encodeURIComponent(feedId)}`), {
         method: "DELETE",
       });
-      if (!res.ok) throw new Error("Failed to delete feed");
-      await fetchRSSFeeds();
-      return true;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-      return false;
-    }
-  }, [fetchRSSFeeds]);
+
+      if (!res.ok) {
+        throw new Error("Failed to delete feed");
+      }
+
+      return feedId;
+    },
+    onSuccess: (feedId) => {
+      queryClient.setQueryData<RSSFeed[]>(["rss-feeds"], (prev = []) =>
+        prev.filter((feed) => feed.id !== feedId)
+      );
+    },
+  });
+
+  const refreshQuestradeTokenMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(buildApiUrl("/api/providers/questrade/refresh"), {
+        method: "POST",
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to refresh");
+      }
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["providers"] });
+    },
+  });
+
+  const fetchProviders = useCallback(async () => {
+    await providersQuery.refetch();
+  }, [providersQuery]);
+
+  const fetchConnections = useCallback(async () => {
+    await connectionsQuery.refetch();
+  }, [connectionsQuery]);
+
+  const fetchRSSFeeds = useCallback(async () => {
+    await rssFeedsQuery.refetch();
+  }, [rssFeedsQuery]);
+
+  const saveProviderKey = useCallback(
+    async (providerId: string, apiKey: string): Promise<boolean> => {
+      try {
+        await saveProviderKeyMutation.mutateAsync({ providerId, apiKey });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [saveProviderKeyMutation]
+  );
+
+  const validateProviderKey = useCallback(
+    async (
+      providerId: string,
+      apiKey: string
+    ): Promise<{ valid: boolean; error?: string }> => {
+      try {
+        const res = await fetch(buildApiUrl("/api/providers/validate"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provider_id: providerId, api_key: apiKey }),
+        });
+        const data = await res.json();
+
+        if (!res.ok || !data.valid) {
+          throw new Error(data.error || "Failed to validate");
+        }
+
+        return data;
+      } catch (err) {
+        return { valid: false, error: getErrorMessage(err) };
+      }
+    },
+    []
+  );
+
+  const addRSSFeed = useCallback(
+    async (name: string, url: string): Promise<boolean> => {
+      try {
+        await addRSSFeedMutation.mutateAsync({ name, url });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [addRSSFeedMutation]
+  );
+
+  const deleteRSSFeed = useCallback(
+    async (feedId: string): Promise<boolean> => {
+      try {
+        await deleteRSSFeedMutation.mutateAsync(feedId);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [deleteRSSFeedMutation]
+  );
 
   const refresh = useCallback(async () => {
-    setLoading(true);
-    await Promise.all([fetchProviders(), fetchConnections(), fetchRSSFeeds()]);
-    setLoading(false);
-  }, [fetchProviders, fetchConnections, fetchRSSFeeds]);
+    await Promise.all([
+      providersQuery.refetch(),
+      connectionsQuery.refetch(),
+      rssFeedsQuery.refetch(),
+    ]);
+  }, [connectionsQuery, providersQuery, rssFeedsQuery]);
 
   const refreshQuestradeToken = useCallback(async (): Promise<{ success: boolean; error?: string }> => {
     try {
-      const res = await fetch(`${API_BASE}/api/providers/questrade/refresh`, {
-        method: "POST",
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        return { success: false, error: data.error || "Failed to refresh" };
-      }
-      await fetchProviders();
+      await refreshQuestradeTokenMutation.mutateAsync();
       return { success: true };
     } catch (err) {
-      return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
+      return { success: false, error: getErrorMessage(err) };
     }
-  }, [fetchProviders]);
+  }, [refreshQuestradeTokenMutation]);
+
+  const combinedError =
+    providersQuery.error ??
+    connectionsQuery.error ??
+    rssFeedsQuery.error ??
+    saveProviderKeyMutation.error ??
+    addRSSFeedMutation.error ??
+    deleteRSSFeedMutation.error ??
+    refreshQuestradeTokenMutation.error;
 
   return {
-    providers,
-    connections,
-    rssFeeds,
-    loading,
-    error,
+    providers: providersQuery.data ?? [],
+    connections: connectionsQuery.data ?? [],
+    rssFeeds: rssFeedsQuery.data ?? [],
+    loading:
+      providersQuery.isFetching ||
+      connectionsQuery.isFetching ||
+      rssFeedsQuery.isFetching,
+    error: combinedError ? getErrorMessage(combinedError) : null,
     fetchProviders,
     fetchConnections,
     fetchRSSFeeds,

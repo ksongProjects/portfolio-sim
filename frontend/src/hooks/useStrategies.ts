@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useCallback } from "react";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+import { useCallback, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { fetchJson, getErrorMessage } from "@/lib/api";
 
 export interface Strategy {
   ID: string;
@@ -23,40 +23,56 @@ export interface Signal {
   Timestamp: string;
 }
 
+async function fetchStrategiesData() {
+  return fetchJson<Strategy[]>("/api/strategies", undefined, "Failed to fetch strategies");
+}
+
+async function fetchSignalsData(limit: number) {
+  return fetchJson<Signal[]>(`/api/signals?limit=${limit}`, undefined, "Failed to fetch signals");
+}
+
 export function useStrategies() {
-  const [strategies, setStrategies] = useState<Strategy[]>([]);
-  const [signals, setSignals] = useState<Signal[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [signalLimit, setSignalLimit] = useState(10);
+
+  const strategiesQuery = useQuery({
+    queryKey: ["strategies"],
+    queryFn: fetchStrategiesData,
+  });
+
+  const signalsQuery = useQuery({
+    queryKey: ["signals", signalLimit],
+    queryFn: () => fetchSignalsData(signalLimit),
+  });
 
   const fetchStrategies = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/strategies`);
-      if (!res.ok) throw new Error("Failed to fetch strategies");
-      const data = await res.json();
-      setStrategies(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-    }
-  }, []);
+    await strategiesQuery.refetch();
+  }, [strategiesQuery]);
 
-  const fetchSignals = useCallback(async (limit = 10) => {
-    try {
-      const res = await fetch(`${API_BASE}/api/signals?limit=${limit}`);
-      if (!res.ok) throw new Error("Failed to fetch signals");
-      const data = await res.json();
-      setSignals(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-    }
-  }, []);
+  const fetchSignals = useCallback(
+    async (limit = 10) => {
+      if (limit !== signalLimit) {
+        setSignalLimit(limit);
+        return;
+      }
+
+      await signalsQuery.refetch();
+    },
+    [signalLimit, signalsQuery]
+  );
 
   const refresh = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    await Promise.all([fetchStrategies(), fetchSignals()]);
-    setLoading(false);
-  }, [fetchStrategies, fetchSignals]);
+    await Promise.all([strategiesQuery.refetch(), signalsQuery.refetch()]);
+  }, [signalsQuery, strategiesQuery]);
 
-  return { strategies, signals, loading, error, fetchStrategies, fetchSignals, refresh };
+  const combinedError = strategiesQuery.error ?? signalsQuery.error;
+
+  return {
+    strategies: strategiesQuery.data ?? [],
+    signals: signalsQuery.data ?? [],
+    loading: strategiesQuery.isFetching || signalsQuery.isFetching,
+    error: combinedError ? getErrorMessage(combinedError) : null,
+    fetchStrategies,
+    fetchSignals,
+    refresh,
+  };
 }

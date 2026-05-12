@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useCallback } from "react";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+import { useCallback } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { buildApiUrl, fetchJson, getErrorMessage } from "@/lib/api";
 
 export interface Position {
 	ID: string;
@@ -49,62 +49,184 @@ export interface Trade {
 	Timestamp: string;
 }
 
-export function usePortfolio() {
-	const [positions, setPositions] = useState<Position[]>([]);
-	const [summary, setSummary] = useState<PortfolioSummary | null>(null);
-	const [indices, setIndices] = useState<MarketIndex[]>([]);
-	const [loading, setLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+async function fetchPositionsData(portfolioId: string) {
+	return fetchJson<Position[]>(
+		`/api/portfolio/positions?portfolio_id=${encodeURIComponent(portfolioId)}`,
+		undefined,
+		"Failed to fetch positions"
+	);
+}
 
-	const fetchPositions = useCallback(async (portfolioId = "default") => {
-		try {
-			const res = await fetch(`${API_BASE}/api/portfolio/positions?portfolio_id=${portfolioId}`);
-			if (!res.ok) throw new Error("Failed to fetch positions");
-			const data = await res.json();
-			setPositions(data);
-		} catch (err) {
-			setError(err instanceof Error ? err.message : "Unknown error");
-		}
-	}, []);
+async function fetchSummaryData(portfolioId: string) {
+	return fetchJson<PortfolioSummary>(
+		`/api/portfolio/summary?portfolio_id=${encodeURIComponent(portfolioId)}`,
+		undefined,
+		"Failed to fetch summary"
+	);
+}
 
-	const fetchSummary = useCallback(async (portfolioId = "default") => {
-		try {
-			const res = await fetch(`${API_BASE}/api/portfolio/summary?portfolio_id=${portfolioId}`);
-			if (!res.ok) throw new Error("Failed to fetch summary");
-			const data = await res.json();
-			setSummary(data);
-		} catch (err) {
-			setError(err instanceof Error ? err.message : "Unknown error");
-		}
-	}, []);
+async function fetchIndicesData() {
+	return fetchJson<MarketIndex[]>("/api/market/indices", undefined, "Failed to fetch indices");
+}
+
+export function usePortfolio(portfolioId = "default") {
+	const queryClient = useQueryClient();
+
+	const positionsQuery = useQuery({
+		queryKey: ["portfolio", "positions", portfolioId],
+		queryFn: () => fetchPositionsData(portfolioId),
+	});
+
+	const summaryQuery = useQuery({
+		queryKey: ["portfolio", "summary", portfolioId],
+		queryFn: () => fetchSummaryData(portfolioId),
+	});
+
+	const indicesQuery = useQuery({
+		queryKey: ["portfolio", "indices"],
+		queryFn: fetchIndicesData,
+	});
+
+	const addPositionMutation = useMutation({
+		mutationFn: async ({
+			targetPortfolioId,
+			symbol,
+			shares,
+			price,
+		}: {
+			targetPortfolioId: string;
+			symbol: string;
+			shares: number;
+			price: number;
+		}) => {
+			const res = await fetch(buildApiUrl("/api/portfolio/positions"), {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					portfolio_id: targetPortfolioId,
+					symbol,
+					shares,
+					price,
+				}),
+			});
+
+			if (!res.ok) {
+				throw new Error("Failed to add position");
+			}
+		},
+		onSuccess: async (_, variables) => {
+			await Promise.all([
+				queryClient.invalidateQueries({
+					queryKey: ["portfolio", "positions", variables.targetPortfolioId],
+				}),
+				queryClient.invalidateQueries({
+					queryKey: ["portfolio", "summary", variables.targetPortfolioId],
+				}),
+				queryClient.invalidateQueries({ queryKey: ["portfolio", "indices"] }),
+			]);
+		},
+	});
+
+	const fetchPositions = useCallback(
+		async (targetPortfolioId = portfolioId) => {
+			if (targetPortfolioId !== portfolioId) {
+				await queryClient.fetchQuery({
+					queryKey: ["portfolio", "positions", targetPortfolioId],
+					queryFn: () => fetchPositionsData(targetPortfolioId),
+				});
+				return;
+			}
+
+			await positionsQuery.refetch();
+		},
+		[portfolioId, positionsQuery, queryClient]
+	);
+
+	const fetchSummary = useCallback(
+		async (targetPortfolioId = portfolioId) => {
+			if (targetPortfolioId !== portfolioId) {
+				await queryClient.fetchQuery({
+					queryKey: ["portfolio", "summary", targetPortfolioId],
+					queryFn: () => fetchSummaryData(targetPortfolioId),
+				});
+				return;
+			}
+
+			await summaryQuery.refetch();
+		},
+		[portfolioId, queryClient, summaryQuery]
+	);
 
 	const fetchIndices = useCallback(async () => {
-		try {
-			const res = await fetch(`${API_BASE}/api/market/indices`);
-			if (!res.ok) throw new Error("Failed to fetch indices");
-			const data = await res.json();
-			setIndices(data);
-		} catch (err) {
-			setError(err instanceof Error ? err.message : "Unknown error");
-		}
-	}, []);
+		await indicesQuery.refetch();
+	}, [indicesQuery]);
 
-	const refresh = useCallback(async (portfolioId = "default") => {
-		setLoading(true);
-		setError(null);
-		await Promise.all([fetchPositions(portfolioId), fetchSummary(portfolioId), fetchIndices()]);
-		setLoading(false);
-	}, [fetchPositions, fetchSummary, fetchIndices]);
+	const refresh = useCallback(
+		async (targetPortfolioId = portfolioId) => {
+			if (targetPortfolioId !== portfolioId) {
+				await Promise.all([
+					queryClient.fetchQuery({
+						queryKey: ["portfolio", "positions", targetPortfolioId],
+						queryFn: () => fetchPositionsData(targetPortfolioId),
+					}),
+					queryClient.fetchQuery({
+						queryKey: ["portfolio", "summary", targetPortfolioId],
+						queryFn: () => fetchSummaryData(targetPortfolioId),
+					}),
+					queryClient.fetchQuery({
+						queryKey: ["portfolio", "indices"],
+						queryFn: fetchIndicesData,
+					}),
+				]);
+				return;
+			}
 
-	const addPosition = useCallback(async (portfolioId = "default", symbol: string, shares: number, price: number) => {
-		const res = await fetch(`${API_BASE}/api/portfolio/positions`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ portfolio_id: portfolioId, symbol, shares, price }),
-		});
-		if (!res.ok) throw new Error("Failed to add position");
-		await refresh(portfolioId);
-	}, [refresh]);
+			await Promise.all([
+				positionsQuery.refetch(),
+				summaryQuery.refetch(),
+				indicesQuery.refetch(),
+			]);
+		},
+		[indicesQuery, portfolioId, positionsQuery, queryClient, summaryQuery]
+	);
 
-	return { positions, summary, indices, loading, error, fetchPositions, fetchSummary, fetchIndices, refresh, addPosition };
+	const addPosition = useCallback(
+		async (
+			targetPortfolioId = portfolioId,
+			symbol: string,
+			shares: number,
+			price: number
+		) => {
+			await addPositionMutation.mutateAsync({
+				targetPortfolioId,
+				symbol,
+				shares,
+				price,
+			});
+		},
+		[addPositionMutation, portfolioId]
+	);
+
+	const combinedError =
+		positionsQuery.error ??
+		summaryQuery.error ??
+		indicesQuery.error ??
+		addPositionMutation.error;
+
+	return {
+		positions: positionsQuery.data ?? [],
+		summary: summaryQuery.data ?? null,
+		indices: indicesQuery.data ?? [],
+		loading:
+			positionsQuery.isFetching ||
+			summaryQuery.isFetching ||
+			indicesQuery.isFetching ||
+			addPositionMutation.isPending,
+		error: combinedError ? getErrorMessage(combinedError) : null,
+		fetchPositions,
+		fetchSummary,
+		fetchIndices,
+		refresh,
+		addPosition,
+	};
 }

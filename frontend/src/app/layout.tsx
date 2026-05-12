@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import { Inter, Work_Sans } from "next/font/google";
 import "./globals.css";
 import { Navbar } from "@/components/navbar";
-import { Toaster } from "sonner";
 import { Providers } from "@/components/providers";
+import { Toaster } from "sonner";
 
 const inter = Inter({
   variable: "--font-inter",

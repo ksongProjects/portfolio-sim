@@ -1,8 +1,8 @@
 "use client";
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+import { useCallback, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { buildApiUrl, fetchJson, getErrorMessage } from "@/lib/api";
 
 export interface NewsArticle {
   ID: string;
@@ -43,78 +43,213 @@ export interface NewsVideo {
   published_at: string;
 }
 
-async function fetchJSON(url: string) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+async function fetchNewsData() {
+  const data = await fetchJson<NewsArticle[]>("/api/news", undefined, "Failed to fetch news");
+  return Array.isArray(data) ? data : [];
 }
 
-async function postJSON(url: string, body: unknown) {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.status === 204 ? null : res.json();
+async function fetchChannelsData() {
+  const data = await fetchJson<YouTubeChannel[]>("/api/channels", undefined, "Failed to fetch channels");
+  return Array.isArray(data) ? data : [];
+}
+
+async function fetchStoredVideosData() {
+  const data = await fetchJson<NewsVideo[]>("/api/videos", undefined, "Failed to fetch videos");
+  return Array.isArray(data) ? data : [];
+}
+
+async function fetchLatestVideosData(channelId: string) {
+  const data = await fetchJson<YouTubeVideo[]>(
+    `/api/videos/latest?channel_id=${encodeURIComponent(channelId)}`,
+    undefined,
+    "Failed to fetch videos"
+  );
+  return Array.isArray(data) ? data : [];
 }
 
 export function useNews() {
   const queryClient = useQueryClient();
+  const [latestChannelId, setLatestChannelId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  const articles = useQuery<NewsArticle[]>({
+  const articlesQuery = useQuery({
     queryKey: ["news", "articles"],
-    queryFn: () => fetchJSON(`${API_BASE}/api/news`),
+    queryFn: fetchNewsData,
   });
 
-  const channels = useQuery<YouTubeChannel[]>({
+  const channelsQuery = useQuery({
     queryKey: ["news", "channels"],
-    queryFn: () => fetchJSON(`${API_BASE}/api/channels`),
+    queryFn: fetchChannelsData,
   });
 
-  const videos = useQuery<NewsVideo[]>({
-    queryKey: ["news", "videos"],
-    queryFn: () => fetchJSON(`${API_BASE}/api/videos`),
+  const storedVideosQuery = useQuery({
+    queryKey: ["news", "stored-videos"],
+    queryFn: fetchStoredVideosData,
   });
 
-  const latestVideos = useQuery<YouTubeVideo[]>({
-    queryKey: ["news", "latestVideos"],
-    queryFn: () => fetchJSON(`${API_BASE}/api/videos/latest`),
-    enabled: false,
-  });
-
-  const searchChannelsMutation = useMutation({
-    mutationFn: (query: string) => fetchJSON(`${API_BASE}/api/channels/search?q=${encodeURIComponent(query)}`) as Promise<YouTubeChannel[]>,
-  });
-
-  const addChannelMutation = useMutation({
-    mutationFn: (data: { channel_id: string; name: string }) => postJSON(`${API_BASE}/api/channels`, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["news", "channels"] });
-    },
+  const latestVideosQuery = useQuery({
+    queryKey: ["news", "latest-videos", latestChannelId],
+    queryFn: () => fetchLatestVideosData(latestChannelId!),
+    enabled: Boolean(latestChannelId),
+    placeholderData: (previousData) => previousData,
   });
 
   const analyzeVideoMutation = useMutation({
-    mutationFn: (data: { video_id: string; title: string }) => postJSON(`${API_BASE}/api/videos/analyze`, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["news", "videos"] });
+    mutationFn: async ({ videoId, title }: { videoId: string; title: string }) => {
+      const res = await fetch(buildApiUrl("/api/videos/analyze"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ video_id: videoId, title }),
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to analyze video");
+      }
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["news", "stored-videos"] });
     },
   });
 
+  const addChannelMutation = useMutation({
+    mutationFn: async ({
+      channelId,
+      name,
+    }: {
+      channelId: string;
+      name: string;
+    }) => {
+      const res = await fetch(buildApiUrl("/api/channels"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channel_id: channelId, name }),
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to add channel");
+      }
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["news", "channels"] });
+    },
+  });
+
+  const fetchNews = useCallback(async () => {
+    await articlesQuery.refetch();
+  }, [articlesQuery]);
+
+  const fetchChannels = useCallback(async () => {
+    await channelsQuery.refetch();
+  }, [channelsQuery]);
+
+  const fetchLatestVideos = useCallback(
+    async (channelId: string) => {
+      setActionError(null);
+
+      if (!channelId) {
+        setLatestChannelId(null);
+        return;
+      }
+
+      if (channelId !== latestChannelId) {
+        setLatestChannelId(channelId);
+        return;
+      }
+
+      await latestVideosQuery.refetch();
+    },
+    [latestChannelId, latestVideosQuery]
+  );
+
+  const fetchStoredVideos = useCallback(async () => {
+    await storedVideosQuery.refetch();
+  }, [storedVideosQuery]);
+
+  const searchChannels = useCallback(
+    async (query: string) => {
+      if (!query.trim()) {
+        return [];
+      }
+
+      setActionError(null);
+
+      try {
+        const data = await queryClient.fetchQuery({
+          queryKey: ["news", "channel-search", query],
+          queryFn: () =>
+            fetchJson<{ id: string; name: string; handle: string }[]>(
+              `/api/channels/search?q=${encodeURIComponent(query)}`,
+              undefined,
+              "Search failed"
+            ),
+          staleTime: 5 * 60 * 1000,
+        });
+
+        return Array.isArray(data) ? data : [];
+      } catch (err) {
+        setActionError(getErrorMessage(err));
+        return [];
+      }
+    },
+    [queryClient]
+  );
+
+  const analyzeVideo = useCallback(
+    async (videoId: string, title: string) => {
+      setActionError(null);
+      await analyzeVideoMutation.mutateAsync({ videoId, title });
+    },
+    [analyzeVideoMutation]
+  );
+
+  const addChannel = useCallback(
+    async (channelId: string, name: string) => {
+      setActionError(null);
+
+      try {
+        await addChannelMutation.mutateAsync({ channelId, name });
+        return true;
+      } catch (err) {
+        setActionError(getErrorMessage(err));
+        return false;
+      }
+    },
+    [addChannelMutation]
+  );
+
+  const combinedError =
+    actionError ??
+    (articlesQuery.error
+      ? getErrorMessage(articlesQuery.error)
+      : channelsQuery.error
+        ? getErrorMessage(channelsQuery.error)
+        : storedVideosQuery.error
+          ? getErrorMessage(storedVideosQuery.error)
+          : latestVideosQuery.error
+            ? getErrorMessage(latestVideosQuery.error)
+            : analyzeVideoMutation.error
+              ? getErrorMessage(analyzeVideoMutation.error)
+              : addChannelMutation.error
+                ? getErrorMessage(addChannelMutation.error)
+                : null);
+
   return {
-    articles: articles.data ?? [],
-    videos: videos.data ?? [],
-    channels: channels.data ?? [],
-    latestVideos: latestVideos.data ?? [],
-    loading: articles.isLoading || videos.isLoading || channels.isLoading,
-    error: articles.error?.message ?? null,
-    fetchNews: () => queryClient.invalidateQueries({ queryKey: ["news", "articles"] }),
-    fetchChannels: () => queryClient.invalidateQueries({ queryKey: ["news", "channels"] }),
-    fetchLatestVideos: (channelId: string) =>
-      queryClient.fetchQuery({ queryKey: ["news", "latestVideos", channelId], queryFn: () => fetchJSON(`${API_BASE}/api/videos/latest?channel_id=${encodeURIComponent(channelId)}`) }),
-    fetchStoredVideos: () => queryClient.invalidateQueries({ queryKey: ["news", "videos"] }),
-    searchChannels: searchChannelsMutation.mutateAsync,
-    addChannel: addChannelMutation.mutateAsync,
-    analyzeVideo: analyzeVideoMutation.mutateAsync,
+    articles: articlesQuery.data ?? [],
+    videos: storedVideosQuery.data ?? [],
+    channels: channelsQuery.data ?? [],
+    latestVideos: latestVideosQuery.data ?? [],
+    loading:
+      articlesQuery.isFetching ||
+      latestVideosQuery.isFetching ||
+      analyzeVideoMutation.isPending ||
+      addChannelMutation.isPending,
+    error: combinedError,
+    fetchNews,
+    fetchChannels,
+    fetchLatestVideos,
+    fetchStoredVideos,
+    analyzeVideo,
+    searchChannels,
+    addChannel,
   };
 }

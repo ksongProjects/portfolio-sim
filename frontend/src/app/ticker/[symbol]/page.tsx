@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, TrendingUp, TrendingDown, Building, Briefcase, DollarSign, BarChart2, Percent, Calendar, Activity } from "lucide-react";
@@ -111,14 +110,7 @@ function RatioCard({ ratio }: { ratio: { label: string; value: string; descripti
 export default function TickerPage() {
   const params = useParams();
   const symbol = params.symbol as string;
-  const { selectedTicker, intradayData, ratios, loading, lookupTicker, clearSelection } = useTickerLookup();
-
-  useEffect(() => {
-    if (symbol) {
-      lookupTicker(symbol);
-    }
-    return () => clearSelection();
-  }, [symbol, lookupTicker, clearSelection]);
+  const { selectedTicker, intradayData, ratios, loading } = useTickerLookup(symbol);
 
   if (loading) {
     return (
