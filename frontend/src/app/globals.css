@@ -78,3 +78,17 @@ body {
   background: #3fe56c;
   color: #003912;
 }
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #131313;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #393939;
+  border-radius: 4px;
+}
