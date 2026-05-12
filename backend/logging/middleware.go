@@ -2,7 +2,6 @@ package logging
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -11,8 +10,8 @@ import (
 	"time"
 )
 
-func Middleware(client *Client) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
+func Middleware(client *Client) func(http.HandlerFunc) http.HandlerFunc {
+	return func(next http.HandlerFunc) http.HandlerFunc {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !shouldLog(r.URL.Path) || client == nil {
 				next.ServeHTTP(w, r)
@@ -73,21 +72,6 @@ func Middleware(client *Client) func(http.Handler) http.Handler {
 			client.log(r.Context(), level, "API Response", respMeta)
 		})
 	}
-}
-
-func (c *Client) log(ctx context.Context, level string, msg string, meta map[string]interface{}) {
-	entry := LogEntry{
-		ID:        randomID(),
-		Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
-		Level:     level,
-		Service:   c.serviceName,
-		Message:   msg,
-		Metadata:  meta,
-	}
-	body, _ := json.Marshal(entry)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.logURL, bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	c.client.Do(req)
 }
 
 func randomID() string {

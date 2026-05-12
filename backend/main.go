@@ -136,9 +136,7 @@ func NewServer(cfg *Config) (*Server, error) {
 	if logURL == "" {
 		logURL = "http://main-api:8080/api/logs"
 	}
-	logClient := logging.NewClient("backend", logURL)
-
-	lm := logging.Middleware(logClient)
+logClient := logging.NewClient("backend", logURL)
 
 	providerSecret := os.Getenv("PROVIDER_SECRET_KEY")
 	if providerSecret == "" {
@@ -175,6 +173,8 @@ func (s *Server) Start() error {
 			h.ServeHTTP(w, r)
 		})
 	}
+
+	lm := logging.Middleware(s.logClient)
 
 	http.HandleFunc("GET /health", s.handleHealth)
 	http.HandleFunc("POST /api/logs", s.handleIngestLog)
