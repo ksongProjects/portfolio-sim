@@ -507,20 +507,28 @@ func (s *MarketDataService) handleSearchTickers(w http.ResponseWriter, r *http.R
 	var allResults []providers.TickerSearchResult
 	var providerErrors []string
 	successCount := 0
-	for _, provider := range s.availableProviders(r.Context()) {
-		results, err := provider.SearchTickers(query)
+	seenSymbols := make(map[string]bool)
+	var priceProvider providers.Provider
+	for _, prov := range s.availableProviders(r.Context()) {
+		results, err := prov.SearchTickers(query)
 		if err != nil {
-			s.logClient.WarnWithMeta(context.Background(), "search failed for provider", map[string]interface{}{"provider": provider.Name(), "error": err.Error()})
-			providerErrors = append(providerErrors, fmt.Sprintf("%s: %v", provider.Name(), err))
+			s.logClient.WarnWithMeta(context.Background(), "search failed for provider", map[string]interface{}{"provider": prov.Name(), "error": err.Error()})
+			providerErrors = append(providerErrors, fmt.Sprintf("%s: %v", prov.Name(), err))
 			continue
 		}
 		successCount++
+		priceProvider = prov
 		s.logClient.InfoWithMeta(context.Background(), "search succeeded for provider", map[string]interface{}{
-			"provider": provider.Name(),
+			"provider": prov.Name(),
 			"query":    query,
 			"count":    len(results),
 		})
-		allResults = append(allResults, results...)
+		for _, result := range results {
+			if !seenSymbols[result.Symbol] {
+				seenSymbols[result.Symbol] = true
+				allResults = append(allResults, result)
+			}
+		}
 
 		for _, result := range results {
 			s.storage.UpsertTickerFromSearch(r.Context(), result.Symbol, result.Name, result.Exchange, result.Type)
@@ -532,6 +540,16 @@ func (s *MarketDataService) handleSearchTickers(w http.ResponseWriter, r *http.R
 		w.WriteHeader(http.StatusBadGateway)
 		json.NewEncoder(w).Encode(map[string]string{"error": strings.Join(providerErrors, "; ")})
 		return
+	}
+
+	if priceProvider != nil {
+		for i := range allResults {
+			if price, err := priceProvider.FetchPrice(allResults[i].Symbol); err == nil {
+				allResults[i].Price = price.Price
+				allResults[i].Change = price.Price
+				allResults[i].ChangePct = 0
+			}
+		}
 	}
 
 	if allResults == nil {
@@ -635,7 +653,12 @@ func (s *MarketDataService) handleIntradayBars(w http.ResponseWriter, r *http.Re
 		http.Error(w, "symbol required", http.StatusBadRequest)
 		return
 	}
-	bars, err := s.storage.GetIntradayBars(r.Context(), symbol, 100)
+	interval := r.URL.Query().Get("interval")
+	if interval == "" {
+		interval = "1min"
+	}
+	limit := 100
+	bars, err := s.storage.GetIntradayBars(r.Context(), symbol, interval, limit)
 	if err != nil {
 		s.logClient.ErrorWithMeta(r.Context(), "get intraday bars failed", map[string]interface{}{"symbol": symbol, "error": err.Error()})
 		w.Header().Set("Content-Type", "application/json")
