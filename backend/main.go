@@ -608,13 +608,6 @@ func (s *Server) handleGetMarketIndices(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleGetNews(w http.ResponseWriter, r *http.Request) {
-	limit := r.URL.Query().Get("limit")
-	l := 20
-	if limit != "" {
-		if parsed, err := strconv.Atoi(limit); err == nil && parsed > 0 {
-			l = parsed
-		}
-	}
 	articles, _ := s.portfolioSvc.GetNewsArticles(r.Context(), s.db)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(articles)
@@ -975,7 +968,7 @@ func (s *Server) handleGetTickerDetails(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	intraday, _ := s.tickerSvc.GetIntradayBars(r.Context(), symbol)
+	intraday, _ := s.tickerSvc.GetIntradayBars(r.Context(), symbol, "")
 	ratios, _ := s.tickerSvc.GetFinancialRatios(r.Context(), symbol)
 
 	response := map[string]interface{}{
