@@ -109,6 +109,7 @@ type Server struct {
 	portfolioSvc *services.PortfolioService
 	providerSvc  *services.ProviderService
 	tickerSvc    *services.TickerService
+	newsFeedSvc  *services.NewsFeedService
 }
 
 func NewServer(cfg *Config) (*Server, error) {
@@ -157,6 +158,7 @@ logClient := logging.NewClient("backend", logURL)
 		portfolioSvc: services.NewPortfolioService(),
 		providerSvc:  services.NewProviderService(logger, logClient, secretCodec),
 		tickerSvc:    services.NewTickerService(os.Getenv("MARKET_DATA_SERVICE_URL"), logClient),
+		newsFeedSvc:  services.NewNewsFeedService(os.Getenv("NEWS_FEED_SERVICE_URL"), logClient),
 	}, nil
 }
 
@@ -202,6 +204,10 @@ func (s *Server) Start() error {
 	http.HandleFunc("POST /api/rss-feeds/scrape", lm(http.HandlerFunc(s.handleScrapeRSSFeeds)))
 	http.HandleFunc("GET /api/tickers/search", lm(http.HandlerFunc(s.handleSearchTickers)))
 	http.HandleFunc("GET /api/tickers/", lm(http.HandlerFunc(s.handleGetTickerDetails)))
+	http.HandleFunc("GET /api/channels", lm(http.HandlerFunc(s.handleGetChannels)))
+	http.HandleFunc("GET /api/videos/latest", lm(http.HandlerFunc(s.handleGetLatestVideos)))
+	http.HandleFunc("GET /api/videos", lm(http.HandlerFunc(s.handleGetStoredVideos)))
+	http.HandleFunc("POST /api/videos/analyze", lm(http.HandlerFunc(s.handleAnalyzeVideo)))
 	http.HandleFunc("GET /api/stream/market", s.handleMarketStream)
 
 	s.logger.Info("main api server starting", "port", s.cfg.Server.HTTPPort)
@@ -999,6 +1005,65 @@ func (s *Server) handleGetTickerDetails(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+func (s *Server) handleGetChannels(w http.ResponseWriter, r *http.Request) {
+	data, err := s.newsFeedSvc.GetChannels(r.Context())
+	if err != nil {
+		s.logger.Error("get channels failed", "error", err)
+		http.Error(w, "failed to get channels", http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(data)
+}
+
+func (s *Server) handleGetLatestVideos(w http.ResponseWriter, r *http.Request) {
+	channelID := r.URL.Query().Get("channel_id")
+	if channelID == "" {
+		http.Error(w, "channel_id required", http.StatusBadRequest)
+		return
+	}
+	data, err := s.newsFeedSvc.GetLatestVideos(r.Context(), channelID)
+	if err != nil {
+		s.logger.Error("get latest videos failed", "error", err)
+		http.Error(w, "failed to get videos", http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(data)
+}
+
+func (s *Server) handleGetStoredVideos(w http.ResponseWriter, r *http.Request) {
+	data, err := s.newsFeedSvc.GetStoredVideos(r.Context())
+	if err != nil {
+		s.logger.Error("get stored videos failed", "error", err)
+		http.Error(w, "failed to get videos", http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(data)
+}
+
+func (s *Server) handleAnalyzeVideo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		VideoID string `json:"video_id"`
+		Title   string `json:"title"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	if err := s.newsFeedSvc.AnalyzeVideo(r.Context(), req.VideoID, req.Title); err != nil {
+		s.logger.Error("analyze video failed", "error", err)
+		http.Error(w, "failed to analyze video", http.StatusBadGateway)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func main() {
