@@ -108,7 +108,7 @@ func main() {
 	})
 
 	mux.HandleFunc("/api/videos/latest", func(w http.ResponseWriter, r *http.Request) {
-		if ytClient == nil {
+		if youtubeClient == nil {
 			http.Error(w, "youtube client not configured", http.StatusInternalServerError)
 			return
 		}
@@ -117,7 +117,7 @@ func main() {
 			http.Error(w, "channel_id required", http.StatusBadRequest)
 			return
 		}
-		videos, err := ytClient.GetLatestVideos(r.Context(), channelID, 20)
+		videos, err := youtubeClient.GetLatestVideos(r.Context(), channelID, 20)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("failed to fetch videos: %v", err), http.StatusInternalServerError)
 			return
@@ -140,24 +140,24 @@ func main() {
 			return
 		}
 
-		details, err := ytClient.GetVideoDetails(r.Context(), req.VideoID)
+		details, err := youtubeClient.GetVideoDetails(r.Context(), req.VideoID)
 		if err != nil {
 			http.Error(w, "failed to get video details", http.StatusInternalServerError)
 			return
 		}
 
-		transcript, _ := ytClient.GetVideoCaption(r.Context(), req.VideoID)
+		transcript, _ := youtubeClient.GetVideoCaption(r.Context(), req.VideoID)
 		if transcript == "" {
 			transcript = details.Description
 		}
 
-		result, err := geminiClient.AnalyzeArticle(r.Context(), req.Title, transcript)
+		sentiment, tickers, err := geminiClient.AnalyzeArticle(r.Context(), req.Title, transcript)
 		if err != nil {
 			http.Error(w, "failed to analyze video", http.StatusInternalServerError)
 			return
 		}
 
-		tickersJSON, _ := json.Marshal(result.RelatedTickers)
+		tickersJSON, _ := json.Marshal(tickers)
 		_, err = db.Pool.Exec(r.Context(), `
 			INSERT INTO news_videos (youtube_id, title, channel, transcript_text, summary_text, sentiment, tickers, published_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -166,7 +166,7 @@ func main() {
 				summary_text = $5,
 				sentiment = EXCLUDED.sentiment,
 				tickers = EXCLUDED.tickers
-		`, req.VideoID, req.Title, details.ChannelName, transcript, "", result.Sentiment, tickersJSON, details.PublishedAt)
+		`, req.VideoID, req.Title, details.ChannelName, transcript, "", sentiment, tickersJSON, details.PublishedAt)
 		if err != nil {
 			log.Printf("failed to store video: %v", err)
 			http.Error(w, "failed to store video", http.StatusInternalServerError)

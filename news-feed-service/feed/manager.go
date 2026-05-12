@@ -13,23 +13,28 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+type SentimentResult struct {
+	Sentiment      string   `json:"sentiment"`
+	RelatedTickers []string `json:"related_tickers"`
+}
+
 type Manager struct {
-	redis       *redis.Client
-	pgx         *pgxpool.Pool
-	scrapeTimer *time.Timer
-	mu          sync.Mutex
-	wg          sync.WaitGroup
-	logClient   interface{ Info(ctx context.Context, msg string) error; Error(ctx context.Context, msg string) error }
+	redis        *redis.Client
+	pgx          *pgxpool.Pool
+	scrapeTimer  *time.Timer
+	mu           sync.Mutex
+	wg           sync.WaitGroup
+	logClient    interface{ Info(ctx context.Context, msg string) error; Error(ctx context.Context, msg string) error }
 	geminiClient interface {
-		AnalyzeArticle(ctx context.Context, title, summary string) (*SentimentResult, error)
+		AnalyzeArticle(ctx context.Context, title, summary string) (string, []string, error)
 	}
 }
 
-func NewManager(redisClient *redis.Client, pgx *pgxpool.Pool, logClient interface{ Info(ctx context.Context, msg string) error; Error(ctx context.Context, msg string) error }, geminiClient interface{ AnalyzeArticle(ctx context.Context, title, summary string) (*SentimentResult, error) }) *Manager {
+func NewManager(redisClient *redis.Client, pgx *pgxpool.Pool, logClient interface{ Info(ctx context.Context, msg string) error; Error(ctx context.Context, msg string) error }, geminiClient interface{ AnalyzeArticle(ctx context.Context, title, summary string) (string, []string, error) }) *Manager {
 	return &Manager{
-		redis:       redisClient,
-		pgx:         pgx,
-		logClient:   logClient,
+		redis:        redisClient,
+		pgx:          pgx,
+		logClient:    logClient,
 		geminiClient: geminiClient,
 	}
 }
@@ -124,7 +129,7 @@ func (m *Manager) scrapeFeed(ctx context.Context, parser *gofeed.Parser, feed rs
 		}
 		article := NewsArticle{
 			ID:          uuid.New(),
-			TickerIDs:   []string{},
+			Tickers:     []string{},
 			Source:      feed.Name,
 			Title:       item.Title,
 			URL:         item.Link,
@@ -134,10 +139,10 @@ func (m *Manager) scrapeFeed(ctx context.Context, parser *gofeed.Parser, feed rs
 		}
 
 		if m.geminiClient != nil {
-			result, err := m.geminiClient.AnalyzeArticle(ctx, item.Title, truncateString(item.Description, 1000))
+			sentiment, tickers, err := m.geminiClient.AnalyzeArticle(ctx, item.Title, truncateString(item.Description, 1000))
 			if err == nil {
-				article.Sentiment = result.Sentiment
-				article.Tickers = result.RelatedTickers
+				article.Sentiment = sentiment
+				article.Tickers = tickers
 			} else if m.logClient != nil {
 				m.logClient.Error(ctx, fmt.Sprintf("Gemini analysis failed for %s: %v", article.Title, err))
 			}

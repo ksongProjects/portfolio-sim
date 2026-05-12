@@ -41,19 +41,14 @@ func (c *Client) Summarize(ctx context.Context, text string) (string, error) {
 	return fmt.Sprintf("%v", resp.Candidates[0].Content), nil
 }
 
-type SentimentResult struct {
-	Sentiment    string   `json:"sentiment"`
-	RelatedTickers []string `json:"related_tickers"`
-}
-
-func (c *Client) AnalyzeArticle(ctx context.Context, title, summary string) (*SentimentResult, error) {
+func (c *Client) AnalyzeArticle(ctx context.Context, title, summary string) (string, []string, error) {
 	if c.apiKey == "" {
-		return nil, fmt.Errorf("api key required")
+		return "", nil, fmt.Errorf("api key required")
 	}
 
 	client, err := genai.NewClient(ctx, option.WithAPIKey(c.apiKey))
 	if err != nil {
-		return nil, fmt.Errorf("create client: %w", err)
+		return "", nil, fmt.Errorf("create client: %w", err)
 	}
 	defer client.Close()
 
@@ -67,17 +62,17 @@ Respond with JSON only in this exact format:
 
 Rules:
 - sentiment: "bullish" for positive outlook, "bearish" for negative, "neutral" for mixed/neutral
-- related_tickers: stock ticker symbols mentioned or strongly implied (max 3, use "N/A" if none found)
+- related_tickers: stock ticker symbols mentioned or strongly implied (max 3, use empty array if none found)
 - Only include tickers that are explicit in the article`, title, summary)
 
 	model := client.GenerativeModel("gemini-2.5-flash")
 	resp, err := model.GenerateContent(ctx, genai.Text(prompt))
 	if err != nil {
-		return nil, fmt.Errorf("generate content: %w", err)
+		return "", nil, fmt.Errorf("generate content: %w", err)
 	}
 
 	if len(resp.Candidates) == 0 {
-		return nil, fmt.Errorf("no candidates")
+		return "", nil, fmt.Errorf("no candidates")
 	}
 
 	raw := fmt.Sprintf("%v", resp.Candidates[0].Content)
@@ -86,16 +81,14 @@ Rules:
 	raw = strings.TrimPrefix(raw, "json")
 	raw = strings.TrimSpace(raw)
 
-	result := &SentimentResult{
-		Sentiment:    "neutral",
-		RelatedTickers: []string{},
-	}
+	sentiment := "neutral"
+	tickers := []string{}
 
 	if strings.Contains(strings.ToLower(raw), "bearish") {
-		result.Sentiment = "bearish"
+		sentiment = "bearish"
 	} else if strings.Contains(strings.ToLower(raw), "bullish") {
-		result.Sentiment = "bullish"
+		sentiment = "bullish"
 	}
 
-	return result, nil
+	return sentiment, tickers, nil
 }
