@@ -188,6 +188,7 @@ func (s *Server) Start() error {
 	http.HandleFunc("GET /api/strategies", lm(http.HandlerFunc(s.handleGetStrategies)))
 	http.HandleFunc("GET /api/signals", lm(http.HandlerFunc(s.handleGetSignals)))
 	http.HandleFunc("GET /api/notifications", lm(http.HandlerFunc(s.handleGetNotifications)))
+	http.HandleFunc("POST /api/notifications/dismiss", lm(http.HandlerFunc(s.handleDismissNotification)))
 	http.HandleFunc("GET /api/providers", lm(http.HandlerFunc(s.handleGetProviders)))
 	http.HandleFunc("PUT /api/providers", lm(http.HandlerFunc(s.handleUpdateProvider)))
 	http.HandleFunc("POST /api/providers/validate", lm(http.HandlerFunc(s.handleValidateProvider)))
@@ -314,21 +315,38 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	route := r.URL.Query().Get("route")
+	route := r.URL.Query()["route"]
 
 	s.logger.Info("handleGetLogs: fetching logs", "limit", limit, "level", level, "service", service, "minutes", minutes, "route", route)
 
-	query := `
-		SELECT id, timestamp::text, level, service, component, message, metadata, trace_id, span_id, COALESCE(route, '')
-		FROM logs
-		WHERE ($1 = '' OR level = $1)
-		  AND ($2 = '' OR service = $2)
-		  AND ($5 = '' OR COALESCE(route, '') = $5)
-		  AND timestamp >= NOW() - INTERVAL '1 minute' * $3
-		ORDER BY timestamp DESC
-		LIMIT $4
-	`
-	rows, err := s.db.Query(r.Context(), query, level, service, minutes, limit, route)
+	var query string
+	var args []interface{}
+	if len(route) > 0 {
+		query = `
+			SELECT id, timestamp::text, level, service, component, message, metadata, trace_id, span_id, COALESCE(route, '')
+			FROM logs
+			WHERE ($1 = '' OR level = $1)
+			  AND ($2 = '' OR service = $2)
+			  AND COALESCE(route, '') = ANY($5)
+			  AND timestamp >= NOW() - INTERVAL '1 minute' * $3
+			ORDER BY timestamp DESC
+			LIMIT $4
+		`
+		args = []interface{}{level, service, minutes, limit, route}
+	} else {
+		query = `
+			SELECT id, timestamp::text, level, service, component, message, metadata, trace_id, span_id, COALESCE(route, '')
+			FROM logs
+			WHERE ($1 = '' OR level = $1)
+			  AND ($2 = '' OR service = $2)
+			  AND timestamp >= NOW() - INTERVAL '1 minute' * $3
+			ORDER BY timestamp DESC
+			LIMIT $4
+		`
+		args = []interface{}{level, service, minutes, limit}
+	}
+
+	rows, err := s.db.Query(r.Context(), query, args...)
 	if err != nil {
 		s.logger.Error("handleGetLogs: query failed", "error", err)
 		w.Header().Set("Content-Type", "application/json")
@@ -378,11 +396,14 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGetNotifications(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.db.Query(r.Context(), `
-		SELECT id, timestamp::text, level, service, message
-		FROM logs
-		WHERE level IN ('WARN', 'ERROR', 'FATAL')
-		  AND timestamp >= NOW() - INTERVAL '24 hours'
-		ORDER BY timestamp DESC
+		SELECT l.id, l.timestamp::text, l.level, l.service, l.message,
+		       CASE WHEN d.log_id IS NULL THEN false ELSE true END as dismissed
+		FROM logs l
+		LEFT JOIN notification_dismissals d ON l.id = d.log_id
+		WHERE l.level IN ('WARN', 'ERROR', 'FATAL')
+		  AND l.timestamp >= NOW() - INTERVAL '24 hours'
+		  AND d.log_id IS NULL
+		ORDER BY l.timestamp DESC
 		LIMIT 20
 	`)
 	if err != nil {
@@ -404,7 +425,8 @@ func (s *Server) handleGetNotifications(w http.ResponseWriter, r *http.Request) 
 	notifications := []Notification{}
 	for rows.Next() {
 		var id, timestamp, level, service, message string
-		if err := rows.Scan(&id, &timestamp, &level, &service, &message); err != nil {
+		var dismissed bool
+		if err := rows.Scan(&id, &timestamp, &level, &service, &message, &dismissed); err != nil {
 			s.logger.Error("handleGetNotifications: scan failed", "error", err)
 			continue
 		}
@@ -426,12 +448,38 @@ func (s *Server) handleGetNotifications(w http.ResponseWriter, r *http.Request) 
 			Message:   message,
 			Type:      notificationType,
 			Timestamp: timestamp,
-			Read:      false,
+			Read:      dismissed,
 		})
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(notifications)
+}
+
+func (s *Server) handleDismissNotification(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	_, err := s.db.Exec(r.Context(),
+		`INSERT INTO notification_dismissals (log_id) VALUES ($1) ON CONFLICT (log_id) DO NOTHING`,
+		req.ID)
+	if err != nil {
+		s.logger.Error("handleDismissNotification: insert failed", "error", err)
+		http.Error(w, "failed to dismiss notification", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleMarketStream(w http.ResponseWriter, r *http.Request) {
@@ -524,7 +572,7 @@ func (s *Server) handleAddPosition(w http.ResponseWriter, r *http.Request) {
 	}
 	portfolioID := req.PortfolioID
 	if portfolioID == "" || portfolioID == "default" {
-		portfolioID = "default"
+		portfolioID = "00000000-0000-0000-0000-000000000001"
 	}
 	err := s.portfolioSvc.AddPosition(r.Context(), s.db, portfolioID, req.Symbol, req.Shares, req.Price)
 	if err != nil {
