@@ -33,7 +33,7 @@ func Middleware(client *Client) func(http.HandlerFunc) http.HandlerFunc {
 				"query":           sanitizeURLQuery(r.URL.RawQuery),
 				"request_headers": redactHeaders(r.Header),
 				"remote_addr":     r.RemoteAddr,
-				"route":           getActionFromPath(r.URL.Path),
+				"route":           getRoute(r),
 			}
 			if len(reqBody) > 0 {
 				reqMeta["request_body"] = sanitizeBody(r.Header.Get("Content-Type"), reqBody)
@@ -83,9 +83,10 @@ func randomID() string {
 }
 
 var skipPaths = map[string]bool{
-	"/api/logs":                   true,
-	"/api/observability/logs":     true,
-	"/api/observability/services": true,
+	"/api/logs":                    true,
+	"/api/observability/logs":      true,
+	"/api/observability/services":  true,
+	"/api/connections":             true,
 }
 
 func shouldLog(path string) bool {
@@ -117,6 +118,34 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 	return rw.ResponseWriter.Write(b)
 }
 
+func getRoute(r *http.Request) string {
+	referer := r.Header.Get("Referer")
+	if referer != "" {
+		if u, err := url.Parse(referer); err == nil {
+			return getRouteFromPath(u.Path)
+		}
+	}
+	return getActionFromPath(r.URL.Path)
+}
+
+func getRouteFromPath(path string) string {
+	switch path {
+	case "/dashboard":
+		return "dashboard"
+	case "/portfolio":
+		return "portfolio"
+	case "/news-feed":
+		return "news"
+	case "/strategy":
+		return "strategy"
+	case "/observability":
+		return "observability"
+	case "/settings":
+		return "settings"
+	}
+	return "api"
+}
+
 func getActionFromPath(path string) string {
 	if strings.HasPrefix(path, "/api/observability/") {
 		return "observability"
@@ -124,32 +153,32 @@ func getActionFromPath(path string) string {
 	if strings.HasPrefix(path, "/api/portfolio/") {
 		return "portfolio"
 	}
-	if strings.HasPrefix(path, "/api/market/") {
+	if strings.HasPrefix(path, "/api/market/") || strings.HasPrefix(path, "/api/stream/market") {
 		return "market"
 	}
 	if strings.HasPrefix(path, "/api/news") {
 		return "news"
 	}
 	if strings.HasPrefix(path, "/api/strategies") {
-		return "strategies"
+		return "strategy"
 	}
 	if strings.HasPrefix(path, "/api/signals") {
-		return "signals"
+		return "strategy"
 	}
 	if strings.HasPrefix(path, "/api/notifications") {
 		return "notifications"
 	}
 	if strings.HasPrefix(path, "/api/providers") {
-		return "providers"
+		return "settings"
 	}
 	if strings.HasPrefix(path, "/api/connections") {
-		return "connections"
+		return "settings"
 	}
 	if strings.HasPrefix(path, "/api/rss-feeds") {
-		return "rss-feeds"
+		return "news"
 	}
 	if strings.HasPrefix(path, "/api/tickers/") {
-		return "tickers"
+		return "portfolio"
 	}
 	return "api"
 }
