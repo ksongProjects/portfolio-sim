@@ -214,15 +214,6 @@ func backfillOperation(dataType string) marketDataOperation {
 	}
 }
 
-func preferredSearchExchange(exchange string) bool {
-	switch strings.ToUpper(strings.TrimSpace(exchange)) {
-	case "NYSE", "NASDAQ", "NYSEARCA", "NYSEAMERICAN", "AMEX", "TSX", "TSXV", "NEO", "CSE":
-		return true
-	default:
-		return false
-	}
-}
-
 func mergeSearchResult(existing providers.TickerSearchResult, incoming providers.TickerSearchResult) providers.TickerSearchResult {
 	if existing.Name == "" {
 		existing.Name = incoming.Name
@@ -293,7 +284,7 @@ func (s *MarketDataService) searchTickersComposite(ctx context.Context, query st
 		})
 
 		for _, result := range results {
-			if result.Symbol == "" || !preferredSearchExchange(result.Exchange) {
+			if result.Symbol == "" {
 				continue
 			}
 
