@@ -87,15 +87,20 @@ function getMarketStatus(date: Date): MarketStatus {
   return "Closed";
 }
 
-function getStatusColor(status: MarketStatus): string {
-  switch (status) {
-    case "Pre-Market":
-      return "text-yellow-500";
-    case "Regular Hours":
-      return "text-green-500";
-    case "After Hours":
-      return "text-orange-500";
-    case "Closed":
-      return "text-on-surface-variant";
-  }
+export function useMarketStatus() {
+  const [status, setStatus] = useState<MarketStatus>("Closed");
+
+  useEffect(() => {
+    const update = () => {
+      const now = new Date();
+      setStatus(getMarketStatus(now));
+    };
+
+    update();
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const isLive = status === "Pre-Market" || status === "Regular Hours" || status === "After Hours";
+  return { status, isLive };
 }

@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton, MetricSkeleton } from "@/components/ui/skeleton";
 import { usePortfolio } from "@/hooks/usePortfolio";
+import { useLiveIndices } from "@/hooks/useLiveIndices";
 
 function fmtCurrency(v: number): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(v);
@@ -53,8 +54,11 @@ function MiniChart() {
 }
 
 export default function DashboardPage() {
-  const { positions, summary, indices, loading } = usePortfolio();
+  const { positions, summary, indices: restIndices, loading } = usePortfolio();
+  const { indices: liveIndices, isLive } = useLiveIndices();
   const [activePeriod, setActivePeriod] = useState("1M");
+
+  const indices = isLive ? liveIndices : restIndices;
 
   const posValue = summary?.TotalValue ?? 0;
   const posDayChange = summary?.DayChange ?? 0;
