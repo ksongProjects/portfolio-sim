@@ -26,11 +26,11 @@ type Manager struct {
 	wg           sync.WaitGroup
 	logClient    interface{ Info(ctx context.Context, msg string) error; Error(ctx context.Context, msg string) error }
 	geminiClient interface {
-		AnalyzeArticle(ctx context.Context, title, summary string) (string, []string, error)
+		AnalyzeArticle(ctx context.Context, title, summary string) (string, string, []string, error)
 	}
 }
 
-func NewManager(redisClient *redis.Client, pgx *pgxpool.Pool, logClient interface{ Info(ctx context.Context, msg string) error; Error(ctx context.Context, msg string) error }, geminiClient interface{ AnalyzeArticle(ctx context.Context, title, summary string) (string, []string, error) }) *Manager {
+func NewManager(redisClient *redis.Client, pgx *pgxpool.Pool, logClient interface{ Info(ctx context.Context, msg string) error; Error(ctx context.Context, msg string) error }, geminiClient interface{ AnalyzeArticle(ctx context.Context, title, summary string) (string, string, []string, error) }) *Manager {
 	return &Manager{
 		redis:        redisClient,
 		pgx:          pgx,
@@ -67,7 +67,6 @@ func (f *NewsArticleFormatter) FromRSS(article NewsArticle, sentiment, sentiment
 		Tickers:        tickers,
 		Source:         article.Source,
 		SourceType:     "rss",
-		SourceURL:      article.URL,
 		Title:          article.Title,
 		URL:            article.URL,
 		Summary:        article.Summary,
@@ -84,7 +83,6 @@ func (f *NewsArticleFormatter) FromYouTube(videoID, title, channelName, transcri
 		Tickers:        tickers,
 		Source:         channelName,
 		SourceType:     "youtube",
-		SourceURL:      fmt.Sprintf("https://youtube.com/watch?v=%s", videoID),
 		Title:          title,
 		URL:            fmt.Sprintf("https://youtube.com/watch?v=%s", videoID),
 		Summary:        truncateString(transcript, 500),
@@ -178,7 +176,6 @@ func (m *Manager) scrapeFeed(ctx context.Context, parser *gofeed.Parser, feed rs
 			Tickers:     []string{},
 			Source:      feed.Name,
 			SourceType:  "rss",
-			SourceURL:   item.Link,
 			Title:       item.Title,
 			URL:         item.Link,
 			Summary:     truncateString(item.Description, 500),

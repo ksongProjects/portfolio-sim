@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/portfolio-sim/news-feed-service/config"
 	"github.com/portfolio-sim/news-feed-service/database"
 	"github.com/portfolio-sim/news-feed-service/feed"
@@ -20,6 +21,13 @@ import (
 	"github.com/portfolio-sim/news-feed-service/sse"
 	"github.com/portfolio-sim/news-feed-service/youtube"
 )
+
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
 
 func main() {
 	cfg, err := config.Load()
