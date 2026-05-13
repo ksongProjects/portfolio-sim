@@ -1,5 +1,23 @@
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 
+export class ApiError extends Error {
+  status?: number;
+  retryable: boolean;
+
+  constructor(
+    message: string,
+    options?: { status?: number; retryable?: boolean; cause?: unknown }
+  ) {
+    super(message);
+    this.name = "ApiError";
+    this.status = options?.status;
+    this.retryable = options?.retryable ?? false;
+    if (options?.cause !== undefined) {
+      this.cause = options.cause;
+    }
+  }
+}
+
 export function buildApiUrl(path: string) {
   if (path.startsWith("http://") || path.startsWith("https://")) {
     return path;
@@ -13,13 +31,37 @@ export async function fetchJson<T>(
   init?: RequestInit,
   errorMessage = "Request failed"
 ): Promise<T> {
-  const res = await fetch(buildApiUrl(path), init);
-
-  if (!res.ok) {
-    throw new Error(errorMessage);
+  let res: Response;
+  try {
+    res = await fetch(buildApiUrl(path), init);
+  } catch (error) {
+    throw new ApiError(errorMessage, { retryable: true, cause: error });
   }
 
-  return res.json() as Promise<T>;
+  if (!res.ok) {
+    throw new ApiError(errorMessage, {
+      status: res.status,
+      retryable: res.status >= 500 || res.status === 429,
+    });
+  }
+
+  const text = await res.text();
+  if (!text.trim()) {
+    throw new ApiError(`${errorMessage}: empty response`, {
+      status: res.status,
+      retryable: false,
+    });
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch (error) {
+    throw new ApiError(`${errorMessage}: invalid JSON response`, {
+      status: res.status,
+      retryable: false,
+      cause: error,
+    });
+  }
 }
 
 export function getErrorMessage(error: unknown, fallback = "Unknown error") {

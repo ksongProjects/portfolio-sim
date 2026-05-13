@@ -218,9 +218,9 @@ export function usePortfolio(portfolioId = "default") {
 		summary: summaryQuery.data ?? null,
 		indices: indicesQuery.data ?? [],
 		loading:
-			positionsQuery.isFetching ||
-			summaryQuery.isFetching ||
-			indicesQuery.isFetching ||
+			positionsQuery.isLoading ||
+			summaryQuery.isLoading ||
+			indicesQuery.isLoading ||
 			addPositionMutation.isPending,
 		error: combinedError ? getErrorMessage(combinedError) : null,
 		fetchPositions,
