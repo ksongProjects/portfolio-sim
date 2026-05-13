@@ -40,15 +40,61 @@ func NewManager(redisClient *redis.Client, pgx *pgxpool.Pool, logClient interfac
 }
 
 type NewsArticle struct {
-	ID          uuid.UUID `json:"id"`
-	Tickers     []string  `json:"tickers"`
-	Source      string    `json:"source"`
-	Title       string    `json:"title"`
-	URL         string    `json:"url"`
-	Summary     string    `json:"summary,omitempty"`
-	Sentiment   string    `json:"sentiment,omitempty"`
-	PublishedAt time.Time `json:"published_at,omitempty"`
-	FetchedAt   time.Time `json:"fetched_at"`
+	ID             uuid.UUID `json:"id"`
+	Tickers        []string  `json:"tickers"`
+	Source         string    `json:"source"`
+	SourceType     string    `json:"source_type"`
+	Title          string    `json:"title"`
+	URL            string    `json:"url"`
+	Summary        string    `json:"summary,omitempty"`
+	Content        string    `json:"content,omitempty"`
+	Sentiment      string    `json:"sentiment,omitempty"`
+	SentimentValue string    `json:"sentiment_value,omitempty"`
+	PublishedAt    time.Time `json:"published_at,omitempty"`
+	FetchedAt      time.Time `json:"fetched_at"`
+	Channel        string    `json:"channel,omitempty"`
+}
+
+type NewsArticleFormatter struct{}
+
+func NewNewsArticleFormatter() *NewsArticleFormatter {
+	return &NewsArticleFormatter{}
+}
+
+func (f *NewsArticleFormatter) FromRSS(article NewsArticle, sentiment, sentimentValue string, tickers []string) NewsArticle {
+	return NewsArticle{
+		ID:             article.ID,
+		Tickers:        tickers,
+		Source:         article.Source,
+		SourceType:     "rss",
+		SourceURL:      article.URL,
+		Title:          article.Title,
+		URL:            article.URL,
+		Summary:        article.Summary,
+		Sentiment:      sentiment,
+		SentimentValue: sentimentValue,
+		PublishedAt:    article.PublishedAt,
+		FetchedAt:      time.Now().UTC(),
+	}
+}
+
+func (f *NewsArticleFormatter) FromYouTube(videoID, title, channelName, transcript, sentiment, sentimentValue string, tickers []string, publishedAt time.Time) NewsArticle {
+	return NewsArticle{
+		ID:             uuid.New(),
+		Tickers:        tickers,
+		Source:         channelName,
+		SourceType:     "youtube",
+		SourceURL:      fmt.Sprintf("https://youtube.com/watch?v=%s", videoID),
+		Title:          title,
+		URL:            fmt.Sprintf("https://youtube.com/watch?v=%s", videoID),
+		Summary:        truncateString(transcript, 500),
+		Content:        transcript,
+		Sentiment:      sentiment,
+		SentimentValue: sentimentValue,
+		PublishedAt:    publishedAt,
+		FetchedAt:      time.Now().UTC(),
+		Channel:        channelName,
+	}
 }
 
 func (m *Manager) ScrapeFeeds(ctx context.Context) error {
@@ -131,6 +177,8 @@ func (m *Manager) scrapeFeed(ctx context.Context, parser *gofeed.Parser, feed rs
 			ID:          uuid.New(),
 			Tickers:     []string{},
 			Source:      feed.Name,
+			SourceType:  "rss",
+			SourceURL:   item.Link,
 			Title:       item.Title,
 			URL:         item.Link,
 			Summary:     truncateString(item.Description, 500),
@@ -139,9 +187,10 @@ func (m *Manager) scrapeFeed(ctx context.Context, parser *gofeed.Parser, feed rs
 		}
 
 		if m.geminiClient != nil {
-			sentiment, tickers, err := m.geminiClient.AnalyzeArticle(ctx, item.Title, truncateString(item.Description, 1000))
+			sentiment, sentimentValue, tickers, err := m.geminiClient.AnalyzeArticle(ctx, item.Title, truncateString(item.Description, 1000))
 			if err == nil {
 				article.Sentiment = sentiment
+				article.SentimentValue = sentimentValue
 				article.Tickers = tickers
 			} else if m.logClient != nil {
 				m.logClient.Error(ctx, fmt.Sprintf("Gemini analysis failed for %s: %v", article.Title, err))
@@ -184,15 +233,17 @@ func (m *Manager) storeArticle(ctx context.Context, article NewsArticle) error {
 	}
 	tickersJSON, _ := json.Marshal(article.Tickers)
 	_, err := m.pgx.Exec(ctx, `
-		INSERT INTO news_articles (id, tickers, source, title, url, summary, sentiment, published_at, fetched_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO news_articles (id, tickers, source, source_type, title, url, summary, content, sentiment, sentiment_value, published_at, fetched_at, channel)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		ON CONFLICT (url) DO UPDATE SET
 			title = EXCLUDED.title,
 			summary = EXCLUDED.summary,
+			content = EXCLUDED.content,
 			tickers = EXCLUDED.tickers,
 			sentiment = EXCLUDED.sentiment,
+			sentiment_value = EXCLUDED.sentiment_value,
 			fetched_at = EXCLUDED.fetched_at
-	`, article.ID, tickersJSON, article.Source, article.Title, article.URL, article.Summary, article.Sentiment, article.PublishedAt, article.FetchedAt)
+	`, article.ID, tickersJSON, article.Source, article.SourceType, article.Title, article.URL, article.Summary, article.Content, article.Sentiment, article.SentimentValue, article.PublishedAt, article.FetchedAt, article.Channel)
 	if err != nil {
 		if m.logClient != nil {
 			m.logClient.Error(ctx, fmt.Sprintf("Store article error: %v", err))

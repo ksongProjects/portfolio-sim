@@ -41,14 +41,14 @@ func (c *Client) Summarize(ctx context.Context, text string) (string, error) {
 	return fmt.Sprintf("%v", resp.Candidates[0].Content), nil
 }
 
-func (c *Client) AnalyzeArticle(ctx context.Context, title, summary string) (string, []string, error) {
+func (c *Client) AnalyzeArticle(ctx context.Context, title, summary string) (string, string, []string, error) {
 	if c.apiKey == "" {
-		return "", nil, fmt.Errorf("api key required")
+		return "neutral", "", nil, fmt.Errorf("api key required")
 	}
 
 	client, err := genai.NewClient(ctx, option.WithAPIKey(c.apiKey))
 	if err != nil {
-		return "", nil, fmt.Errorf("create client: %w", err)
+		return "neutral", "", nil, fmt.Errorf("create client: %w", err)
 	}
 	defer client.Close()
 
@@ -58,21 +58,22 @@ Title: %s
 Summary: %s
 
 Respond with JSON only in this exact format:
-{"sentiment": "bullish|bearish|neutral", "related_tickers": ["TICKER1", "TICKER2"]}
+{"sentiment": "bullish|bearish|neutral", "sentiment_value": "0.0 to 1.0", "related_tickers": ["TICKER1", "TICKER2"]}
 
 Rules:
 - sentiment: "bullish" for positive outlook, "bearish" for negative, "neutral" for mixed/neutral
+- sentiment_value: a number from 0.0 to 1.0 where 0.0 is very bearish, 0.5 is neutral, 1.0 is very bullish
 - related_tickers: stock ticker symbols mentioned or strongly implied (max 3, use empty array if none found)
 - Only include tickers that are explicit in the article`, title, summary)
 
 	model := client.GenerativeModel("gemini-2.5-flash")
 	resp, err := model.GenerateContent(ctx, genai.Text(prompt))
 	if err != nil {
-		return "", nil, fmt.Errorf("generate content: %w", err)
+		return "neutral", "", nil, fmt.Errorf("generate content: %w", err)
 	}
 
 	if len(resp.Candidates) == 0 {
-		return "", nil, fmt.Errorf("no candidates")
+		return "neutral", "", nil, fmt.Errorf("no candidates")
 	}
 
 	raw := fmt.Sprintf("%v", resp.Candidates[0].Content)
@@ -82,13 +83,50 @@ Rules:
 	raw = strings.TrimSpace(raw)
 
 	sentiment := "neutral"
+	sentimentValue := "0.5"
 	tickers := []string{}
 
-	if strings.Contains(strings.ToLower(raw), "bearish") {
+	raw = strings.ToLower(raw)
+	if strings.Contains(raw, "bearish") {
 		sentiment = "bearish"
-	} else if strings.Contains(strings.ToLower(raw), "bullish") {
+	} else if strings.Contains(raw, "bullish") {
 		sentiment = "bullish"
 	}
 
-	return sentiment, tickers, nil
+	if strings.Contains(raw, "0.3") {
+		sentimentValue = "0.3"
+	} else if strings.Contains(raw, "0.7") {
+		sentimentValue = "0.7"
+	} else if strings.Contains(raw, "0.1") {
+		sentimentValue = "0.1"
+	} else if strings.Contains(raw, "0.9") {
+		sentimentValue = "0.9"
+	} else if strings.Contains(raw, "0.0") {
+		sentimentValue = "0.0"
+	} else if strings.Contains(raw, "1.0") {
+		sentimentValue = "1.0"
+	}
+
+	if idx := strings.Index(raw, "related_tickers"); idx != -1 {
+		start := strings.Index(raw[idx:], "[")
+		end := strings.Index(raw[idx:], "]")
+		if start != -1 && end != -1 && start < end {
+			tickersStr := raw[idx+start : idx+end+1]
+			tickersStr = strings.ReplaceAll(tickersStr, "\"", "")
+			tickersStr = strings.ReplaceAll(tickersStr, " ", "")
+			tickersStr = strings.TrimPrefix(tickersStr, "[")
+			tickersStr = strings.TrimSuffix(tickersStr, "]")
+			if tickersStr != "" {
+				parts := strings.Split(tickersStr, ",")
+				for _, p := range parts {
+					p = strings.TrimSpace(p)
+					if p != "" {
+						tickers = append(tickers, strings.ToUpper(p))
+					}
+				}
+			}
+		}
+	}
+
+	return sentiment, sentimentValue, tickers, nil
 }

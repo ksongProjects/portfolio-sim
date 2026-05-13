@@ -1,0 +1,2 @@
+-- This migration is optional and can be run after verifying youtube videos are properly stored in news_articles
+-- DROP TABLE IF EXISTS news_videos;

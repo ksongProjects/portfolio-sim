@@ -75,7 +75,7 @@ func (s *ProviderService) GetProviders(ctx context.Context, db interface {
 		DocURL      string
 	}{
 		"questrade": {"Questrade market data", "market_data", "https://www.questrade.com/api"},
-		"polygon":   {"Polygon.io real-time and historical market data", "market_data", "https://polygon.io/docs"},
+		"massive":   {"Massive real-time and historical market data", "market_data", "https://api.massive.io/docs"},
 		"fmp":       {"Financial Modeling Prep financial data", "market_data", "https://site.financialmodelingprep.com/developer/docs"},
 		"youtube":   {"YouTube Data API for video transcripts", "youtube", "https://developers.google.com/youtube/v3"},
 		"gemini":    {"Google Gemini API for content summarization", "gemini", "https://ai.google.dev/docs"},
@@ -86,7 +86,7 @@ func (s *ProviderService) GetProviders(ctx context.Context, db interface {
 		DocURL    string
 	}{
 		"questrade": {100, "https://www.questrade.com/api"},
-		"polygon":   {60, "https://polygon.io/docs"},
+		"massive":   {60, "https://api.massive.io/docs"},
 		"fmp":       {250, "https://site.financialmodelingprep.com/developer/docs"},
 		"youtube":   {0, "https://developers.google.com/youtube/v3"},
 		"gemini":    {0, "https://ai.google.dev/docs"},
@@ -120,7 +120,7 @@ func (s *ProviderService) GetProviders(ctx context.Context, db interface {
 
 	if len(results) == 0 {
 		results = []ProviderConfig{
-			{ID: "polygon", ProviderID: "polygon", Name: "Polygon.io", Description: "Real-time and historical market data", Type: "market_data", RateLimit: 60, DocURL: "https://polygon.io/docs", TokenExpired: false},
+			{ID: "massive", ProviderID: "massive", Name: "Massive", Description: "Real-time and historical market data", Type: "market_data", RateLimit: 60, DocURL: "https://api.massive.io/docs", TokenExpired: false},
 			{ID: "questrade", ProviderID: "questrade", Name: "Questrade", Description: "Questrade market data API", Type: "market_data", RateLimit: 100, DocURL: "https://www.questrade.com/api", TokenExpired: false},
 			{ID: "fmp", ProviderID: "fmp", Name: "Financial Modeling Prep", Description: "Financial statements and fundamental data", Type: "market_data", RateLimit: 250, DocURL: "https://site.financialmodelingprep.com/developer/docs", TokenExpired: false},
 			{ID: "youtube", ProviderID: "youtube", Name: "YouTube Data API", Description: "YouTube Data API for video transcripts", Type: "youtube", RateLimit: 0, DocURL: "https://developers.google.com/youtube/v3", TokenExpired: false},
@@ -293,16 +293,16 @@ func (s *ProviderService) ValidateProviderKey(ctx context.Context, db interface 
 	var err error
 
 	switch providerID {
-	case "polygon":
-		valid, err = s.validatePolygonKey(apiKey)
+	case "massive":
+		valid, err = s.validateMassiveKey(ctx, apiKey)
 	case "fmp":
-		valid, err = s.validateFMPKey(apiKey)
+		valid, err = s.validateFMPKey(ctx, apiKey)
 	case "questrade":
-		valid, qtResult, err = s.validateQuestradeKey(apiKey)
+		valid, qtResult, err = s.validateQuestradeKey(ctx, apiKey)
 	case "youtube":
-		valid, err = s.validateYouTubeKey(apiKey)
+		valid, err = s.validateYouTubeKey(ctx, apiKey)
 	case "gemini":
-		valid, err = s.validateGeminiKey(apiKey)
+		valid, err = s.validateGeminiKey(ctx, apiKey)
 	default:
 		err = fmt.Errorf("unknown provider: %s", providerID)
 	}
@@ -336,11 +336,11 @@ type QuestradeOAuthResult struct {
 	ExpiresIn    int
 }
 
-func (s *ProviderService) validatePolygonKey(apiKey string) (bool, error) {
-	url := fmt.Sprintf("https://api.polygon.io/v2/aggs/ticker/AAPL/prev?adjusted=true&apiKey=%s", apiKey)
+func (s *ProviderService) validateMassiveKey(ctx context.Context, apiKey string) (bool, error) {
+	url := fmt.Sprintf("https://api.massive.io/v2/aggs/ticker/AAPL/prev?adjusted=true&apiKey=%s", apiKey)
 
 	if s.logClient != nil {
-		s.logClient.InfoWithMeta(context.Background(), "Polygon validation request", map[string]interface{}{
+		s.logClient.InfoWithMeta(ctx, "Massive validation request", map[string]interface{}{
 			"url":    sanitizeProviderURL(url),
 			"method": "GET",
 			"type":   "provider_api_request",
@@ -359,7 +359,7 @@ func (s *ProviderService) validatePolygonKey(apiKey string) (bool, error) {
 	}
 
 	if s.logClient != nil {
-		s.logClient.InfoWithMeta(context.Background(), "Polygon validation response", map[string]interface{}{
+		s.logClient.InfoWithMeta(ctx, "Massive validation response", map[string]interface{}{
 			"status": resp.StatusCode,
 			"body":   sanitizeProviderBody(body),
 			"type":   "provider_api_response",
@@ -372,14 +372,14 @@ func (s *ProviderService) validatePolygonKey(apiKey string) (bool, error) {
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusPaymentRequired {
 		return false, nil
 	}
-	return false, fmt.Errorf("polygon returned status: %d", resp.StatusCode)
+	return false, fmt.Errorf("massive returned status: %d", resp.StatusCode)
 }
 
-func (s *ProviderService) validateFMPKey(apiKey string) (bool, error) {
+func (s *ProviderService) validateFMPKey(ctx context.Context, apiKey string) (bool, error) {
 	url := fmt.Sprintf("https://financialmodelingprep.com/stable/quote?symbol=AAPL&apikey=%s", apiKey)
 
 	if s.logClient != nil {
-		s.logClient.InfoWithMeta(context.Background(), "FMP validation request", map[string]interface{}{
+		s.logClient.InfoWithMeta(ctx, "FMP validation request", map[string]interface{}{
 			"url":    sanitizeProviderURL(url),
 			"method": "GET",
 			"type":   "provider_api_request",
@@ -398,7 +398,7 @@ func (s *ProviderService) validateFMPKey(apiKey string) (bool, error) {
 	}
 
 	if s.logClient != nil {
-		s.logClient.InfoWithMeta(context.Background(), "FMP validation response", map[string]interface{}{
+		s.logClient.InfoWithMeta(ctx, "FMP validation response", map[string]interface{}{
 			"status": resp.StatusCode,
 			"body":   sanitizeProviderBody(body),
 			"type":   "provider_api_response",
@@ -427,12 +427,12 @@ func (s *ProviderService) validateFMPKey(apiKey string) (bool, error) {
 	return false, fmt.Errorf("fmp returned status: %d", resp.StatusCode)
 }
 
-func (s *ProviderService) validateQuestradeKey(apiKey string) (bool, *QuestradeOAuthResult, error) {
+func (s *ProviderService) validateQuestradeKey(ctx context.Context, apiKey string) (bool, *QuestradeOAuthResult, error) {
 	const qtAPI = "https://login.questrade.com/oauth2/token"
 	tokenURL := fmt.Sprintf("%s?grant_type=refresh_token&refresh_token=%s", qtAPI, url.QueryEscape(apiKey))
 
 	if s.logClient != nil {
-		s.logClient.InfoWithMeta(context.Background(), "Questrade validation request", map[string]interface{}{
+		s.logClient.InfoWithMeta(ctx, "Questrade validation request", map[string]interface{}{
 			"url":    sanitizeProviderURL(tokenURL),
 			"method": "GET",
 			"type":   "provider_api_request",
@@ -451,7 +451,7 @@ func (s *ProviderService) validateQuestradeKey(apiKey string) (bool, *QuestradeO
 	}
 
 	if s.logClient != nil {
-		s.logClient.InfoWithMeta(context.Background(), "Questrade validation response", map[string]interface{}{
+		s.logClient.InfoWithMeta(ctx, "Questrade validation response", map[string]interface{}{
 			"status": resp.StatusCode,
 			"body":   sanitizeProviderBody(body),
 			"type":   "provider_api_response",
@@ -488,11 +488,11 @@ func (s *ProviderService) validateQuestradeKey(apiKey string) (bool, *QuestradeO
 	}, nil
 }
 
-func (s *ProviderService) validateYouTubeKey(apiKey string) (bool, error) {
+func (s *ProviderService) validateYouTubeKey(ctx context.Context, apiKey string) (bool, error) {
 	url := fmt.Sprintf("https://www.googleapis.com/youtube/v3/videos?part=snippet&id=dQw4w9WgXcQ&key=%s", apiKey)
 
 	if s.logClient != nil {
-		s.logClient.InfoWithMeta(context.Background(), "YouTube validation request", map[string]interface{}{
+		s.logClient.InfoWithMeta(ctx, "YouTube validation request", map[string]interface{}{
 			"url":    "https://www.googleapis.com/youtube/v3/videos?part=snippet&id=VIDEO_ID",
 			"method": "GET",
 			"type":   "provider_api_request",
@@ -511,7 +511,7 @@ func (s *ProviderService) validateYouTubeKey(apiKey string) (bool, error) {
 	}
 
 	if s.logClient != nil {
-		s.logClient.InfoWithMeta(context.Background(), "YouTube validation response", map[string]interface{}{
+		s.logClient.InfoWithMeta(ctx, "YouTube validation response", map[string]interface{}{
 			"status": resp.StatusCode,
 			"body":   sanitizeProviderBody(body),
 			"type":   "provider_api_response",
@@ -527,11 +527,11 @@ func (s *ProviderService) validateYouTubeKey(apiKey string) (bool, error) {
 	return false, fmt.Errorf("youtube returned status: %d", resp.StatusCode)
 }
 
-func (s *ProviderService) validateGeminiKey(apiKey string) (bool, error) {
+func (s *ProviderService) validateGeminiKey(ctx context.Context, apiKey string) (bool, error) {
 	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models?key=%s", apiKey)
 
 	if s.logClient != nil {
-		s.logClient.InfoWithMeta(context.Background(), "Gemini validation request", map[string]interface{}{
+		s.logClient.InfoWithMeta(ctx, "Gemini validation request", map[string]interface{}{
 			"url":    sanitizeProviderURL(url),
 			"method": "GET",
 			"type":   "provider_api_request",
@@ -550,7 +550,7 @@ func (s *ProviderService) validateGeminiKey(apiKey string) (bool, error) {
 	}
 
 	if s.logClient != nil {
-		s.logClient.InfoWithMeta(context.Background(), "Gemini validation response", map[string]interface{}{
+		s.logClient.InfoWithMeta(ctx, "Gemini validation response", map[string]interface{}{
 			"status": resp.StatusCode,
 			"body":   sanitizeProviderBody(body),
 			"type":   "provider_api_response",

@@ -240,8 +240,8 @@ func (s *MarketDataService) providerAPIKey(ctx context.Context, providerID strin
 		return apiKey, nil
 	}
 	switch providerID {
-	case "polygon":
-		return s.cfg.Polygon.APIKey, nil
+	case "massive":
+		return s.cfg.Massive.APIKey, nil
 	case "fmp":
 		return s.cfg.FMP.APIKey, nil
 	default:
@@ -249,10 +249,8 @@ func (s *MarketDataService) providerAPIKey(ctx context.Context, providerID strin
 	}
 }
 
-func (s *MarketDataService) newPolygonProvider() providers.Provider {
-	return providers.NewPolygonProvider(s.cfg.Polygon, s.logClient, func() (string, error) {
-		return s.providerAPIKey(context.Background(), "polygon")
-	})
+func (s *MarketDataService) newMassiveProvider() providers.Provider {
+	return providers.NewMassiveProvider(s.cfg.Massive, s.logClient)
 }
 
 func (s *MarketDataService) newFMPProvider() providers.Provider {
@@ -265,8 +263,8 @@ func (s *MarketDataService) availableProviders(ctx context.Context) []providers.
 	activeProviders := []providers.Provider{
 		providers.NewQuestradeProvider(s.cfg.Questrade, s.storage, s.logClient),
 	}
-	if apiKey, err := s.providerAPIKey(ctx, "polygon"); err == nil && apiKey != "" {
-		activeProviders = append(activeProviders, s.newPolygonProvider())
+	if apiKey, err := s.providerAPIKey(ctx, "massive"); err == nil && apiKey != "" {
+		activeProviders = append(activeProviders, s.newMassiveProvider())
 	}
 	if apiKey, err := s.providerAPIKey(ctx, "fmp"); err == nil && apiKey != "" {
 		activeProviders = append(activeProviders, s.newFMPProvider())
@@ -275,8 +273,8 @@ func (s *MarketDataService) availableProviders(ctx context.Context) []providers.
 }
 
 func (s *MarketDataService) preferredBackfillSource(ctx context.Context) string {
-	if apiKey, err := s.providerAPIKey(ctx, "polygon"); err == nil && apiKey != "" {
-		return "polygon"
+	if apiKey, err := s.providerAPIKey(ctx, "massive"); err == nil && apiKey != "" {
+		return "massive"
 	}
 	if apiKey, err := s.providerAPIKey(ctx, "fmp"); err == nil && apiKey != "" {
 		return "fmp"
@@ -286,9 +284,9 @@ func (s *MarketDataService) preferredBackfillSource(ctx context.Context) string 
 
 func (s *MarketDataService) providerForSource(ctx context.Context, source string) providers.Provider {
 	switch source {
-	case "polygon":
-		if apiKey, err := s.providerAPIKey(ctx, "polygon"); err == nil && apiKey != "" {
-			return s.newPolygonProvider()
+	case "massive":
+		if apiKey, err := s.providerAPIKey(ctx, "massive"); err == nil && apiKey != "" {
+			return s.newMassiveProvider()
 		}
 	case "fmp":
 		if apiKey, err := s.providerAPIKey(ctx, "fmp"); err == nil && apiKey != "" {

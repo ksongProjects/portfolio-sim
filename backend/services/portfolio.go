@@ -2,7 +2,9 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -61,6 +63,11 @@ type MarketIndex struct {
 	ChangePct float64
 }
 
+type MarketIndexSetting struct {
+	Symbol string `json:"symbol"`
+	Name   string `json:"name"`
+}
+
 type Trade struct {
 	ID        string
 	Type      string
@@ -72,14 +79,18 @@ type Trade struct {
 }
 
 type NewsArticle struct {
-	ID            string
-	Title         string
-	Source        string
-	URL           string
-	Summary       string
-	Sentiment     string
-	PublishedAt   time.Time
-	TickerSymbols []string
+	ID             string
+	Title          string
+	Source         string
+	SourceType     string
+	URL            string
+	Summary        string
+	Content        string
+	Sentiment      string
+	SentimentValue string
+	PublishedAt    time.Time
+	TickerSymbols  []string
+	Channel        string
 }
 
 type Strategy struct {
@@ -113,6 +124,42 @@ func safePercent(numerator, denominator float64) float64 {
 	}
 
 	return (numerator / denominator) * 100
+}
+
+func defaultMarketIndexSettings() []MarketIndexSetting {
+	return []MarketIndexSetting{
+		{Symbol: "SPY", Name: "S&P 500"},
+		{Symbol: "QQQ", Name: "Nasdaq-100"},
+		{Symbol: "DIA", Name: "Dow Jones"},
+		{Symbol: "IWM", Name: "Russell 2000"},
+		{Symbol: "VIX", Name: "Volatility Index"},
+		{Symbol: "DXY", Name: "US Dollar Index"},
+	}
+}
+
+func normalizeMarketIndexSettings(settings []MarketIndexSetting) []MarketIndexSetting {
+	normalized := make([]MarketIndexSetting, 0, len(settings))
+	seen := make(map[string]bool, len(settings))
+
+	for _, setting := range settings {
+		symbol := strings.ToUpper(strings.TrimSpace(setting.Symbol))
+		if symbol == "" || seen[symbol] {
+			continue
+		}
+
+		name := strings.TrimSpace(setting.Name)
+		if name == "" {
+			name = symbol
+		}
+
+		normalized = append(normalized, MarketIndexSetting{
+			Symbol: symbol,
+			Name:   name,
+		})
+		seen[symbol] = true
+	}
+
+	return normalized
 }
 
 func (s *PortfolioService) GetTickers(ctx context.Context, db interface {
@@ -172,6 +219,46 @@ func (s *PortfolioService) GetLatestPrices(ctx context.Context, db interface {
 		prices[p.TickerID] = p
 	}
 	return prices, nil
+}
+
+func (s *PortfolioService) GetLatestPriceSnapshots(ctx context.Context, db interface {
+	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
+}, tickerIDs []string) (map[string][2]float64, error) {
+	if len(tickerIDs) == 0 {
+		return make(map[string][2]float64), nil
+	}
+
+	query := `
+		WITH ranked_prices AS (
+			SELECT ticker_id, price,
+			       ROW_NUMBER() OVER (PARTITION BY ticker_id ORDER BY timestamp DESC) AS rank
+			FROM normalized_prices
+			WHERE ticker_id = ANY($1)
+		)
+		SELECT ticker_id,
+		       COALESCE(MAX(CASE WHEN rank = 1 THEN price END), 0),
+		       COALESCE(MAX(CASE WHEN rank = 2 THEN price END), 0)
+		FROM ranked_prices
+		WHERE rank <= 2
+		GROUP BY ticker_id
+	`
+	rows, err := db.Query(ctx, query, tickerIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	snapshots := make(map[string][2]float64)
+	for rows.Next() {
+		var tickerID string
+		var latestPrice, previousPrice float64
+		if err := rows.Scan(&tickerID, &latestPrice, &previousPrice); err != nil {
+			continue
+		}
+		snapshots[tickerID] = [2]float64{latestPrice, previousPrice}
+	}
+
+	return snapshots, nil
 }
 
 func (s *PortfolioService) GetPositions(ctx context.Context, db interface {
@@ -287,47 +374,101 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, db interface
 	}, nil
 }
 
+func (s *PortfolioService) GetMarketIndexSettings(ctx context.Context, db interface {
+	QueryRow(ctx context.Context, sql string, args ...interface{}) (pgx.Row, error)
+}) ([]MarketIndexSetting, error) {
+	row, _ := db.QueryRow(ctx, `
+		SELECT value
+		FROM app_settings
+		WHERE setting_key = $1
+	`, "market_indices")
+
+	var raw []byte
+	if err := row.Scan(&raw); err != nil {
+		if err == pgx.ErrNoRows {
+			return defaultMarketIndexSettings(), nil
+		}
+
+		return nil, err
+	}
+
+	var settings []MarketIndexSetting
+	if err := json.Unmarshal(raw, &settings); err != nil {
+		return defaultMarketIndexSettings(), nil
+	}
+
+	return normalizeMarketIndexSettings(settings), nil
+}
+
+func (s *PortfolioService) SaveMarketIndexSettings(ctx context.Context, db interface {
+	Exec(ctx context.Context, sql string, args ...interface{}) (int64, error)
+}, settings []MarketIndexSetting) error {
+	normalized := normalizeMarketIndexSettings(settings)
+	payload, err := json.Marshal(normalized)
+	if err != nil {
+		return err
+	}
+
+	_, err = db.Exec(ctx, `
+		INSERT INTO app_settings (setting_key, value, updated_at)
+		VALUES ($1, $2::jsonb, NOW())
+		ON CONFLICT (setting_key) DO UPDATE
+		SET value = EXCLUDED.value,
+		    updated_at = NOW()
+	`, "market_indices", payload)
+	return err
+}
+
 func (s *PortfolioService) GetMarketIndices(ctx context.Context, db interface {
 	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...interface{}) (pgx.Row, error)
 }) ([]MarketIndex, error) {
-	indexSymbols := []string{"SPY", "QQQ", "DIA", "IWM", "VIX", "DXY"}
-	indexNames := map[string]string{
-		"SPY": "S&P 500 ETF",
-		"QQQ": "Nasdaq ETF",
-		"DIA": "Dow Jones ETF",
-		"IWM": "Russell 2000 ETF",
-		"VIX": "Volatility Index",
-		"DXY": "US Dollar Index",
+	indexSettings, err := s.GetMarketIndexSettings(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+
+	indexSymbols := make([]string, 0, len(indexSettings))
+	for _, setting := range indexSettings {
+		indexSymbols = append(indexSymbols, setting.Symbol)
 	}
 
 	tickers, err := s.GetTickers(ctx, db, indexSymbols)
-	if err != nil || len(tickers) == 0 {
-		return []MarketIndex{}, nil
+	if err != nil {
+		return nil, err
 	}
 
 	var tickerIDs []string
+	tickersBySymbol := make(map[string]Ticker, len(tickers))
 	for _, t := range tickers {
 		tickerIDs = append(tickerIDs, t.ID)
+		tickersBySymbol[t.Symbol] = t
 	}
 
-	prices, _ := s.GetLatestPrices(ctx, db, tickerIDs)
+	priceSnapshots, _ := s.GetLatestPriceSnapshots(ctx, db, tickerIDs)
 
-	var indices []MarketIndex
-	for _, sym := range indexSymbols {
-		name := indexNames[sym]
+	indices := make([]MarketIndex, 0, len(indexSettings))
+	for _, setting := range indexSettings {
 		price := 0.0
 		change := 0.0
 		changePct := 0.0
-		for _, t := range tickers {
-			if t.Symbol == sym {
-				if p, ok := prices[t.ID]; ok {
-					price = p.Price
+
+		if ticker, ok := tickersBySymbol[setting.Symbol]; ok {
+			if snapshot, hasSnapshot := priceSnapshots[ticker.ID]; hasSnapshot {
+				price = snapshot[0]
+				if snapshot[1] != 0 {
+					change = snapshot[0] - snapshot[1]
+					changePct = safePercent(change, snapshot[1])
 				}
-				break
 			}
 		}
+
 		indices = append(indices, MarketIndex{
-			Symbol: sym, Name: name, Price: price, Change: change, ChangePct: changePct,
+			Symbol:    setting.Symbol,
+			Name:      setting.Name,
+			Price:     price,
+			Change:    change,
+			ChangePct: changePct,
 		})
 	}
 	return indices, nil
@@ -337,7 +478,8 @@ func (s *PortfolioService) GetNewsArticles(ctx context.Context, db interface {
 	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
 }) ([]NewsArticle, error) {
 	query := `
-		SELECT id, title, source, url, summary, sentiment, published_at
+		SELECT id, title, source, source_type, url, summary, content,
+		       sentiment, sentiment_value, published_at, channel
 		FROM news_articles
 		ORDER BY published_at DESC
 	`
@@ -350,8 +492,19 @@ func (s *PortfolioService) GetNewsArticles(ctx context.Context, db interface {
 	var articles []NewsArticle
 	for rows.Next() {
 		var a NewsArticle
-		if err := rows.Scan(&a.ID, &a.Title, &a.Source, &a.URL, &a.Summary, &a.Sentiment, &a.PublishedAt); err != nil {
+		var content, sentimentValue, channel *string
+		if err := rows.Scan(&a.ID, &a.Title, &a.Source, &a.SourceType, &a.URL,
+			&a.Summary, content, &a.Sentiment, sentimentValue, &a.PublishedAt, channel); err != nil {
 			continue
+		}
+		if content != nil {
+			a.Content = *content
+		}
+		if sentimentValue != nil {
+			a.SentimentValue = *sentimentValue
+		}
+		if channel != nil {
+			a.Channel = *channel
 		}
 		articles = append(articles, a)
 	}

@@ -2,17 +2,21 @@
 
 import { useCallback, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { buildApiUrl, fetchJson, getErrorMessage } from "@/lib/api";
+import { apiFetch, fetchJson, getErrorMessage } from "@/lib/api";
 
 export interface NewsArticle {
   ID: string;
   Title: string;
   Source: string;
+  SourceType: string;
   URL: string;
   Summary: string;
+  Content: string;
   Sentiment: string;
+  SentimentValue: string;
   PublishedAt: string;
   TickerSymbols: string[];
+  Channel: string;
 }
 
 export interface YouTubeChannel {
@@ -32,17 +36,6 @@ export interface YouTubeVideo {
   thumb_url: string;
 }
 
-export interface NewsVideo {
-  id: string;
-  youtube_id: string;
-  title: string;
-  channel: string;
-  summary: string;
-  sentiment: string;
-  tickers: string;
-  published_at: string;
-}
-
 async function fetchNewsData() {
   const data = await fetchJson<NewsArticle[]>("/api/news", undefined, "Failed to fetch news");
   return Array.isArray(data) ? data : [];
@@ -50,11 +43,6 @@ async function fetchNewsData() {
 
 async function fetchChannelsData() {
   const data = await fetchJson<YouTubeChannel[]>("/api/channels", undefined, "Failed to fetch channels");
-  return Array.isArray(data) ? data : [];
-}
-
-async function fetchStoredVideosData() {
-  const data = await fetchJson<NewsVideo[]>("/api/videos", undefined, "Failed to fetch videos");
   return Array.isArray(data) ? data : [];
 }
 
@@ -82,11 +70,6 @@ export function useNews() {
     queryFn: fetchChannelsData,
   });
 
-  const storedVideosQuery = useQuery({
-    queryKey: ["news", "stored-videos"],
-    queryFn: fetchStoredVideosData,
-  });
-
   const latestVideosQuery = useQuery({
     queryKey: ["news", "latest-videos", latestChannelId],
     queryFn: () => fetchLatestVideosData(latestChannelId!),
@@ -96,7 +79,7 @@ export function useNews() {
 
   const analyzeVideoMutation = useMutation({
     mutationFn: async ({ videoId, title }: { videoId: string; title: string }) => {
-      const res = await fetch(buildApiUrl("/api/videos/analyze"), {
+      const res = await apiFetch("/api/videos/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ video_id: videoId, title }),
@@ -107,7 +90,7 @@ export function useNews() {
       }
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["news", "stored-videos"] });
+      await queryClient.invalidateQueries({ queryKey: ["news", "articles"] });
     },
   });
 
@@ -119,7 +102,7 @@ export function useNews() {
       channelId: string;
       name: string;
     }) => {
-      const res = await fetch(buildApiUrl("/api/channels"), {
+      const res = await apiFetch("/api/channels", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ channel_id: channelId, name }),
@@ -160,10 +143,6 @@ export function useNews() {
     },
     [latestChannelId, latestVideosQuery]
   );
-
-  const fetchStoredVideos = useCallback(async () => {
-    await storedVideosQuery.refetch();
-  }, [storedVideosQuery]);
 
   const searchChannels = useCallback(
     async (query: string) => {
@@ -223,19 +202,16 @@ export function useNews() {
       ? getErrorMessage(articlesQuery.error)
       : channelsQuery.error
         ? getErrorMessage(channelsQuery.error)
-        : storedVideosQuery.error
-          ? getErrorMessage(storedVideosQuery.error)
-          : latestVideosQuery.error
-            ? getErrorMessage(latestVideosQuery.error)
-            : analyzeVideoMutation.error
-              ? getErrorMessage(analyzeVideoMutation.error)
-              : addChannelMutation.error
-                ? getErrorMessage(addChannelMutation.error)
-                : null);
+        : latestVideosQuery.error
+          ? getErrorMessage(latestVideosQuery.error)
+          : analyzeVideoMutation.error
+            ? getErrorMessage(analyzeVideoMutation.error)
+            : addChannelMutation.error
+              ? getErrorMessage(addChannelMutation.error)
+              : null);
 
   return {
     articles: articlesQuery.data ?? [],
-    videos: storedVideosQuery.data ?? [],
     channels: channelsQuery.data ?? [],
     latestVideos: latestVideosQuery.data ?? [],
     loading:
@@ -247,7 +223,6 @@ export function useNews() {
     fetchNews,
     fetchChannels,
     fetchLatestVideos,
-    fetchStoredVideos,
     analyzeVideo,
     searchChannels,
     addChannel,

@@ -186,6 +186,8 @@ func (s *Server) Start() error {
 	http.HandleFunc("POST /api/portfolio/positions", lm(http.HandlerFunc(s.handleAddPosition)))
 	http.HandleFunc("GET /api/portfolio/summary", lm(http.HandlerFunc(s.handleGetPortfolioSummary)))
 	http.HandleFunc("GET /api/market/indices", lm(http.HandlerFunc(s.handleGetMarketIndices)))
+	http.HandleFunc("GET /api/settings/market-indices", lm(http.HandlerFunc(s.handleGetMarketIndexSettings)))
+	http.HandleFunc("PUT /api/settings/market-indices", lm(http.HandlerFunc(s.handleUpdateMarketIndexSettings)))
 	http.HandleFunc("GET /api/news", lm(http.HandlerFunc(s.handleGetNews)))
 	http.HandleFunc("GET /api/strategies", lm(http.HandlerFunc(s.handleGetStrategies)))
 	http.HandleFunc("GET /api/signals", lm(http.HandlerFunc(s.handleGetSignals)))
@@ -610,6 +612,47 @@ func (s *Server) handleGetMarketIndices(w http.ResponseWriter, r *http.Request) 
 	json.NewEncoder(w).Encode(indices)
 }
 
+func (s *Server) handleGetMarketIndexSettings(w http.ResponseWriter, r *http.Request) {
+	settings, err := s.portfolioSvc.GetMarketIndexSettings(r.Context(), s.db)
+	if err != nil {
+		s.logger.Error("get market index settings failed", "error", err)
+		http.Error(w, "failed to fetch market index settings", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(settings)
+}
+
+func (s *Server) handleUpdateMarketIndexSettings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var settings []services.MarketIndexSetting
+	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.portfolioSvc.SaveMarketIndexSettings(r.Context(), s.db, settings); err != nil {
+		s.logger.Error("save market index settings failed", "error", err)
+		http.Error(w, "failed to save market index settings", http.StatusInternalServerError)
+		return
+	}
+
+	savedSettings, err := s.portfolioSvc.GetMarketIndexSettings(r.Context(), s.db)
+	if err != nil {
+		s.logger.Error("reload market index settings failed", "error", err)
+		http.Error(w, "failed to reload market index settings", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(savedSettings)
+}
+
 func (s *Server) handleGetNews(w http.ResponseWriter, r *http.Request) {
 	articles, _ := s.portfolioSvc.GetNewsArticles(r.Context(), s.db)
 	w.Header().Set("Content-Type", "application/json")
@@ -639,7 +682,7 @@ func (s *Server) handleGetProviders(w http.ResponseWriter, r *http.Request) {
 	providers, err := s.providerSvc.GetProviders(r.Context(), s.db)
 	if err != nil || providers == nil || len(providers) == 0 {
 		providers = []services.ProviderConfig{
-			{ID: "polygon", ProviderID: "polygon", Name: "Polygon.io", Description: "Real-time and historical market data", Type: "market_data", RateLimit: 60, DocURL: "https://polygon.io/docs", TokenExpired: false},
+			{ID: "massive", ProviderID: "massive", Name: "Massive", Description: "Real-time and historical market data", Type: "market_data", RateLimit: 60, DocURL: "https://api.massive.io/docs", TokenExpired: false},
 			{ID: "questrade", ProviderID: "questrade", Name: "Questrade", Description: "Questrade market data API", Type: "market_data", RateLimit: 100, DocURL: "https://www.questrade.com/api", TokenExpired: false},
 			{ID: "fmp", ProviderID: "fmp", Name: "Financial Modeling Prep", Description: "Financial statements and fundamental data", Type: "market_data", RateLimit: 250, DocURL: "https://site.financialmodelingprep.com/developer/docs", TokenExpired: false},
 			{ID: "youtube", ProviderID: "youtube", Name: "YouTube Data API", Description: "YouTube Data API for video transcripts", Type: "youtube", RateLimit: 0, DocURL: "https://developers.google.com/youtube/v3", TokenExpired: false},

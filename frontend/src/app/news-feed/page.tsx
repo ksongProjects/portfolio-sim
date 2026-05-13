@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Clock, ExternalLink, Search, Bookmark, RefreshCw, Plus, X, Rss, Check, Video, Play, Loader } from "lucide-react";
-import { useNews, type NewsArticle, type NewsVideo } from "@/hooks/useNews";
+import { useNews, type NewsArticle } from "@/hooks/useNews";
 import { useRSSFeeds } from "@/hooks/useRSSFeeds";
 
 function timeAgo(dateStr: string): string {
@@ -28,7 +28,7 @@ function timeAgo(dateStr: string): string {
 }
 
 export default function NewsFeedPage() {
-  const { articles, videos, channels, latestVideos, loading, fetchNews, fetchLatestVideos, analyzeVideo, searchChannels, addChannel } = useNews();
+  const { articles, channels, latestVideos, loading, fetchNews, fetchLatestVideos, analyzeVideo, searchChannels, addChannel } = useNews();
   const [search, setSearch] = useState("");
   const [saved, setSaved] = useState<string[]>([]);
   const [toast, setToast] = useState<string | null>(null);
@@ -42,12 +42,8 @@ export default function NewsFeedPage() {
   const [selectedChannel, setSelectedChannel] = useState<string>("");
   const [selectedVideoIds, setSelectedVideoIds] = useState<Set<string>>(new Set());
   const [analyzingIds, setAnalyzingIds] = useState<Set<string>>(new Set());
-  const [showDetailModal, setShowDetailModal] = useState(false);
-  const [detailItem, setDetailItem] = useState<
-    | { type: "article"; data: NewsArticle }
-    | { type: "video"; data: NewsVideo }
-    | null
-  >(null);
+const [showDetailModal, setShowDetailModal] = useState(false);
+  const [detailItem, setDetailItem] = useState<NewsArticle | null>(null);
   const [showAddChannel, setShowAddChannel] = useState(false);
   const [newChannelId, setNewChannelId] = useState("");
   const [newChannelName, setNewChannelName] = useState("");
@@ -153,15 +149,8 @@ export default function NewsFeedPage() {
     setChannelSearch("");
   };
 
-  const openDetail = (
-    type: "article" | "video",
-    data: NewsArticle | NewsVideo
-  ) => {
-    setDetailItem(
-      type === "article"
-        ? { type, data: data as NewsArticle }
-        : { type, data: data as NewsVideo }
-    );
+const openDetail = (article: NewsArticle) => {
+    setDetailItem(article);
     setShowDetailModal(true);
   };
 
@@ -284,26 +273,6 @@ export default function NewsFeedPage() {
             </PageCell>
           </PageGrid>
         )}
-
-        {videos.length > 0 && (
-          <PageGrid className="mb-6">
-            <PageCell>
-              <CardTitle className="mb-3">Analyzed Videos</CardTitle>
-              <div className="grid grid-cols-3 gap-3">
-                {videos.map((vid) => (
-                  <div key={vid.id} className="p-3 border border-outline-variant/30 hover:bg-surface-container-low cursor-pointer" onClick={() => openDetail("video", vid)}>
-                    <div className="text-sm font-medium mb-1 line-clamp-2">{vid.title}</div>
-                    <div className="flex items-center gap-2 text-xs text-on-surface-variant mb-2">
-                      <span>{vid.channel}</span>
-                    </div>
-                    <Badge variant={vid.sentiment === "bullish" ? "success" : vid.sentiment === "bearish" ? "error" : "secondary"}>{vid.sentiment}</Badge>
-                  </div>
-                ))}
-              </div>
-            </PageCell>
-          </PageGrid>
-        )}
-
         <PageGrid style={{ gridTemplateColumns: "2fr 1fr" }}>
           <PageCell>
             <div className="flex items-center justify-between mb-4">
@@ -330,7 +299,7 @@ export default function NewsFeedPage() {
 
             <div className="space-y-2">
               {filteredNews.map((news) => (
-                <div key={news.ID} className="flex items-start gap-4 p-4 border border-outline-variant/30 hover:bg-surface-container-low transition-colors cursor-pointer" onClick={() => openDetail("article", news)}>
+                <div key={news.ID} className="flex items-start gap-4 p-4 border border-outline-variant/30 hover:bg-surface-container-low transition-colors cursor-pointer" onClick={() => openDetail(news)}>
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
                       <Badge variant={news.Sentiment === "bullish" ? "success" : news.Sentiment === "bearish" ? "error" : "secondary"}>{news.Sentiment}</Badge>
@@ -471,42 +440,26 @@ export default function NewsFeedPage() {
       {showDetailModal && detailItem && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setShowDetailModal(false)}>
           <div className="bg-surface-container-highest border border-outline rounded-lg p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            {detailItem.type === "article" ? (
-              <>
-                <div className="flex items-center gap-2 mb-3">
-                  <Badge variant={detailItem.data.Sentiment === "bullish" ? "success" : detailItem.data.Sentiment === "bearish" ? "error" : "secondary"}>{detailItem.data.Sentiment}</Badge>
-                  <span className="text-xs text-on-surface-variant">{detailItem.data.Source}</span>
-                  <span className="text-xs text-on-surface-variant">&bull;</span>
-                  <span className="text-xs text-on-surface-variant">{timeAgo(detailItem.data.PublishedAt)}</span>
-                </div>
-                <h2 className="text-lg font-semibold mb-3">{detailItem.data.Title}</h2>
-                <p className="text-sm text-on-surface-variant leading-relaxed mb-4">{detailItem.data.Summary}</p>
-                <div className="flex gap-2 mb-4">
-                  {detailItem.data.TickerSymbols?.map((sym: string) => <Badge key={sym} variant="outline">{sym}</Badge>)}
-                </div>
-                <a href={detailItem.data.URL} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-primary hover:underline">
-                  Read full article <ExternalLink className="h-4 w-4" />
-                </a>
-              </>
-            ) : (
-              <>
-                <div className="flex items-center gap-2 mb-3">
-                  <Video className="h-5 w-5 text-error" />
-                  <Badge variant={detailItem.data.sentiment === "bullish" ? "success" : detailItem.data.sentiment === "bearish" ? "error" : "secondary"}>{detailItem.data.sentiment}</Badge>
-                  <span className="text-xs text-on-surface-variant">{detailItem.data.channel}</span>
-                </div>
-                <h2 className="text-lg font-semibold mb-3">{detailItem.data.title}</h2>
-                {detailItem.data.summary && (
-                  <p className="text-sm text-on-surface-variant leading-relaxed mb-4">{detailItem.data.summary}</p>
-                )}
-                <div className="flex gap-2 mb-4">
-                  {detailItem.data.tickers && detailItem.data.tickers !== "[]" && JSON.parse(detailItem.data.tickers).map((sym: string) => <Badge key={sym} variant="outline">{sym}</Badge>)}
-                </div>
-                <a href={`https://youtube.com/watch?v=${detailItem.data.youtube_id}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-primary hover:underline">
-                  Watch on YouTube <ExternalLink className="h-4 w-4" />
-                </a>
-              </>
+            <div className="flex items-center gap-2 mb-3">
+              {detailItem.SourceType === "youtube" && <Video className="h-5 w-5 text-error" />}
+              <Badge variant={detailItem.Sentiment === "bullish" ? "success" : detailItem.Sentiment === "bearish" ? "error" : "secondary"}>{detailItem.Sentiment}</Badge>
+              <span className="text-xs text-on-surface-variant">{detailItem.Source}</span>
+              <span className="text-xs text-on-surface-variant">&bull;</span>
+              <span className="text-xs text-on-surface-variant">{timeAgo(detailItem.PublishedAt)}</span>
+            </div>
+            <h2 className="text-lg font-semibold mb-3">{detailItem.Title}</h2>
+            {detailItem.Summary && (
+              <p className="text-sm text-on-surface-variant leading-relaxed mb-4">{detailItem.Summary}</p>
             )}
+            {detailItem.Content && (
+              <p className="text-sm text-on-surface-variant leading-relaxed mb-4 text-xs italic">{detailItem.Content.substring(0, 500)}...</p>
+            )}
+            <div className="flex gap-2 mb-4">
+              {detailItem.TickerSymbols?.map((sym: string) => <Badge key={sym} variant="outline">{sym}</Badge>)}
+            </div>
+            <a href={detailItem.URL} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-primary hover:underline">
+              {detailItem.SourceType === "youtube" ? "Watch on YouTube" : "Read full article"} <ExternalLink className="h-4 w-4" />
+            </a>
             <button onClick={() => setShowDetailModal(false)} className="absolute top-4 right-4 text-on-surface-variant hover:text-on-surface">
               <X className="h-5 w-5" />
             </button>

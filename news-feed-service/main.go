@@ -194,58 +194,32 @@ func main() {
 			transcript = details.Description
 		}
 
-		sentiment, tickers, err := geminiClient.AnalyzeArticle(r.Context(), req.Title, transcript)
+		sentiment, sentimentValue, tickers, err := geminiClient.AnalyzeArticle(r.Context(), req.Title, transcript)
 		if err != nil {
 			http.Error(w, "failed to analyze video", http.StatusInternalServerError)
 			return
 		}
 
 		tickersJSON, _ := json.Marshal(tickers)
+		articleID := uuid.New()
 		_, err = db.Pool.Exec(r.Context(), `
-			INSERT INTO news_videos (youtube_id, title, channel, transcript_text, summary_text, sentiment, tickers, published_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-			ON CONFLICT (youtube_id) DO UPDATE SET
-				transcript_text = EXCLUDED.transcript_text,
-				summary_text = $5,
+			INSERT INTO news_articles (id, tickers, source, source_type, title, url, summary, content, sentiment, sentiment_value, published_at, fetched_at, channel)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), $12)
+			ON CONFLICT (url) DO UPDATE SET
+				content = EXCLUDED.content,
 				sentiment = EXCLUDED.sentiment,
+				sentiment_value = EXCLUDED.sentiment_value,
 				tickers = EXCLUDED.tickers
-		`, req.VideoID, req.Title, details.ChannelName, transcript, "", sentiment, tickersJSON, details.PublishedAt)
+		`, articleID, tickersJSON, details.ChannelName, "youtube",
+			req.Title, fmt.Sprintf("https://youtube.com/watch?v=%s", req.VideoID),
+			truncateString(transcript, 500), transcript, sentiment, sentimentValue, details.PublishedAt, details.ChannelName)
 		if err != nil {
-			log.Printf("failed to store video: %v", err)
-			http.Error(w, "failed to store video", http.StatusInternalServerError)
+			log.Printf("failed to store video analysis: %v", err)
+			http.Error(w, "failed to store video analysis", http.StatusInternalServerError)
 			return
 		}
 
 		w.WriteHeader(http.StatusNoContent)
-	})
-
-	mux.HandleFunc("/api/videos", func(w http.ResponseWriter, r *http.Request) {
-		rows, err := db.Pool.Query(r.Context(), `
-			SELECT id::text, youtube_id, title, channel, summary_text, sentiment, tickers, published_at
-			FROM news_videos
-			ORDER BY published_at DESC
-			LIMIT 50
-		`)
-		if err != nil {
-			http.Error(w, "failed to query videos", http.StatusInternalServerError)
-			return
-		}
-		defer rows.Close()
-		var videos []map[string]interface{}
-		for rows.Next() {
-			var id, ytID, title, channel, summary, sentiment string
-			var tickers []byte
-			var publishedAt *time.Time
-			if err := rows.Scan(&id, &ytID, &title, &channel, &summary, &sentiment, &tickers, &publishedAt); err != nil {
-				continue
-			}
-			videos = append(videos, map[string]interface{}{
-				"id": id, "youtube_id": ytID, "title": title, "channel": channel,
-				"summary": summary, "sentiment": sentiment, "tickers": string(tickers), "published_at": publishedAt,
-			})
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(videos)
 	})
 
 	wrappedMux := logging.LoggingMiddleware(mux, logClient)
