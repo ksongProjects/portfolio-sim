@@ -455,11 +455,12 @@ func (p *QuestradeProvider) FetchQuotesByIDs(ids []string) ([]QuestradeQuote, er
 }
 
 func (p *QuestradeProvider) FetchCandles(symbolID string, startTime, endTime time.Time, interval string) ([]QuestradeCandle, error) {
+	qtInterval := questradeCandleInterval(interval)
 	endpoint := fmt.Sprintf("/v1/markets/candles/%s?startTime=%s&endTime=%s&interval=%s",
 		symbolID,
 		url.QueryEscape(startTime.Format(time.RFC3339)),
 		url.QueryEscape(endTime.Format(time.RFC3339)),
-		url.QueryEscape(interval))
+		url.QueryEscape(qtInterval))
 
 	body, err := p.doRequest(endpoint)
 	if err != nil {
@@ -824,6 +825,25 @@ func ParseQuestradeTimestamp(ts string) (time.Time, error) {
 		return time.Parse(time.RFC3339, ts)
 	}
 	return t, err
+}
+
+func questradeCandleInterval(interval string) string {
+	switch strings.ToLower(strings.TrimSpace(interval)) {
+	case "1m", "1min", "1minute":
+		return "OneMinute"
+	case "5m", "5min", "5minute":
+		return "FiveMinutes"
+	case "15m", "15min", "15minute":
+		return "FifteenMinutes"
+	case "30m", "30min", "30minute":
+		return "ThirtyMinutes"
+	case "1h", "1hr", "1hour":
+		return "OneHour"
+	case "1d", "1day", "daily":
+		return "OneDay"
+	default:
+		return "OneMinute"
+	}
 }
 
 func (p *QuestradeProvider) FetchCandlesBySymbol(ticker string, startTime, endTime time.Time, interval string) ([]QuestradeCandle, error) {
