@@ -526,12 +526,16 @@ func (s *MarketDataService) handleSearchTickers(w http.ResponseWriter, r *http.R
 		for _, result := range results {
 			if !seenSymbols[result.Symbol] {
 				seenSymbols[result.Symbol] = true
-				allResults = append(allResults, result)
+				if result.Exchange == "NYSE" || result.Exchange == "NASDAQ" {
+					allResults = append(allResults, result)
+				}
 			}
 		}
 
 		for _, result := range results {
-			s.storage.UpsertTickerFromSearch(r.Context(), result.Symbol, result.Name, result.Exchange, result.Type)
+			if result.Exchange == "NYSE" || result.Exchange == "NASDAQ" {
+				s.storage.UpsertTickerFromSearch(r.Context(), result.Symbol, result.Name, result.Exchange, result.Type)
+			}
 		}
 	}
 

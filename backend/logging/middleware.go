@@ -3,9 +3,11 @@ package logging
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -19,6 +21,7 @@ func Middleware(client *Client) func(http.HandlerFunc) http.HandlerFunc {
 			}
 
 			start := time.Now()
+			requestID := randomID()
 			captureBody := shouldCaptureBody(r.URL.Path)
 			var reqBody []byte
 			if captureBody {
@@ -26,8 +29,13 @@ func Middleware(client *Client) func(http.HandlerFunc) http.HandlerFunc {
 				r.Body = io.NopCloser(bytes.NewReader(reqBody))
 			}
 
+			operation := getOperationName(r.Method, r.URL.Path)
+			contextMeta := getRequestContext(r, reqBody)
+
 			reqMeta := map[string]interface{}{
 				"type":            "api_request",
+				"request_id":      requestID,
+				"operation":       operation,
 				"method":          r.Method,
 				"path":            r.URL.Path,
 				"query":           sanitizeURLQuery(r.URL.RawQuery),
@@ -35,29 +43,38 @@ func Middleware(client *Client) func(http.HandlerFunc) http.HandlerFunc {
 				"remote_addr":     r.RemoteAddr,
 				"route":           getRoute(r),
 			}
+			for key, value := range contextMeta {
+				reqMeta[key] = value
+			}
 			if len(reqBody) > 0 {
 				reqMeta["request_body"] = sanitizeBody(r.Header.Get("Content-Type"), reqBody)
 				reqMeta["request_body_size"] = len(reqBody)
 			} else {
 				reqMeta["request_body_skipped"] = true
 			}
-			client.log(r.Context(), "INFO", "API Request", reqMeta)
+			client.log(r.Context(), "INFO", formatRequestMessage(operation, r.Method, r.URL.Path, contextMeta), reqMeta)
 
 			wrapper := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK, captureBody: captureBody}
 			next.ServeHTTP(w, r)
 
+			durationMs := time.Since(start).Milliseconds()
 			respMeta := map[string]interface{}{
 				"type":               "api_response",
+				"request_id":         requestID,
+				"operation":          operation,
 				"method":             r.Method,
 				"path":               r.URL.Path,
 				"query":              sanitizeURLQuery(r.URL.RawQuery),
 				"status":             wrapper.statusCode,
-				"duration_ms":        time.Since(start).Milliseconds(),
+				"duration_ms":        durationMs,
 				"response_headers":   redactHeaders(wrapper.Header()),
 				"response_body_size": wrapper.size,
-				"route":              getActionFromPath(r.URL.Path),
+				"route":              getRoute(r),
 			}
-			if captureBody && len(wrapper.body) > 0 {
+			for key, value := range contextMeta {
+				respMeta[key] = value
+			}
+			if wrapper.statusCode >= 400 || captureBody && len(wrapper.body) > 0 {
 				respMeta["response_body"] = sanitizeBody(wrapper.Header().Get("Content-Type"), wrapper.body)
 			} else {
 				respMeta["response_body_skipped"] = true
@@ -69,7 +86,7 @@ func Middleware(client *Client) func(http.HandlerFunc) http.HandlerFunc {
 			} else if wrapper.statusCode >= 400 {
 				level = "WARN"
 			}
-			client.log(r.Context(), level, "API Response", respMeta)
+			client.log(r.Context(), level, formatResponseMessage(operation, r.Method, r.URL.Path, wrapper.statusCode, durationMs, contextMeta), respMeta)
 		})
 	}
 }
@@ -83,10 +100,10 @@ func randomID() string {
 }
 
 var skipPaths = map[string]bool{
-	"/api/logs":                    true,
-	"/api/observability/logs":      true,
-	"/api/observability/services":  true,
-	"/api/connections":             true,
+	"/api/logs":                   true,
+	"/api/observability/logs":     true,
+	"/api/observability/services": true,
+	"/api/connections":            true,
 }
 
 func shouldLog(path string) bool {
@@ -181,6 +198,169 @@ func getActionFromPath(path string) string {
 		return "portfolio"
 	}
 	return "api"
+}
+
+func getOperationName(method, path string) string {
+	switch {
+	case method == http.MethodGet && path == "/api/portfolio/positions":
+		return "fetch portfolio positions"
+	case method == http.MethodPost && path == "/api/portfolio/positions":
+		return "add portfolio position"
+	case method == http.MethodGet && path == "/api/portfolio/summary":
+		return "fetch portfolio summary"
+	case method == http.MethodGet && path == "/api/market/indices":
+		return "fetch market indices"
+	case method == http.MethodGet && path == "/api/news":
+		return "fetch news feed"
+	case method == http.MethodGet && path == "/api/strategies":
+		return "fetch strategies"
+	case method == http.MethodGet && path == "/api/signals":
+		return "fetch signals"
+	case method == http.MethodGet && path == "/api/notifications":
+		return "fetch notifications"
+	case method == http.MethodPost && path == "/api/notifications/dismiss":
+		return "dismiss notification"
+	case method == http.MethodGet && path == "/api/providers":
+		return "fetch providers"
+	case method == http.MethodPut && path == "/api/providers":
+		return "save provider key"
+	case method == http.MethodPost && path == "/api/providers/validate":
+		return "validate provider key"
+	case method == http.MethodPost && path == "/api/providers/questrade/oauth":
+		return "save questrade oauth"
+	case method == http.MethodGet && path == "/api/providers/questrade/oauth":
+		return "fetch questrade oauth"
+	case method == http.MethodPost && path == "/api/providers/questrade/refresh":
+		return "refresh questrade token"
+	case method == http.MethodGet && path == "/api/rss-feeds":
+		return "fetch rss feeds"
+	case method == http.MethodPost && path == "/api/rss-feeds":
+		return "add rss feed"
+	case method == http.MethodDelete && path == "/api/rss-feeds":
+		return "delete rss feed"
+	case method == http.MethodPost && path == "/api/rss-feeds/scrape":
+		return "trigger rss scrape"
+	case method == http.MethodGet && path == "/api/tickers/search":
+		return "search tickers"
+	case method == http.MethodGet && strings.HasPrefix(path, "/api/tickers/"):
+		return "fetch ticker details"
+	case method == http.MethodGet && path == "/api/channels":
+		return "fetch youtube channels"
+	case method == http.MethodGet && path == "/api/videos/latest":
+		return "fetch latest videos"
+	case method == http.MethodGet && path == "/api/videos":
+		return "fetch stored videos"
+	case method == http.MethodPost && path == "/api/videos/analyze":
+		return "analyze video"
+	default:
+		return fmt.Sprintf("%s %s", method, path)
+	}
+}
+
+func formatRequestMessage(operation, method, path string, meta map[string]interface{}) string {
+	return fmt.Sprintf("%s request: %s %s%s", operation, method, path, formatContextSuffix(meta))
+}
+
+func formatResponseMessage(operation, method, path string, status int, durationMs int64, meta map[string]interface{}) string {
+	return fmt.Sprintf("%s response: %s %s -> %d (%dms)%s", operation, method, path, status, durationMs, formatContextSuffix(meta))
+}
+
+func formatContextSuffix(meta map[string]interface{}) string {
+	parts := make([]string, 0, 4)
+
+	for _, key := range []string{"provider", "symbol", "channel_id", "video_id", "portfolio_id", "notification_id", "feed_id", "query_term"} {
+		if value, ok := meta[key]; ok {
+			parts = append(parts, fmt.Sprintf("%s=%v", key, value))
+		}
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+
+	return " [" + strings.Join(parts, " ") + "]"
+}
+
+func getRequestContext(r *http.Request, reqBody []byte) map[string]interface{} {
+	meta := map[string]interface{}{}
+
+	query := r.URL.Query()
+	if provider := firstNonEmpty(query.Get("provider"), extractBodyString(reqBody, "provider_id")); provider != "" {
+		meta["provider"] = provider
+	}
+	if symbol := firstNonEmpty(query.Get("symbol"), query.Get("q"), extractTickerSymbol(r.URL.Path)); symbol != "" {
+		if strings.HasPrefix(r.URL.Path, "/api/tickers/search") {
+			meta["query_term"] = symbol
+		} else {
+			meta["symbol"] = symbol
+		}
+	}
+	if portfolioID := firstNonEmpty(query.Get("portfolio_id"), extractBodyString(reqBody, "portfolio_id")); portfolioID != "" {
+		meta["portfolio_id"] = portfolioID
+	}
+	if channelID := firstNonEmpty(query.Get("channel_id"), extractBodyString(reqBody, "channel_id")); channelID != "" {
+		meta["channel_id"] = channelID
+	}
+	if videoID := extractBodyString(reqBody, "video_id"); videoID != "" {
+		meta["video_id"] = videoID
+	}
+	if feedID := query.Get("id"); feedID != "" {
+		meta["feed_id"] = feedID
+	}
+	if notificationID := extractBodyString(reqBody, "id"); notificationID != "" && strings.HasPrefix(r.URL.Path, "/api/notifications/") {
+		meta["notification_id"] = notificationID
+	}
+
+	return meta
+}
+
+func extractTickerSymbol(path string) string {
+	if !strings.HasPrefix(path, "/api/tickers/") {
+		return ""
+	}
+
+	trimmed := strings.TrimPrefix(path, "/api/tickers/")
+	parts := strings.Split(trimmed, "/")
+	if len(parts) == 0 || parts[0] == "" || parts[0] == "search" {
+		return ""
+	}
+
+	return parts[0]
+}
+
+func extractBodyString(body []byte, key string) string {
+	if len(body) == 0 {
+		return ""
+	}
+
+	var payload map[string]interface{}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return ""
+	}
+
+	value, ok := payload[key]
+	if !ok || value == nil {
+		return ""
+	}
+
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case float64:
+		return strconv.FormatFloat(typed, 'f', -1, 64)
+	default:
+		return fmt.Sprint(typed)
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+
+	return ""
 }
 
 func sanitizeURLQuery(rawQuery string) string {

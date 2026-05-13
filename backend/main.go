@@ -137,7 +137,7 @@ func NewServer(cfg *Config) (*Server, error) {
 	if logURL == "" {
 		logURL = "http://main-api:8080/api/logs"
 	}
-logClient := logging.NewClient("backend", logURL)
+	logClient := logging.NewClient("backend", logURL)
 
 	providerSecret := os.Getenv("PROVIDER_SECRET_KEY")
 	if providerSecret == "" {
@@ -275,8 +275,6 @@ func (s *Server) handleIngestLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.logger.Info("handleIngestLog: ingesting log", "service", entry.Service, "level", entry.Level, "message", entry.Message)
-
 	metadataJSON, err := json.Marshal(entry.Metadata)
 	if err != nil {
 		s.logger.Warn("log metadata marshaling failed", "error", err)
@@ -405,7 +403,7 @@ func (s *Server) handleGetNotifications(w http.ResponseWriter, r *http.Request) 
 		SELECT l.id, l.timestamp::text, l.level, l.service, l.message,
 		       CASE WHEN d.log_id IS NULL THEN false ELSE true END as dismissed
 		FROM logs l
-		LEFT JOIN notification_dismissals d ON l.id = d.log_id
+		LEFT JOIN notification_dismissals d ON l.id::text = d.log_id
 		WHERE l.level IN ('WARN', 'ERROR', 'FATAL')
 		  AND l.timestamp >= NOW() - INTERVAL '24 hours'
 		  AND d.log_id IS NULL
@@ -553,9 +551,7 @@ func (s *Server) handleMarketStream(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetPositions(w http.ResponseWriter, r *http.Request) {
 	portfolioID := r.URL.Query().Get("portfolio_id")
 	if portfolioID == "" || portfolioID == "default" {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]services.Position{})
-		return
+		portfolioID = "00000000-0000-0000-0000-000000000001"
 	}
 	positions, err := s.portfolioSvc.GetPositions(r.Context(), s.db, portfolioID)
 	if err != nil {
@@ -595,9 +591,7 @@ func (s *Server) handleAddPosition(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetPortfolioSummary(w http.ResponseWriter, r *http.Request) {
 	portfolioID := r.URL.Query().Get("portfolio_id")
 	if portfolioID == "" || portfolioID == "default" {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(&services.PortfolioSummary{})
-		return
+		portfolioID = "00000000-0000-0000-0000-000000000001"
 	}
 	summary, err := s.portfolioSvc.GetPortfolioSummary(r.Context(), s.db, portfolioID)
 	if err != nil || summary == nil {
@@ -702,38 +696,12 @@ func (s *Server) handleValidateProvider(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	s.logger.Info("validating provider key", "provider", req.ProviderID, "has_api_key", req.APIKey != "", "api_key_length", len(req.APIKey))
-	if s.logClient != nil {
-		s.logClient.InfoWithMeta(r.Context(), fmt.Sprintf("Validating provider key: %s", req.ProviderID), map[string]interface{}{
-			"provider":       req.ProviderID,
-			"has_api_key":    req.APIKey != "",
-			"api_key_length": len(req.APIKey),
-			"type":           "provider_validation_request",
-		})
-	}
-
 	valid, qtResult, err := s.providerSvc.ValidateProviderKey(r.Context(), s.db, req.ProviderID, req.APIKey)
 	if err != nil {
 		s.logger.Error("provider validation failed", "provider", req.ProviderID, "error", err)
-		if s.logClient != nil {
-			s.logClient.ErrorWithMeta(r.Context(), fmt.Sprintf("Provider validation failed: %s", req.ProviderID), map[string]interface{}{
-				"provider": req.ProviderID,
-				"error":    err.Error(),
-				"type":     "provider_validation_error",
-			})
-		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"valid": false, "error": err.Error()})
 		return
-	}
-
-	s.logger.Info("provider validation succeeded", "provider", req.ProviderID, "valid", valid)
-	if s.logClient != nil {
-		s.logClient.InfoWithMeta(r.Context(), fmt.Sprintf("Provider validation succeeded: %s", req.ProviderID), map[string]interface{}{
-			"provider": req.ProviderID,
-			"valid":    valid,
-			"type":     "provider_validation_success",
-		})
 	}
 
 	if valid && req.ProviderID == "questrade" && qtResult != nil && qtResult.RefreshToken != "" {
@@ -762,15 +730,6 @@ func (s *Server) handleValidateProvider(w http.ResponseWriter, r *http.Request) 
 			json.NewEncoder(w).Encode(map[string]interface{}{"valid": false, "error": "failed to save questrade oauth tokens"})
 			return
 		}
-	}
-
-	s.logger.Info("provider validation succeeded", "provider", req.ProviderID, "valid", valid)
-	if s.logClient != nil {
-		s.logClient.InfoWithMeta(r.Context(), fmt.Sprintf("Provider validation succeeded: %s", req.ProviderID), map[string]interface{}{
-			"provider": req.ProviderID,
-			"valid":    valid,
-			"type":     "provider_validation_success",
-		})
 	}
 
 	w.Header().Set("Content-Type", "application/json")

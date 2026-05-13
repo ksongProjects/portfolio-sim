@@ -1,0 +1,3 @@
+ALTER TABLE normalized_prices ADD COLUMN IF NOT EXISTS change DECIMAL(18,8);
+ALTER TABLE normalized_prices ADD COLUMN IF NOT EXISTS change_pct DECIMAL(18,8);
+ALTER TABLE normalized_prices ADD COLUMN IF NOT EXISTS market_cap BIGINT;
