@@ -220,6 +220,9 @@ func backfillOperation(dataType string) marketDataOperation {
 }
 
 func mergeSearchResult(existing providers.TickerSearchResult, incoming providers.TickerSearchResult) providers.TickerSearchResult {
+	if existing.Symbol == "" {
+		existing.Symbol = incoming.Symbol
+	}
 	if existing.Name == "" {
 		existing.Name = incoming.Name
 	}
