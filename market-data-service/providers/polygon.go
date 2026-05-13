@@ -1,13 +1,13 @@
 package providers
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
+	"strings"
 	"time"
 
+	massive "github.com/massive-com/client-go/v3/rest"
+	"github.com/massive-com/client-go/v3/rest/gen"
 	"github.com/portfolio-sim/market-data-service/config"
 	"github.com/portfolio-sim/market-data-service/logging"
 )
@@ -58,66 +58,84 @@ func (p *MassiveProvider) apiKey() (string, error) {
 	return p.cfg.APIKey, nil
 }
 
-func (p *MassiveProvider) FetchPrice(ticker string) (*Price, error) {
+func (p *MassiveProvider) client() (*massive.Client, error) {
 	apiKey, err := p.apiKey()
 	if err != nil {
 		return nil, err
 	}
 
-	url := fmt.Sprintf("https://api.massive.com/v2/aggs/ticker/%s/prev?adjusted=true&apiKey=%s", ticker, apiKey)
+	return massive.NewWithOptions(
+		apiKey,
+		massive.WithTrace(false),
+		massive.WithPagination(false),
+	), nil
+}
 
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+func (p *MassiveProvider) FetchPrice(ticker string) (*Price, error) {
+	client, err := p.client()
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.GetStocksSnapshotTickerWithResponse(context.Background(), ticker)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
+	if err := massive.CheckResponse(resp); err != nil {
+		return nil, fmt.Errorf("massive request failed: %w", err)
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("massive request failed: %d", resp.StatusCode)
-	}
-
-	var result struct {
-		Results []struct {
-			Open      float64 `json:"o"`
-			High      float64 `json:"h"`
-			Low       float64 `json:"l"`
-			Close     float64 `json:"c"`
-			Volume    float64 `json:"v"`
-			Timestamp int64   `json:"t"`
-		} `json:"results"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, err
-	}
-
-	if len(result.Results) == 0 {
+	if resp.JSON200 == nil || resp.JSON200.Ticker == nil {
 		return nil, fmt.Errorf("no price data for %s", ticker)
 	}
 
-	r := result.Results[0]
-	change := r.Close - r.Open
-	var changePct float64
-	if r.Open != 0 {
-		changePct = (change / r.Open) * 100
+	snapshot := resp.JSON200.Ticker
+	price := 0.0
+	bid := 0.0
+	ask := 0.0
+	volume := int64(0)
+	timestamp := time.Now()
+
+	if snapshot.Min != nil {
+		price = snapshot.Min.C
+		volume = int64(snapshot.Min.Av)
+		timestamp = time.UnixMilli(int64(snapshot.Min.Timestamp))
 	}
+	if price == 0 && snapshot.LastTrade != nil {
+		price = snapshot.LastTrade.BidPrice
+		timestamp = time.Unix(0, int64(snapshot.LastTrade.Timestamp))
+	}
+	if price == 0 && snapshot.PrevDay != nil {
+		price = snapshot.PrevDay.C
+		volume = int64(snapshot.PrevDay.V)
+	}
+	if snapshot.LastQuote != nil {
+		bid = snapshot.LastQuote.BidPrice
+		ask = snapshot.LastQuote.AskPrice
+	}
+	if price == 0 {
+		return nil, fmt.Errorf("no price data for %s", ticker)
+	}
+
+	change := 0.0
+	changePct := 0.0
+	if snapshot.TodaysChange != nil {
+		change = *snapshot.TodaysChange
+	}
+	if snapshot.TodaysChangePerc != nil {
+		changePct = *snapshot.TodaysChangePerc
+	}
+
 	return &Price{
 		Ticker:    ticker,
-		Price:     r.Close,
+		Price:     price,
 		Change:    change,
 		ChangePct: changePct,
-		Volume:    int64(r.Volume),
+		Bid:       bid,
+		Ask:       ask,
+		Volume:    volume,
 		Source:    p.Name(),
-		Timestamp: time.UnixMilli(r.Timestamp),
+		Timestamp: timestamp,
 	}, nil
 }
 
@@ -126,129 +144,114 @@ func (p *MassiveProvider) FetchOptionChain(ticker string) ([]*OptionChain, error
 }
 
 func (p *MassiveProvider) FetchIntradayBars(ticker string, interval string) ([]*IntradayBar, error) {
-	apiKey, err := p.apiKey()
+	client, err := p.client()
 	if err != nil {
 		return nil, err
 	}
 
-	multiplier := "1"
-	timespan := interval
-	switch interval {
-	case "1m":
-		timespan = "minute"
-	case "5m":
-		timespan = "minute"
-		multiplier = "5"
-	case "1h":
-		timespan = "hour"
-	default:
-		timespan = "minute"
-	}
+	multiplier, timespan := massiveAggregateResolution(interval)
 
 	from := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
 	to := time.Now().Format("2006-01-02")
+	params := &gen.GetStocksAggregatesParams{
+		Adjusted: massive.Ptr(true),
+		Sort:     "asc",
+		Limit:    massive.Ptr(5000),
+	}
 
-	url := fmt.Sprintf("https://api.massive.com/v2/aggs/ticker/%s/range/%s/%s/%s/%s?adjusted=true&apiKey=%s",
-		ticker, multiplier, timespan, from, to, apiKey)
-
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	resp, err := client.GetStocksAggregatesWithResponse(
+		context.Background(),
+		ticker,
+		multiplier,
+		gen.GetStocksAggregatesParamsTimespan(timespan),
+		from,
+		to,
+		params,
+	)
 	if err != nil {
 		return nil, err
 	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
+	if err := massive.CheckResponse(resp); err != nil {
+		return nil, fmt.Errorf("massive request failed: %w", err)
 	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
+	if resp.JSON200 == nil || resp.JSON200.Results == nil {
+		return nil, fmt.Errorf("no intraday data for %s", ticker)
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("massive request failed: %d", resp.StatusCode)
-	}
-
-	var result struct {
-		Results []struct {
-			Open      float64 `json:"o"`
-			High      float64 `json:"h"`
-			Low       float64 `json:"l"`
-			Close     float64 `json:"c"`
-			Volume    float64 `json:"v"`
-			Timestamp int64   `json:"t"`
-		} `json:"results"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, err
-	}
-
-	bars := make([]*IntradayBar, 0, len(result.Results))
-	for _, b := range result.Results {
+	bars := make([]*IntradayBar, 0, len(*resp.JSON200.Results))
+	for _, b := range *resp.JSON200.Results {
 		bars = append(bars, &IntradayBar{
 			Ticker:    ticker,
 			Interval:  interval,
-			Open:      b.Open,
-			High:      b.High,
-			Low:       b.Low,
-			Close:     b.Close,
-			Volume:    int64(b.Volume),
-			Timestamp: time.UnixMilli(b.Timestamp),
+			Open:      b.O,
+			High:      b.H,
+			Low:       b.L,
+			Close:     b.C,
+			Volume:    int64(b.V),
+			Timestamp: time.UnixMilli(int64(b.Timestamp)),
 		})
 	}
 	return bars, nil
 }
 
 func (p *MassiveProvider) SearchTickers(prefix string) ([]TickerSearchResult, error) {
-	apiKey, err := p.apiKey()
+	client, err := p.client()
 	if err != nil {
 		return nil, err
 	}
 
-	searchURL := fmt.Sprintf("https://api.massive.com/v3/reference/tickers?search=%s&active=true&apiKey=%s", url.QueryEscape(prefix), apiKey)
+	params := &gen.ListTickersParams{
+		Search: massive.String(prefix),
+		Active: massive.Bool(true),
+		Limit:  massive.Int(20),
+		Market: massive.Ptr(gen.ListTickersParamsMarket("stocks")),
+	}
 
-	req, err := http.NewRequest(http.MethodGet, searchURL, nil)
+	resp, err := client.ListTickersWithResponse(context.Background(), params)
 	if err != nil {
 		return nil, err
 	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
+	if err := massive.CheckResponse(resp); err != nil {
+		return nil, fmt.Errorf("massive search failed: %w", err)
 	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
+	if resp.JSON200 == nil || resp.JSON200.Results == nil {
+		return []TickerSearchResult{}, nil
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("massive search failed: %d", resp.StatusCode)
-	}
+	results := make([]TickerSearchResult, 0, len(*resp.JSON200.Results))
+	for _, t := range *resp.JSON200.Results {
+		exchange := ""
+		if t.PrimaryExchange != nil {
+			exchange = *t.PrimaryExchange
+		}
+		tickerType := ""
+		if t.Type != nil {
+			tickerType = *t.Type
+		}
 
-	var result struct {
-		Results []struct {
-			Ticker   string `json:"ticker"`
-			Name     string `json:"name"`
-			Exchange string `json:"exchange"`
-			Type     string `json:"type"`
-		} `json:"results"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, err
-	}
-
-	results := make([]TickerSearchResult, 0, len(result.Results))
-	for _, t := range result.Results {
 		results = append(results, TickerSearchResult{
 			Symbol:   t.Ticker,
 			Name:     t.Name,
-			Exchange: t.Exchange,
-			Type:     t.Type,
+			Exchange: exchange,
+			Type:     tickerType,
 		})
 	}
 	return results, nil
+}
+
+func massiveAggregateResolution(interval string) (int, string) {
+	switch strings.ToLower(strings.TrimSpace(interval)) {
+	case "1m", "1min", "1minute":
+		return 1, "minute"
+	case "5m", "5min", "5minute":
+		return 5, "minute"
+	case "15m", "15min", "15minute":
+		return 15, "minute"
+	case "30m", "30min", "30minute":
+		return 30, "minute"
+	case "1h", "1hr", "1hour":
+		return 1, "hour"
+	default:
+		return 1, "minute"
+	}
 }
