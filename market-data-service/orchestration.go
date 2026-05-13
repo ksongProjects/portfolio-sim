@@ -260,13 +260,18 @@ func (s *MarketDataService) searchTickersComposite(ctx context.Context, query st
 
 	dbResults, err := s.storage.SearchTickers(ctx, query)
 	if err == nil {
-		for _, result := range dbResults {
+		s.logClient.InfoWithMeta(ctx, "DB search returned", map[string]interface{}{"count": len(dbResults)})
+		for i, result := range dbResults {
+			s.logClient.InfoWithMeta(ctx, "DB result", map[string]interface{}{"i": i, "symbol": result.Symbol, "name": result.Name})
 			converted := storageSearchToProviderSearch(result)
+			s.logClient.InfoWithMeta(ctx, "DB converted", map[string]interface{}{"symbol": converted.Symbol, "name": converted.Name})
 			if _, seen := merged[converted.Symbol]; !seen {
 				order = append(order, converted.Symbol)
 			}
 			merged[converted.Symbol] = mergeSearchResult(merged[converted.Symbol], converted)
 		}
+	} else {
+		s.logClient.WarnWithMeta(ctx, "DB search failed", map[string]interface{}{"error": err.Error()})
 	}
 
 	providerErrors := make([]string, 0)
