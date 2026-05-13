@@ -699,8 +699,13 @@ func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		ProviderID string `json:"provider_id"`
-		APIKey     string `json:"api_key"`
+		ProviderID   string `json:"provider_id"`
+		APIKey       string `json:"api_key"`
+		Validated    bool   `json:"validated"`
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		APIServer    string `json:"api_server"`
+		ExpiresIn    int    `json:"expires_in"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
@@ -710,9 +715,27 @@ func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "provider_id and api_key are required", http.StatusBadRequest)
 		return
 	}
-	if err := s.providerSvc.SaveProviderKey(r.Context(), s.db, req.ProviderID, req.APIKey); err != nil {
-		http.Error(w, "failed to save", http.StatusInternalServerError)
-		return
+
+	if req.ProviderID == "questrade" && req.Validated {
+		if req.RefreshToken == "" || req.AccessToken == "" || req.APIServer == "" {
+			http.Error(w, "validated questrade save requires oauth payload", http.StatusBadRequest)
+			return
+		}
+		if err := s.providerSvc.SaveQuestradeOAuth(r.Context(), s.db, req.ProviderID, req.AccessToken, req.RefreshToken, req.APIServer, req.ExpiresIn); err != nil {
+			http.Error(w, "failed to save", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		if err := s.providerSvc.SaveProviderKey(r.Context(), s.db, req.ProviderID, req.APIKey); err != nil {
+			http.Error(w, "failed to save", http.StatusInternalServerError)
+			return
+		}
+		if req.Validated {
+			if err := s.providerSvc.UpdateProviderValidationState(r.Context(), s.db, req.ProviderID, true, ""); err != nil {
+				http.Error(w, "failed to save", http.StatusInternalServerError)
+				return
+			}
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "saved"})
@@ -742,30 +765,36 @@ func (s *Server) handleValidateProvider(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	persistValidation, persistErr := s.providerSvc.StoredProviderKeyMatches(r.Context(), s.db, req.ProviderID, req.APIKey)
-	if persistErr != nil {
-		s.logger.Warn("failed to compare stored provider key", "provider", req.ProviderID, "error", persistErr)
-	}
-
 	valid, qtResult, err := s.providerSvc.ValidateProviderKey(r.Context(), s.db, req.ProviderID, req.APIKey)
 	if err != nil {
-		if persistValidation && shouldPersistProviderValidationFailure(err) {
-			_ = s.providerSvc.UpdateProviderValidationState(r.Context(), s.db, req.ProviderID, false, err.Error())
-		}
 		s.logger.Error("provider validation failed", "provider", req.ProviderID, "error", err)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"valid": false, "error": err.Error()})
 		return
 	}
 
-	if persistValidation && !valid {
-		_ = s.providerSvc.UpdateProviderValidationState(r.Context(), s.db, req.ProviderID, false, "invalid credentials or no entitlement")
+	if !valid {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"valid": false,
+			"error": "invalid credentials or no entitlement",
+		})
+		return
 	}
 
-	if persistValidation && valid && req.ProviderID == "questrade" && qtResult != nil && qtResult.RefreshToken != "" {
-		s.logger.Info("saving questrade OAuth tokens", "provider", req.ProviderID, "expires_in", qtResult.ExpiresIn)
+	w.Header().Set("Content-Type", "application/json")
+	response := map[string]interface{}{
+		"valid":    true,
+		"save_key": req.APIKey,
+	}
+	if req.ProviderID == "questrade" && qtResult != nil {
+		response["save_key"] = qtResult.RefreshToken
+		response["access_token"] = qtResult.AccessToken
+		response["refresh_token"] = qtResult.RefreshToken
+		response["api_server"] = qtResult.APIServer
+		response["expires_in"] = qtResult.ExpiresIn
 		if s.logClient != nil {
-			s.logClient.InfoWithMeta(r.Context(), fmt.Sprintf("Questrade OAuth tokens received: %s", req.ProviderID), map[string]interface{}{
+			s.logClient.InfoWithMeta(r.Context(), fmt.Sprintf("Questrade OAuth tokens validated: %s", req.ProviderID), map[string]interface{}{
 				"provider":          req.ProviderID,
 				"api_server":        qtResult.APIServer,
 				"expires_in":        qtResult.ExpiresIn,
@@ -774,51 +803,8 @@ func (s *Server) handleValidateProvider(w http.ResponseWriter, r *http.Request) 
 				"type":              "questrade_oauth_result",
 			})
 		}
-		if err := s.providerSvc.SaveQuestradeOAuth(r.Context(), s.db, req.ProviderID, qtResult.AccessToken, qtResult.RefreshToken, qtResult.APIServer, qtResult.ExpiresIn); err != nil {
-			s.logger.Error("failed to save questrade OAuth tokens", "provider", req.ProviderID, "error", err)
-			if s.logClient != nil {
-				s.logClient.ErrorWithMeta(r.Context(), fmt.Sprintf("Failed to save Questrade OAuth tokens: %s", req.ProviderID), map[string]interface{}{
-					"provider": req.ProviderID,
-					"error":    err.Error(),
-					"type":     "questrade_oauth_save_error",
-				})
-			}
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]interface{}{"valid": false, "error": "failed to save questrade oauth tokens"})
-			return
-		}
-	} else if persistValidation && valid {
-		if err := s.providerSvc.UpdateProviderValidationState(r.Context(), s.db, req.ProviderID, true, ""); err != nil {
-			s.logger.Error("failed to persist provider validation state", "provider", req.ProviderID, "error", err)
-		}
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]bool{"valid": valid})
-}
-
-func shouldPersistProviderValidationFailure(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	msg := strings.ToLower(err.Error())
-	for _, token := range []string{
-		"invalid",
-		"unauthorized",
-		"forbidden",
-		"expired",
-		"missing required fields",
-		"unknown provider",
-		"payment required",
-	} {
-		if strings.Contains(msg, token) {
-			return true
-		}
-	}
-
-	return false
+	json.NewEncoder(w).Encode(response)
 }
 
 func (s *Server) handleGetRSSFeeds(w http.ResponseWriter, r *http.Request) {

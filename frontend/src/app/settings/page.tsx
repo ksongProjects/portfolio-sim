@@ -13,7 +13,6 @@ import {
   Bell,
   Shield,
   Save,
-  TestTube,
   Eye,
   EyeOff,
   CheckCircle,
@@ -25,7 +24,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useProviders, ProviderConfig, ConnectionStatus, RSSFeed, MarketIndexConfig } from "@/hooks/useProviders";
+import { useProviders, ProviderConfig, ConnectionStatus, RSSFeed, MarketIndexConfig, ProviderSavePayload, ProviderValidationResult } from "@/hooks/useProviders";
 
 type ProviderStatus = "connected" | "disconnected" | "error" | "expired" | "configured";
 
@@ -36,15 +35,14 @@ function ProviderCard({
   onRefresh,
 }: {
   provider: ProviderConfig;
-  onSave: (providerId: string, apiKey: string) => Promise<boolean>;
-  onValidate: (providerId: string, apiKey: string) => Promise<{ valid: boolean; error?: string }>;
+  onSave: (providerId: string, apiKey: string, payload?: ProviderSavePayload) => Promise<boolean>;
+  onValidate: (providerId: string, apiKey: string) => Promise<ProviderValidationResult>;
   onRefresh?: () => Promise<{ success: boolean; error?: string }>;
 }) {
   const [apiKey, setApiKey] = useState("");
   const [showSecret, setShowSecret] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<ProviderStatus | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
@@ -52,28 +50,37 @@ function ProviderCard({
   const handleSave = async () => {
     if (!apiKey) return;
     setSaving(true);
-    const success = await onSave(provider.provider_id, apiKey);
-    if (!success) {
+    setTestResult(null);
+    setRefreshError(null);
+    const validation = await onValidate(provider.provider_id, apiKey);
+    setTestResult(validation.valid ? "connected" : "error");
+    if (!validation.valid) {
       setSaving(false);
       return;
     }
 
-    const result = await onValidate(provider.provider_id, apiKey);
-    setTestResult(result.valid ? "connected" : "error");
-    if (result.valid) {
+    const saveKey = validation.save_key || apiKey;
+    const payload: ProviderSavePayload = {
+      validated: true,
+    };
+    if (provider.provider_id === "questrade") {
+      payload.access_token = validation.access_token;
+      payload.refresh_token = validation.refresh_token;
+      payload.api_server = validation.api_server;
+      payload.expires_in = validation.expires_in;
+    }
+
+    const savedOk = await onSave(provider.provider_id, saveKey, payload);
+    if (savedOk) {
       setSaved(true);
+      if (provider.provider_id === "questrade") {
+        setApiKey("");
+      }
       setTimeout(() => setSaved(false), 2000);
+    } else {
+      setTestResult("error");
     }
     setSaving(false);
-  };
-
-  const handleTest = async () => {
-    if (!apiKey) return;
-    setTesting(true);
-    setTestResult(null);
-    const result = await onValidate(provider.provider_id, apiKey);
-    setTestResult(result.valid ? "connected" : "error");
-    setTesting(false);
   };
 
   const handleRefresh = async () => {
@@ -174,10 +181,6 @@ function ProviderCard({
           </div>
         )}
         <div className="flex gap-2">
-          <Button variant="secondary" size="sm" onClick={handleTest} disabled={testing || !apiKey}>
-            <TestTube className="h-4 w-4" />
-            {testing ? "Testing..." : "Test"}
-          </Button>
           <Button variant="default" size="sm" onClick={handleSave} disabled={!apiKey || saving}>
             <Save className="h-4 w-4" />
             {saving ? "Saving..." : saved ? "Saved!" : "Save"}

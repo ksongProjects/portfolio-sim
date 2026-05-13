@@ -40,6 +40,24 @@ export interface MarketIndexConfig {
   name: string;
 }
 
+export interface ProviderSavePayload {
+  validated?: boolean;
+  access_token?: string;
+  refresh_token?: string;
+  api_server?: string;
+  expires_in?: number;
+}
+
+export interface ProviderValidationResult {
+  valid: boolean;
+  error?: string;
+  save_key?: string;
+  access_token?: string;
+  refresh_token?: string;
+  api_server?: string;
+  expires_in?: number;
+}
+
 async function fetchProvidersData() {
   return fetchJson<ProviderConfig[]>("/api/providers", undefined, "Failed to fetch providers");
 }
@@ -89,14 +107,16 @@ export function useProviders() {
     mutationFn: async ({
       providerId,
       apiKey,
+      payload,
     }: {
       providerId: string;
       apiKey: string;
+      payload?: ProviderSavePayload;
     }) => {
       const res = await apiFetch("/api/providers", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider_id: providerId, api_key: apiKey }),
+        body: JSON.stringify({ provider_id: providerId, api_key: apiKey, ...payload }),
       });
 
       if (!res.ok) {
@@ -199,9 +219,9 @@ export function useProviders() {
   }, [marketIndexSettingsQuery]);
 
   const saveProviderKey = useCallback(
-    async (providerId: string, apiKey: string): Promise<boolean> => {
+    async (providerId: string, apiKey: string, payload?: ProviderSavePayload): Promise<boolean> => {
       try {
-        await saveProviderKeyMutation.mutateAsync({ providerId, apiKey });
+        await saveProviderKeyMutation.mutateAsync({ providerId, apiKey, payload });
         return true;
       } catch {
         return false;
@@ -214,7 +234,7 @@ export function useProviders() {
     async (
       providerId: string,
       apiKey: string
-    ): Promise<{ valid: boolean; error?: string }> => {
+    ): Promise<ProviderValidationResult> => {
       try {
         const res = await apiFetch("/api/providers/validate", {
           method: "POST",
@@ -228,7 +248,7 @@ export function useProviders() {
           throw new Error(data.error || "Failed to validate");
         }
 
-        return data;
+        return data as ProviderValidationResult;
       } catch (err) {
         return { valid: false, error: getErrorMessage(err) };
       }

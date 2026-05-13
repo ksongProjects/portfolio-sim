@@ -239,8 +239,9 @@ func (s *Storage) UpdateQuestradeTokens(ctx context.Context, accessToken, refres
 	expiresAt := time.Now().Add(time.Duration(expiresIn) * time.Second)
 	_, err = s.pool.Exec(ctx, `
 		INSERT INTO provider_configurations (id, provider_id, encrypted_key, access_token, refresh_token, api_server, token_expires_at, is_validated, validated_at, validation_error, created_at, updated_at)
-		VALUES (gen_random_uuid(), 'questrade', '', $1, $2, $3, $4, true, NOW(), NULL, NOW(), NOW())
+		VALUES (gen_random_uuid(), 'questrade', $2, $1, $2, $3, $4, true, NOW(), NULL, NOW(), NOW())
 		ON CONFLICT (provider_id) DO UPDATE SET
+			encrypted_key = EXCLUDED.encrypted_key,
 			access_token = EXCLUDED.access_token,
 			refresh_token = EXCLUDED.refresh_token,
 			api_server = EXCLUDED.api_server,
