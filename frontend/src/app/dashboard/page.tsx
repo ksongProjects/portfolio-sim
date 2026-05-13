@@ -55,10 +55,11 @@ function MiniChart() {
 
 export default function DashboardPage() {
   const { positions, summary, indices: restIndices, loading } = usePortfolio();
-  const { indices: liveIndices, isLive } = useLiveIndices();
+  const { indices: liveIndices, isLive, loading: liveIndicesLoading } = useLiveIndices();
   const [activePeriod, setActivePeriod] = useState("1M");
 
   const indices = isLive ? liveIndices : restIndices;
+  const indicesLoading = loading || (isLive && liveIndicesLoading);
 
   const posValue = summary?.TotalValue ?? 0;
   const posDayChange = summary?.DayChange ?? 0;
@@ -215,7 +216,7 @@ export default function DashboardPage() {
           <PageCell className="col-span-1 row-span-1">
             <CardTitle className="mb-4">Market Indices</CardTitle>
             <div className="grid grid-cols-2 gap-2">
-              {loading ? (
+              {indicesLoading ? (
                 Array.from({ length: 4 }).map((_, i) => (
                   <div key={i} className="flex items-center justify-between p-3 border border-outline-variant/30">
                     <div className="space-y-1">

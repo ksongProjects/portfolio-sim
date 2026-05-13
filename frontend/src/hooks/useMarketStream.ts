@@ -1,13 +1,16 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+const EMPTY_TICKS = new Map<string, MarketTick>();
 
 export interface MarketTick {
 	TickerID: string;
 	Symbol: string;
 	Price: number;
+	Change?: number;
+	ChangePct?: number;
 	Bid: number;
 	Ask: number;
 	Volume: number;
@@ -15,12 +18,12 @@ export interface MarketTick {
 	Timestamp: string;
 }
 
-export function useMarketStream(symbols: string[] = []) {
+export function useMarketStream(symbols: string[] = [], enabled = true) {
 	const [ticks, setTicks] = useState<Map<string, MarketTick>>(new Map());
 	const [connected, setConnected] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const esRef = useRef<EventSource | null>(null);
-	const symbolsKey = useMemo(() => symbols.join(","), [symbols]);
+	const symbolsKey = symbols.join(",");
 
 	const updateTick = useCallback((tick: MarketTick) => {
 		setTicks((prev) => {
@@ -33,10 +36,19 @@ export function useMarketStream(symbols: string[] = []) {
 	useEffect(() => {
 		if (esRef.current) {
 			esRef.current.close();
+			esRef.current = null;
 		}
 
-		const symbolsParam = symbols.length > 0 ? `symbols=${symbols.join(",")}` : "";
-		const url = `${API_BASE}/api/stream/market${symbolsParam ? "?" + symbolsParam : ""}`;
+		if (!enabled) {
+			return;
+		}
+
+		const params = new URLSearchParams();
+		for (const symbol of symbolsKey.split(",").filter(Boolean)) {
+			params.append("symbols", symbol);
+		}
+		const query = params.toString();
+		const url = `${API_BASE}/api/stream/market${query ? "?" + query : ""}`;
 
 		const es = new EventSource(url);
 		esRef.current = es;
@@ -57,37 +69,32 @@ export function useMarketStream(symbols: string[] = []) {
 		es.onerror = () => {
 			setConnected(false);
 			setError("Stream connection lost");
-			es.close();
-			setTimeout(() => {
-				if (esRef.current === es) {
-					const reconnectEs = new EventSource(url);
-					esRef.current = reconnectEs;
-				}
-			}, 5000);
 		};
 
 		return () => {
 			es.close();
+			if (esRef.current === es) {
+				esRef.current = null;
+			}
 		};
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [symbolsKey, updateTick, error, connected]);
+	}, [symbolsKey, updateTick, enabled]);
 
 	const getTick = useCallback(
 		(symbol: string): MarketTick | undefined => {
-			return ticks.get(symbol);
+			return enabled ? ticks.get(symbol) : undefined;
 		},
-		[ticks]
+		[ticks, enabled]
 	);
 
 	const getAllTicks = useCallback((): MarketTick[] => {
-		return Array.from(ticks.values());
-	}, [ticks]);
+		return enabled ? Array.from(ticks.values()) : [];
+	}, [ticks, enabled]);
 
 	return {
-		ticks,
+		ticks: enabled ? ticks : EMPTY_TICKS,
 		getTick,
 		getAllTicks,
-		connected,
-		error,
+		connected: enabled && connected,
+		error: enabled ? error : null,
 	};
 }
