@@ -196,6 +196,8 @@ export default function PortfolioPage() {
               loading={loading}
               emptyMessage="No positions available"
               searchPlaceholder="Search holdings..."
+              enablePagination={false}
+              maxHeight="60vh"
             />
           </PageCell>
 
