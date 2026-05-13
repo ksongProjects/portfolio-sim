@@ -39,67 +39,34 @@ export interface FinancialRatio {
   description: string;
 }
 
+interface TickerLookupResponse extends TickerDetails {
+  intraday?: IntradayBar[];
+  ratios?: FinancialRatio[];
+}
+
 function dedupeTickers(results: TickerDetails[]) {
   const seen = new Set<string>();
   return results.filter((ticker) => (seen.has(ticker.symbol) ? false : seen.add(ticker.symbol)));
 }
 
 async function fetchTickerDetails(symbol: string) {
-  return fetchJson<TickerDetails>(
+  return fetchJson<TickerLookupResponse>(
     `/api/tickers/${encodeURIComponent(symbol)}/details`,
     undefined,
     "Failed to fetch ticker details"
   );
 }
 
-async function fetchIntradayData(symbol: string, interval: string) {
-  try {
-    const data = await fetchJson<IntradayBar[]>(
-      `/api/tickers/${encodeURIComponent(symbol)}/intraday${
-        interval !== "1min" ? `?interval=${encodeURIComponent(interval)}` : ""
-      }`
-    );
-    return Array.isArray(data) ? data : [];
-  } catch {
-    return [];
-  }
-}
-
-async function fetchRatiosData(symbol: string) {
-  try {
-    const data = await fetchJson<FinancialRatio[]>(
-      `/api/tickers/${encodeURIComponent(symbol)}/ratios`
-    );
-    return Array.isArray(data) ? data : [];
-  } catch {
-    return [];
-  }
-}
-
 export function useTickerLookup(initialSymbol?: string) {
   const queryClient = useQueryClient();
   const [searchResults, setSearchResultsState] = useState<TickerDetails[]>([]);
   const [manualSelectedSymbol, setManualSelectedSymbol] = useState<string | null>(null);
-  const [selectedInterval, setSelectedInterval] = useState("1min");
   const [searchLoading, setSearchLoading] = useState(false);
   const selectedSymbol = initialSymbol ?? manualSelectedSymbol;
-  const activeInterval = initialSymbol ? "1min" : selectedInterval;
 
   const detailsQuery = useQuery({
     queryKey: ["tickers", "details", selectedSymbol],
     queryFn: () => fetchTickerDetails(selectedSymbol!),
-    enabled: Boolean(selectedSymbol),
-  });
-
-  const intradayQuery = useQuery({
-    queryKey: ["tickers", "intraday", selectedSymbol, activeInterval],
-    queryFn: () => fetchIntradayData(selectedSymbol!, activeInterval),
-    enabled: Boolean(selectedSymbol),
-  });
-
-  const ratiosQuery = useQuery({
-    queryKey: ["tickers", "ratios", selectedSymbol],
-    queryFn: () => fetchRatiosData(selectedSymbol!),
     enabled: Boolean(selectedSymbol),
   });
 
@@ -140,42 +107,26 @@ export function useTickerLookup(initialSymbol?: string) {
   const lookupTicker = useCallback(
     async (symbol: string, interval = "1min") => {
       setManualSelectedSymbol(symbol);
-      setSelectedInterval(interval);
 
       try {
-        if (symbol === selectedSymbol && interval === activeInterval) {
-          await Promise.all([
-            detailsQuery.refetch(),
-            intradayQuery.refetch(),
-            ratiosQuery.refetch(),
-          ]);
+        if (symbol === selectedSymbol && interval === "1min") {
+          await detailsQuery.refetch();
           return;
         }
 
-        await Promise.all([
-          queryClient.fetchQuery({
-            queryKey: ["tickers", "details", symbol],
-            queryFn: () => fetchTickerDetails(symbol),
-          }),
-          queryClient.fetchQuery({
-            queryKey: ["tickers", "intraday", symbol, interval],
-            queryFn: () => fetchIntradayData(symbol, interval),
-          }),
-          queryClient.fetchQuery({
-            queryKey: ["tickers", "ratios", symbol],
-            queryFn: () => fetchRatiosData(symbol),
-          }),
-        ]);
+        await queryClient.fetchQuery({
+          queryKey: ["tickers", "details", symbol],
+          queryFn: () => fetchTickerDetails(symbol),
+        });
       } catch {
         // detailsQuery exposes failure state for callers that render errors
       }
     },
-    [activeInterval, detailsQuery, intradayQuery, queryClient, ratiosQuery, selectedSymbol]
+    [detailsQuery, queryClient, selectedSymbol]
   );
 
   const clearSelection = useCallback(() => {
     setManualSelectedSymbol(null);
-    setSelectedInterval("1min");
   }, []);
 
   const setSearchResults = useCallback(
@@ -188,12 +139,9 @@ export function useTickerLookup(initialSymbol?: string) {
   return {
     searchResults,
     selectedTicker: selectedSymbol ? detailsQuery.data ?? null : null,
-    intradayData: selectedSymbol ? intradayQuery.data ?? [] : [],
-    ratios: selectedSymbol ? ratiosQuery.data ?? [] : [],
-    loading:
-      detailsQuery.isFetching ||
-      intradayQuery.isFetching ||
-      ratiosQuery.isFetching,
+    intradayData: selectedSymbol ? detailsQuery.data?.intraday ?? [] : [],
+    ratios: selectedSymbol ? detailsQuery.data?.ratios ?? [] : [],
+    loading: detailsQuery.isFetching,
     searchLoading,
     error: detailsQuery.error ? getErrorMessage(detailsQuery.error) : null,
     searchTickers,

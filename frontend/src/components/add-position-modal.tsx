@@ -85,9 +85,17 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
   const [price, setPrice] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
 
-  const { searchResults, selectedTicker, intradayData, ratios, loading: searchLoading, searchTickers, lookupTicker, clearSelection } = useTickerLookup();
-
-  const [loading, setLoading] = useState(false);
+  const {
+    searchResults,
+    selectedTicker,
+    intradayData,
+    ratios,
+    loading: tickerLoading,
+    searchLoading,
+    searchTickers,
+    lookupTicker,
+    clearSelection,
+  } = useTickerLookup();
 
   useEffect(() => {
     if (open && searchRef.current) {
@@ -97,9 +105,7 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
 
   const handleSearch = async () => {
     if (!query.trim()) return;
-    setLoading(true);
     await searchTickers(query);
-    setLoading(false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -110,7 +116,7 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
 
   const handleTickerSelect = (ticker: TickerDetails) => {
     setPrice(ticker.price.toFixed(2));
-    lookupTicker(ticker.symbol);
+    void lookupTicker(ticker.symbol);
     setStep("details");
   };
 
@@ -175,13 +181,13 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
                       className="w-full h-10 pl-10 pr-4 bg-surface-container-low border border-outline/30 text-sm text-on-surface placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
                     />
                   </div>
-                  <Button variant="default" size="default" onClick={handleSearch} disabled={loading || !query.trim()}>
+                  <Button variant="default" size="default" onClick={handleSearch} disabled={searchLoading || !query.trim()}>
                     <Search className="h-4 w-4" />
-                    {loading ? "..." : "Search"}
+                    {searchLoading ? "..." : "Search"}
                   </Button>
                 </div>
 
-                {loading && (
+                {searchLoading && (
                   <div className="text-sm text-on-surface-variant py-4 text-center">Searching...</div>
                 )}
 
@@ -217,6 +223,12 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
                 {query.length > 0 && !searchLoading && searchResults.length === 0 && (
                   <div className="text-sm text-on-surface-variant py-8 text-center">No tickers found for &quot;{query}&quot;</div>
                 )}
+              </div>
+            )}
+
+            {step === "details" && !selectedTicker && (
+              <div className="h-48 flex items-center justify-center text-sm text-on-surface-variant">
+                {tickerLoading ? "Loading ticker details..." : "Ticker details unavailable"}
               </div>
             )}
 
