@@ -25,7 +25,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useProviders, ProviderConfig, ConnectionStatus, RSSFeed } from "@/hooks/useProviders";
+import { useProviders, ProviderConfig, ConnectionStatus, RSSFeed, MarketIndexConfig } from "@/hooks/useProviders";
 
 type ProviderStatus = "connected" | "disconnected" | "error" | "expired" | "available";
 
@@ -257,8 +257,124 @@ function AddRSSFeedForm({ onAdd }: { onAdd: (name: string, url: string) => Promi
   );
 }
 
+function MarketIndicesCard({
+  indices,
+  loading,
+  onSave,
+}: {
+  indices: MarketIndexConfig[];
+  loading: boolean;
+  onSave: (indices: MarketIndexConfig[]) => Promise<boolean>;
+}) {
+  const [draft, setDraft] = useState<MarketIndexConfig[]>(() => indices);
+  const [saving, setSaving] = useState(false);
+
+  const hasBlankRows = draft.some((index) => !index.symbol.trim());
+  const hasChanges =
+    JSON.stringify(draft) !== JSON.stringify(indices);
+
+  const updateIndex = (target: number, field: keyof MarketIndexConfig, value: string) => {
+    setDraft((current) =>
+      current.map((index, indexPosition) =>
+        indexPosition === target ? { ...index, [field]: value } : index
+      )
+    );
+  };
+
+  const handleAdd = () => {
+    setDraft((current) => [...current, { symbol: "", name: "" }]);
+  };
+
+  const handleRemove = (target: number) => {
+    setDraft((current) => current.filter((_, index) => index !== target));
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    await onSave(draft);
+    setSaving(false);
+  };
+
+  return (
+    <div>
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <CardTitle>Market Indices</CardTitle>
+          <div className="mt-1 text-[11px] text-on-surface-variant">
+            Controls which major market indices appear on the dashboard.
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        {draft.map((index, indexPosition) => (
+          <div
+            key={`${index.symbol || "new"}-${indexPosition}`}
+            className="grid grid-cols-1 gap-2 border border-outline-variant/30 p-3 md:grid-cols-[140px_minmax(0,1fr)_auto]"
+          >
+            <Input
+              label="Symbol"
+              placeholder="SPY"
+              value={index.symbol}
+              onChange={(e) => updateIndex(indexPosition, "symbol", e.target.value.toUpperCase())}
+              className="font-mono uppercase"
+            />
+            <Input
+              label="Name"
+              placeholder="S&P 500"
+              value={index.name}
+              onChange={(e) => updateIndex(indexPosition, "name", e.target.value)}
+            />
+            <div className="flex items-end">
+              <Button type="button" variant="ghost" size="icon" onClick={() => handleRemove(indexPosition)}>
+                <Trash2 className="h-4 w-4 text-error" />
+              </Button>
+            </div>
+          </div>
+        ))}
+
+        {draft.length === 0 && !loading && (
+          <div className="border border-outline-variant/30 p-4 text-sm text-on-surface-variant">
+            No indices configured. Add at least one symbol to show market context on the dashboard.
+          </div>
+        )}
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Button type="button" variant="secondary" size="sm" onClick={handleAdd}>
+          <Plus className="h-4 w-4" />
+          Add Index
+        </Button>
+        <Button
+          type="button"
+          variant="default"
+          size="sm"
+          onClick={handleSave}
+          disabled={saving || hasBlankRows || !hasChanges}
+        >
+          <Save className="h-4 w-4" />
+          {saving ? "Saving..." : "Save List"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
-  const { providers, connections, rssFeeds, loading, refresh, saveProviderKey, validateProviderKey, addRSSFeed, deleteRSSFeed, refreshQuestradeToken } = useProviders();
+  const {
+    providers,
+    connections,
+    rssFeeds,
+    marketIndexSettings,
+    loading,
+    refresh,
+    saveProviderKey,
+    validateProviderKey,
+    addRSSFeed,
+    deleteRSSFeed,
+    refreshQuestradeToken,
+    saveMarketIndexSettings,
+  } = useProviders();
 
   const [notificationSettings, setNotificationSettings] = useState({
     tradeExecuted: true,
@@ -372,6 +488,15 @@ export default function SettingsPage() {
                 <div className="mt-4 pt-4 border-t border-outline-variant/30">
                   <AddRSSFeedForm onAdd={addRSSFeed} />
                 </div>
+              </div>
+
+              <div>
+                <MarketIndicesCard
+                  key={marketIndexSettings.map((index) => `${index.symbol}:${index.name}`).join("|")}
+                  indices={marketIndexSettings}
+                  loading={loading}
+                  onSave={saveMarketIndexSettings}
+                />
               </div>
             </div>
           </PageCell>

@@ -2,7 +2,7 @@
 
 import { useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { buildApiUrl, fetchJson, getErrorMessage } from "@/lib/api";
+import { apiFetch, fetchJson, getErrorMessage } from "@/lib/api";
 
 export interface RSSFeed {
   id: string;
@@ -46,7 +46,7 @@ export function useRSSFeeds() {
 
   const deleteFeedMutation = useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch(buildApiUrl(`/api/rss-feeds?id=${encodeURIComponent(id)}`), {
+      const res = await apiFetch(`/api/rss-feeds?id=${encodeURIComponent(id)}`, {
         method: "DELETE",
       });
 
@@ -65,7 +65,7 @@ export function useRSSFeeds() {
 
   const scrapeFeedsMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch(buildApiUrl("/api/rss-feeds/scrape"), { method: "POST" });
+      const res = await apiFetch("/api/rss-feeds/scrape", { method: "POST" });
 
       if (!res.ok) {
         throw new Error("Failed to trigger scrape");

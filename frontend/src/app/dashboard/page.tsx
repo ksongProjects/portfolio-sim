@@ -4,10 +4,8 @@ import { useState } from "react";
 import { PageGrid, PageCell, PageHeader, MetricLabel, MetricValue, MetricSubValue } from "@/components/page-layout";
 import { CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton, MetricSkeleton } from "@/components/ui/skeleton";
-import { Activity } from "lucide-react";
 import { usePortfolio } from "@/hooks/usePortfolio";
 
 function fmtCurrency(v: number): string {
@@ -15,6 +13,10 @@ function fmtCurrency(v: number): string {
 }
 function fmtPct(v: number): string {
   return (v >= 0 ? "+" : "") + v.toFixed(2) + "%";
+}
+
+function fmtSignedCurrency(v: number): string {
+  return `${v >= 0 ? "+" : "-"}${fmtCurrency(Math.abs(v))}`;
 }
 
 function NoDataMessage() {
@@ -52,22 +54,7 @@ function MiniChart() {
 
 export default function DashboardPage() {
   const { positions, summary, indices, loading } = usePortfolio();
-  const [simRunning, setSimRunning] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
   const [activePeriod, setActivePeriod] = useState("1M");
-
-  const showToast = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 3000);
-  };
-
-  const handleRunSimulation = async () => {
-    setSimRunning(true);
-    showToast("Simulation started...");
-    await new Promise((r) => setTimeout(r, 2000));
-    setSimRunning(false);
-    showToast("Simulation completed.");
-  };
 
   const posValue = summary?.TotalValue ?? 0;
   const posDayChange = summary?.DayChange ?? 0;
@@ -82,12 +69,7 @@ export default function DashboardPage() {
         <PageHeader
           title="Dashboard"
           description="Portfolio overview and performance metrics"
-        >
-          <Button variant="default" size="sm" onClick={handleRunSimulation} disabled={simRunning}>
-            <Activity className="h-4 w-4" />
-            {simRunning ? "Running..." : "Run Simulation"}
-          </Button>
-        </PageHeader>
+        />
       </div>
 
       <div className="flex-1 px-6 pb-6 overflow-auto">
@@ -251,7 +233,7 @@ export default function DashboardPage() {
                   <div className="text-right">
                     <div className="font-mono text-sm">{fmtCurrency(index.Price)}</div>
                     <div className={`text-[11px] font-mono ${index.ChangePct >= 0 ? "text-primary" : "text-error"}`}>
-                      {fmtPct(index.ChangePct)}
+                      {fmtSignedCurrency(index.Change)} ({fmtPct(index.ChangePct)})
                     </div>
                   </div>
                 </div>
@@ -262,12 +244,6 @@ export default function DashboardPage() {
           </PageCell>
         </PageGrid>
       </div>
-
-      {toast && (
-        <div className="fixed bottom-6 right-6 z-50 bg-surface-container-highest border border-primary text-on-surface px-4 py-3 text-sm font-medium">
-          {toast}
-        </div>
-      )}
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { buildApiUrl, fetchJson, getErrorMessage } from "@/lib/api";
+import { apiFetch, fetchJson, getErrorMessage } from "@/lib/api";
 
 export interface ProviderConfig {
   id: string;
@@ -33,6 +33,11 @@ export interface RSSFeed {
   is_active: boolean;
 }
 
+export interface MarketIndexConfig {
+  symbol: string;
+  name: string;
+}
+
 async function fetchProvidersData() {
   return fetchJson<ProviderConfig[]>("/api/providers", undefined, "Failed to fetch providers");
 }
@@ -43,6 +48,15 @@ async function fetchConnectionsData() {
 
 async function fetchRSSFeedsData() {
   const data = await fetchJson<RSSFeed[]>("/api/rss-feeds", undefined, "Failed to fetch RSS feeds");
+  return Array.isArray(data) ? data : [];
+}
+
+async function fetchMarketIndexSettingsData() {
+  const data = await fetchJson<MarketIndexConfig[]>(
+    "/api/settings/market-indices",
+    undefined,
+    "Failed to fetch market index settings"
+  );
   return Array.isArray(data) ? data : [];
 }
 
@@ -64,6 +78,11 @@ export function useProviders() {
     queryFn: fetchRSSFeedsData,
   });
 
+  const marketIndexSettingsQuery = useQuery({
+    queryKey: ["settings", "market-indices"],
+    queryFn: fetchMarketIndexSettingsData,
+  });
+
   const saveProviderKeyMutation = useMutation({
     mutationFn: async ({
       providerId,
@@ -72,7 +91,7 @@ export function useProviders() {
       providerId: string;
       apiKey: string;
     }) => {
-      const res = await fetch(buildApiUrl("/api/providers"), {
+      const res = await apiFetch("/api/providers", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ provider_id: providerId, api_key: apiKey }),
@@ -108,7 +127,7 @@ export function useProviders() {
 
   const deleteRSSFeedMutation = useMutation({
     mutationFn: async (feedId: string) => {
-      const res = await fetch(buildApiUrl(`/api/rss-feeds?id=${encodeURIComponent(feedId)}`), {
+      const res = await apiFetch(`/api/rss-feeds?id=${encodeURIComponent(feedId)}`, {
         method: "DELETE",
       });
 
@@ -127,7 +146,7 @@ export function useProviders() {
 
   const refreshQuestradeTokenMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch(buildApiUrl("/api/providers/questrade/refresh"), {
+      const res = await apiFetch("/api/providers/questrade/refresh", {
         method: "POST",
       });
 
@@ -138,6 +157,26 @@ export function useProviders() {
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["providers"] });
+    },
+  });
+
+  const saveMarketIndexSettingsMutation = useMutation({
+    mutationFn: async (indices: MarketIndexConfig[]) => {
+      const data = await fetchJson<MarketIndexConfig[]>(
+        "/api/settings/market-indices",
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(indices),
+        },
+        "Failed to save market index settings"
+      );
+
+      return Array.isArray(data) ? data : [];
+    },
+    onSuccess: async (indices) => {
+      queryClient.setQueryData(["settings", "market-indices"], indices);
+      await queryClient.invalidateQueries({ queryKey: ["portfolio", "indices"] });
     },
   });
 
@@ -152,6 +191,10 @@ export function useProviders() {
   const fetchRSSFeeds = useCallback(async () => {
     await rssFeedsQuery.refetch();
   }, [rssFeedsQuery]);
+
+  const fetchMarketIndexSettings = useCallback(async () => {
+    await marketIndexSettingsQuery.refetch();
+  }, [marketIndexSettingsQuery]);
 
   const saveProviderKey = useCallback(
     async (providerId: string, apiKey: string): Promise<boolean> => {
@@ -171,7 +214,7 @@ export function useProviders() {
       apiKey: string
     ): Promise<{ valid: boolean; error?: string }> => {
       try {
-        const res = await fetch(buildApiUrl("/api/providers/validate"), {
+        const res = await apiFetch("/api/providers/validate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ provider_id: providerId, api_key: apiKey }),
@@ -219,8 +262,9 @@ export function useProviders() {
       providersQuery.refetch(),
       connectionsQuery.refetch(),
       rssFeedsQuery.refetch(),
+      marketIndexSettingsQuery.refetch(),
     ]);
-  }, [connectionsQuery, providersQuery, rssFeedsQuery]);
+  }, [connectionsQuery, marketIndexSettingsQuery, providersQuery, rssFeedsQuery]);
 
   const refreshQuestradeToken = useCallback(async (): Promise<{ success: boolean; error?: string }> => {
     try {
@@ -231,32 +275,50 @@ export function useProviders() {
     }
   }, [refreshQuestradeTokenMutation]);
 
+  const saveMarketIndexSettings = useCallback(
+    async (indices: MarketIndexConfig[]): Promise<boolean> => {
+      try {
+        await saveMarketIndexSettingsMutation.mutateAsync(indices);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [saveMarketIndexSettingsMutation]
+  );
+
   const combinedError =
     providersQuery.error ??
     connectionsQuery.error ??
     rssFeedsQuery.error ??
+    marketIndexSettingsQuery.error ??
     saveProviderKeyMutation.error ??
     addRSSFeedMutation.error ??
     deleteRSSFeedMutation.error ??
-    refreshQuestradeTokenMutation.error;
+    refreshQuestradeTokenMutation.error ??
+    saveMarketIndexSettingsMutation.error;
 
   return {
     providers: providersQuery.data ?? [],
     connections: connectionsQuery.data ?? [],
     rssFeeds: rssFeedsQuery.data ?? [],
+    marketIndexSettings: marketIndexSettingsQuery.data ?? [],
     loading:
       providersQuery.isFetching ||
       connectionsQuery.isFetching ||
-      rssFeedsQuery.isFetching,
+      rssFeedsQuery.isFetching ||
+      marketIndexSettingsQuery.isFetching,
     error: combinedError ? getErrorMessage(combinedError) : null,
     fetchProviders,
     fetchConnections,
     fetchRSSFeeds,
+    fetchMarketIndexSettings,
     saveProviderKey,
     validateProviderKey,
     addRSSFeed,
     deleteRSSFeed,
     refresh,
     refreshQuestradeToken,
+    saveMarketIndexSettings,
   };
 }

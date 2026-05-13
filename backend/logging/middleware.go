@@ -29,6 +29,8 @@ func Middleware(client *Client) func(http.HandlerFunc) http.HandlerFunc {
 				r.Body = io.NopCloser(bytes.NewReader(reqBody))
 			}
 
+			route := getRoute(r)
+			r = r.WithContext(WithRoute(r.Context(), route))
 			operation := getOperationName(r.Method, r.URL.Path)
 			contextMeta := getRequestContext(r, reqBody)
 
@@ -41,7 +43,7 @@ func Middleware(client *Client) func(http.HandlerFunc) http.HandlerFunc {
 				"query":           sanitizeURLQuery(r.URL.RawQuery),
 				"request_headers": redactHeaders(r.Header),
 				"remote_addr":     r.RemoteAddr,
-				"route":           getRoute(r),
+				"route":           route,
 			}
 			for key, value := range contextMeta {
 				reqMeta[key] = value
@@ -69,7 +71,7 @@ func Middleware(client *Client) func(http.HandlerFunc) http.HandlerFunc {
 				"duration_ms":        durationMs,
 				"response_headers":   redactHeaders(wrapper.Header()),
 				"response_body_size": wrapper.size,
-				"route":              getRoute(r),
+				"route":              route,
 			}
 			for key, value := range contextMeta {
 				respMeta[key] = value
@@ -136,29 +138,82 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 }
 
 func getRoute(r *http.Request) string {
-	referer := r.Header.Get("Referer")
-	if referer != "" {
-		if u, err := url.Parse(referer); err == nil {
-			return getRouteFromPath(u.Path)
-		}
+	if route := getRouteFromHeaders(r.Header); route != "" {
+		return route
 	}
 	return getActionFromPath(r.URL.Path)
 }
 
+func getRouteFromHeaders(headers http.Header) string {
+	for _, value := range []string{
+		headers.Get("X-Frontend-Route"),
+		headers.Get("Next-Url"),
+		headers.Get("Referer"),
+	} {
+		if route := normalizeRouteHeaderValue(value); route != "" {
+			return route
+		}
+	}
+
+	return ""
+}
+
+func normalizeRouteHeaderValue(value string) string {
+	path := headerValueToPath(value)
+	if path == "" {
+		return ""
+	}
+
+	route := getRouteFromPath(path)
+	if route == "api" {
+		return ""
+	}
+
+	return route
+}
+
+func headerValueToPath(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return ""
+	}
+
+	if strings.HasPrefix(trimmed, "http://") || strings.HasPrefix(trimmed, "https://") {
+		u, err := url.Parse(trimmed)
+		if err != nil {
+			return ""
+		}
+
+		return u.Path
+	}
+
+	if strings.HasPrefix(trimmed, "/") {
+		if index := strings.Index(trimmed, "?"); index >= 0 {
+			return trimmed[:index]
+		}
+
+		return trimmed
+	}
+
+	return "/" + trimmed
+}
+
 func getRouteFromPath(path string) string {
-	switch path {
-	case "/dashboard":
+	switch {
+	case path == "/dashboard" || strings.HasPrefix(path, "/dashboard/"):
 		return "dashboard"
-	case "/portfolio":
+	case path == "/portfolio" || strings.HasPrefix(path, "/portfolio/"):
 		return "portfolio"
-	case "/news-feed":
+	case path == "/news-feed" || strings.HasPrefix(path, "/news-feed/"):
 		return "news"
-	case "/strategy":
+	case path == "/strategy" || strings.HasPrefix(path, "/strategy/"):
 		return "strategy"
-	case "/observability":
+	case path == "/observability" || strings.HasPrefix(path, "/observability/"):
 		return "observability"
-	case "/settings":
+	case path == "/settings" || strings.HasPrefix(path, "/settings/"):
 		return "settings"
+	case strings.HasPrefix(path, "/ticker/"):
+		return "portfolio"
 	}
 	return "api"
 }
@@ -188,6 +243,9 @@ func getActionFromPath(path string) string {
 	if strings.HasPrefix(path, "/api/providers") {
 		return "settings"
 	}
+	if strings.HasPrefix(path, "/api/settings/") {
+		return "settings"
+	}
 	if strings.HasPrefix(path, "/api/connections") {
 		return "settings"
 	}
@@ -210,6 +268,10 @@ func getOperationName(method, path string) string {
 		return "fetch portfolio summary"
 	case method == http.MethodGet && path == "/api/market/indices":
 		return "fetch market indices"
+	case method == http.MethodGet && path == "/api/settings/market-indices":
+		return "fetch market index settings"
+	case method == http.MethodPut && path == "/api/settings/market-indices":
+		return "save market index settings"
 	case method == http.MethodGet && path == "/api/news":
 		return "fetch news feed"
 	case method == http.MethodGet && path == "/api/strategies":

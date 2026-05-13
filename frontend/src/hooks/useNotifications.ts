@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { buildApiUrl, fetchJson } from "@/lib/api";
+import { apiFetch, fetchJson } from "@/lib/api";
 
 export interface Notification {
   id: string;
@@ -73,7 +73,7 @@ export function useNotifications() {
   const markAsRead = useCallback(
     async (id: string) => {
       try {
-        await fetch(buildApiUrl("/api/notifications/dismiss"), {
+        await apiFetch("/api/notifications/dismiss", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id }),

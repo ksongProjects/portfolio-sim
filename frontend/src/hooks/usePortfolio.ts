@@ -2,7 +2,7 @@
 
 import { useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { buildApiUrl, fetchJson, getErrorMessage } from "@/lib/api";
+import { apiFetch, fetchJson, getErrorMessage } from "@/lib/api";
 
 export interface Position {
 	ID: string;
@@ -99,7 +99,7 @@ export function usePortfolio(portfolioId = "default") {
 			shares: number;
 			price: number;
 		}) => {
-			const res = await fetch(buildApiUrl("/api/portfolio/positions"), {
+			const res = await apiFetch("/api/portfolio/positions", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({

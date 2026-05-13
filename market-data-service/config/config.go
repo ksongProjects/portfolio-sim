@@ -6,12 +6,12 @@ import (
 )
 
 type Config struct {
-	Server   ServerConfig
-	Database DatabaseConfig
-	Redis    RedisConfig
+	Server    ServerConfig
+	Database  DatabaseConfig
+	Redis     RedisConfig
 	Questrade QuestradeConfig
-	Polygon  PolygonConfig
-	FMP      FMPConfig
+	Massive   MassiveConfig
+	FMP       FMPConfig
 }
 
 type ServerConfig struct {
@@ -38,7 +38,7 @@ type QuestradeConfig struct {
 	RateLimitMin int
 }
 
-type PolygonConfig struct {
+type MassiveConfig struct {
 	APIKey       string
 	RateLimitMin int
 }
@@ -68,11 +68,11 @@ func Load() *Config {
 		},
 		Questrade: QuestradeConfig{
 			APIURL:       "https://login.questrade.com/oauth2/token",
-			RateLimitMin: 100,
+			RateLimitMin: 1200,
 		},
-		Polygon: PolygonConfig{
-			APIKey:       getEnv("POLYGON_API_KEY", ""),
-			RateLimitMin: getEnvInt("POLYGON_RATE_LIMIT", 60),
+		Massive: MassiveConfig{
+			APIKey:       getEnv("MASSIVE_API_KEY", ""),
+			RateLimitMin: getEnvInt("MASSIVE_RATE_LIMIT_MIN", 60),
 		},
 		FMP: FMPConfig{
 			APIKey:       getEnv("FMP_API_KEY", ""),

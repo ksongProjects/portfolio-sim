@@ -1,4 +1,5 @@
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+const API_REFERRER_POLICY: ReferrerPolicy = "unsafe-url";
 
 export class ApiError extends Error {
   status?: number;
@@ -26,6 +27,13 @@ export function buildApiUrl(path: string) {
   return `${API_BASE}${path}`;
 }
 
+export function apiFetch(path: string, init?: RequestInit) {
+  return fetch(buildApiUrl(path), {
+    ...init,
+    referrerPolicy: init?.referrerPolicy ?? API_REFERRER_POLICY,
+  });
+}
+
 export async function fetchJson<T>(
   path: string,
   init?: RequestInit,
@@ -33,7 +41,7 @@ export async function fetchJson<T>(
 ): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(buildApiUrl(path), init);
+    res = await apiFetch(path, init);
   } catch (error) {
     throw new ApiError(errorMessage, { retryable: true, cause: error });
   }

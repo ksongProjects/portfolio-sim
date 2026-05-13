@@ -1,7 +1,6 @@
 package providers
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -54,7 +53,6 @@ func (p *MassiveProvider) FetchPrice(ticker string) (*Price, error) {
 		return nil, err
 	}
 
-	start := time.Now()
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -80,7 +78,7 @@ func (p *MassiveProvider) FetchPrice(ticker string) (*Price, error) {
 			Timestamp int64   `json:"t"`
 		} `json:"results"`
 	}
-	if err := parseJSON(body, &result); err != nil {
+	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, err
 	}
 
@@ -165,7 +163,7 @@ func (p *MassiveProvider) FetchIntradayBars(ticker string, interval string) ([]*
 			Timestamp int64   `json:"t"`
 		} `json:"results"`
 	}
-	if err := parseJSON(body, &result); err != nil {
+	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, err
 	}
 
@@ -176,7 +174,7 @@ func (p *MassiveProvider) FetchIntradayBars(ticker string, interval string) ([]*
 			Interval:  interval,
 			Open:      b.Open,
 			High:      b.High,
-			Low:       b.L,
+			Low:      b.Low,
 			Close:     b.Close,
 			Volume:    int64(b.Volume),
 			Timestamp: time.UnixMilli(b.Timestamp),
@@ -221,7 +219,7 @@ func (p *MassiveProvider) SearchTickers(prefix string) ([]TickerSearchResult, er
 			Type     string `json:"type"`
 		} `json:"results"`
 	}
-	if err := parseJSON(body, &result); err != nil {
+	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, err
 	}
 
@@ -235,16 +233,4 @@ func (p *MassiveProvider) SearchTickers(prefix string) ([]TickerSearchResult, er
 		})
 	}
 	return results, nil
-}
-
-func parseJSON(data []byte, v interface{}) error {
-	return (&parser{data: data}).decode(v)
-}
-
-type parser struct {
-	data []byte
-}
-
-func (p *parser) decode(v interface{}) error {
-	return json.Unmarshal(p.data, v)
 }

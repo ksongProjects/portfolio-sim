@@ -24,10 +24,31 @@ type LogEntry struct {
 	Route     string                 `json:"route,omitempty"`
 }
 
+type contextKey string
+
+const routeContextKey contextKey = "route"
+
+func WithRoute(ctx context.Context, route string) context.Context {
+	if ctx == nil || route == "" {
+		return ctx
+	}
+
+	return context.WithValue(ctx, routeContextKey, route)
+}
+
+func RouteFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+
+	route, _ := ctx.Value(routeContextKey).(string)
+	return route
+}
+
 type Client struct {
 	serviceName string
-	logURL     string
-	client     *http.Client
+	logURL      string
+	client      *http.Client
 }
 
 func NewClient(serviceName string, logURL string) *Client {
@@ -48,6 +69,7 @@ func (c *Client) Emit(ctx context.Context, level string, msg string) error {
 		Level:     level,
 		Service:   c.serviceName,
 		Message:   msg,
+		Route:     RouteFromContext(ctx),
 	}
 	return c.send(ctx, entry)
 }
@@ -60,6 +82,7 @@ func (c *Client) EmitWithMetadata(ctx context.Context, level string, msg string,
 		Service:   c.serviceName,
 		Message:   msg,
 		Metadata:  metadata,
+		Route:     RouteFromContext(ctx),
 	}
 	return c.send(ctx, entry)
 }
@@ -97,6 +120,7 @@ func (c *Client) log(ctx context.Context, level string, msg string, meta map[str
 		Service:   c.serviceName,
 		Message:   msg,
 		Metadata:  meta,
+		Route:     RouteFromContext(ctx),
 	}
 	if route, ok := meta["route"].(string); ok {
 		entry.Route = route
