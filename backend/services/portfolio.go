@@ -17,47 +17,47 @@ type Ticker struct {
 }
 
 type PriceData struct {
-	TickerID    string
-	Price       float64
-	Bid         float64
-	Ask         float64
-	Volume      int64
-	SourceID    string
-	Timestamp   time.Time
+	TickerID  string
+	Price     float64
+	Bid       float64
+	Ask       float64
+	Volume    int64
+	SourceID  string
+	Timestamp time.Time
 }
 
 type Position struct {
-	ID          string
-	PortfolioID string
-	TickerID    string
-	Symbol      string
-	CompanyName string
-	Quantity    float64
-	AvgCost     float64
+	ID           string
+	PortfolioID  string
+	TickerID     string
+	Symbol       string
+	CompanyName  string
+	Quantity     float64
+	AvgCost      float64
 	CurrentPrice float64
 	CurrentValue float64
-	DayChange   float64
+	DayChange    float64
 	DayChangePct float64
-	TotalGain   float64
+	TotalGain    float64
 	TotalGainPct float64
-	OpenedAt    time.Time
+	OpenedAt     time.Time
 }
 
 type PortfolioSummary struct {
 	TotalValue    float64
 	DayChange     float64
 	DayChangePct  float64
-	TotalInvested  float64
-	TotalGain      float64
-	TotalGainPct   float64
-	CashBalance    float64
+	TotalInvested float64
+	TotalGain     float64
+	TotalGainPct  float64
+	CashBalance   float64
 }
 
 type MarketIndex struct {
-	Symbol   string
-	Name     string
-	Price    float64
-	Change   float64
+	Symbol    string
+	Name      string
+	Price     float64
+	Change    float64
 	ChangePct float64
 }
 
@@ -72,25 +72,25 @@ type Trade struct {
 }
 
 type NewsArticle struct {
-	ID          string
-	Title       string
-	Source      string
-	URL         string
-	Summary     string
-	Sentiment   string
-	PublishedAt time.Time
+	ID            string
+	Title         string
+	Source        string
+	URL           string
+	Summary       string
+	Sentiment     string
+	PublishedAt   time.Time
 	TickerSymbols []string
 }
 
 type Strategy struct {
-	ID       string
-	Name     string
-	Status   string
-	Returns  float64
-	Sharpe   float64
-	MaxDD    float64
-	Trades   int
-	WinRate  float64
+	ID      string
+	Name    string
+	Status  string
+	Returns float64
+	Sharpe  float64
+	MaxDD   float64
+	Trades  int
+	WinRate float64
 }
 
 type Signal struct {
@@ -105,6 +105,14 @@ type PortfolioService struct{}
 
 func NewPortfolioService() *PortfolioService {
 	return &PortfolioService{}
+}
+
+func safePercent(numerator, denominator float64) float64 {
+	if denominator == 0 {
+		return 0
+	}
+
+	return (numerator / denominator) * 100
 }
 
 func (s *PortfolioService) GetTickers(ctx context.Context, db interface {
@@ -246,7 +254,7 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, db interface
 
 	prices, _ := s.GetLatestPrices(ctx, db, tickerIDs)
 
-	var totalValue, totalInvested, totalDayChange, totalDayChangePct float64
+	var totalValue, totalInvested, totalDayChange float64
 	for i := range positions {
 		if price, ok := prices[positions[i].TickerID]; ok {
 			positions[i].CurrentPrice = price.Price
@@ -256,7 +264,7 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, db interface
 		}
 		positions[i].CurrentValue = positions[i].Quantity * positions[i].CurrentPrice
 		positions[i].TotalGain = positions[i].CurrentValue - (positions[i].Quantity * positions[i].AvgCost)
-		positions[i].TotalGainPct = (positions[i].TotalGain / (positions[i].Quantity * positions[i].AvgCost)) * 100
+		positions[i].TotalGainPct = safePercent(positions[i].TotalGain, positions[i].Quantity*positions[i].AvgCost)
 		positions[i].DayChange = positions[i].CurrentPrice * 0.01
 		positions[i].DayChangePct = 1.0
 		totalValue += positions[i].CurrentValue
@@ -264,18 +272,17 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, db interface
 		totalDayChange += positions[i].DayChange * positions[i].Quantity
 	}
 
-	totalDayChangePct = (totalDayChange / totalValue) * 100
-	if totalInvested == 0 {
-		totalInvested = 1
-	}
+	totalDayChangePct := safePercent(totalDayChange, totalValue)
+	totalGain := totalValue - totalInvested
+	totalGainPct := safePercent(totalGain, totalInvested)
 
 	return &PortfolioSummary{
 		TotalValue:    totalValue,
 		DayChange:     totalDayChange,
 		DayChangePct:  totalDayChangePct,
 		TotalInvested: totalInvested,
-		TotalGain:     totalValue - totalInvested,
-		TotalGainPct:  ((totalValue - totalInvested) / totalInvested) * 100,
+		TotalGain:     totalGain,
+		TotalGainPct:  totalGainPct,
 		CashBalance:   initialCash,
 	}, nil
 }

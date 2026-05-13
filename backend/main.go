@@ -598,7 +598,10 @@ func (s *Server) handleGetPortfolioSummary(w http.ResponseWriter, r *http.Reques
 		summary = &services.PortfolioSummary{}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(summary)
+	if err := json.NewEncoder(w).Encode(summary); err != nil {
+		s.logger.Error("encode portfolio summary failed", "portfolio_id", portfolioID, "error", err)
+		http.Error(w, "failed to encode portfolio summary", http.StatusInternalServerError)
+	}
 }
 
 func (s *Server) handleGetMarketIndices(w http.ResponseWriter, r *http.Request) {
