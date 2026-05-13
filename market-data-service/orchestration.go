@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -301,10 +302,16 @@ func (s *MarketDataService) searchTickersComposite(ctx context.Context, query st
 	}
 
 	enriched := make([]providers.TickerSearchResult, 0, len(order))
-	s.logClient.InfoWithMeta(ctx, "searchTickersComposite: merging results", map[string]interface{}{"db_count": len(dbResults), "providers_count": len(order)})
+	s.logClient.InfoWithMeta(ctx, "searchTickersComposite: merging results", map[string]interface{}{"db_count": len(dbResults), "providers_count": len(order), "order_sample": order[:int(math.Min(5, float64(len(order))))]})
+	s.logClient.InfoWithMeta(ctx, "searchTickersComposite: merged map contents", map[string]interface{}{"merged_len": len(merged)})
+	for symbol, result := range merged {
+		s.logClient.InfoWithMeta(ctx, "merged entry", map[string]interface{}{"symbol": symbol, "name": result.Name, "exchange": result.Exchange, "price": result.Price})
+	}
 	for _, symbol := range order {
 		result := merged[symbol]
+		s.logClient.InfoWithMeta(ctx, "processing order symbol", map[string]interface{}{"symbol": symbol, "result_symbol": result.Symbol, "result_name": result.Name})
 		if result.Symbol == "" {
+			s.logClient.WarnWithMeta(ctx, "skipping empty symbol", map[string]interface{}{"symbol": symbol})
 			continue
 		}
 
