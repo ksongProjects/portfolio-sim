@@ -35,11 +35,89 @@ func (p *MassiveProvider) GetSymbolID(ticker string) (int, error) {
 }
 
 func (p *MassiveProvider) FetchCompanyProfile(ticker string) (*CompanyProfile, error) {
-	return nil, fmt.Errorf("massive does not support company profile")
+	client, err := p.client()
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := client.GetTickerWithResponse(context.Background(), ticker, nil)
+	if err != nil {
+		return nil, err
+	}
+	if err := massive.CheckResponse(resp); err != nil {
+		return nil, fmt.Errorf("massive profile failed: %w", err)
+	}
+	if resp.JSON200 == nil || resp.JSON200.Results == nil {
+		return nil, fmt.Errorf("no profile for %s", ticker)
+	}
+
+	result := resp.JSON200.Results
+	profile := &CompanyProfile{
+		Symbol: result.Ticker,
+		Name:   result.Name,
+	}
+	if result.PrimaryExchange != nil {
+		profile.Exchange = *result.PrimaryExchange
+	}
+	if result.SicDescription != nil {
+		profile.Industry = *result.SicDescription
+	}
+	if result.Description != nil {
+		profile.Description = *result.Description
+	}
+	if result.HomepageUrl != nil {
+		profile.Website = *result.HomepageUrl
+	}
+	if result.MarketCap != nil {
+		profile.MarketCap = *result.MarketCap
+	}
+
+	ratios, err := p.fetchLatestRatiosSnapshot(client, ticker)
+	if err != nil {
+		if p.logClient != nil {
+			p.logClient.WarnWithMeta(nil, "massive profile ratio enrichment failed", map[string]interface{}{
+				"provider": p.Name(),
+				"symbol":   ticker,
+				"error":    err.Error(),
+			})
+		}
+		return profile, nil
+	}
+
+	applyMassiveRatiosToProfile(profile, ratios)
+	return profile, nil
 }
 
 func (p *MassiveProvider) FetchFinancialRatios(ticker string) ([]*FinancialRatio, error) {
-	return nil, fmt.Errorf("massive does not support financial ratios")
+	client, err := p.client()
+	if err != nil {
+		return nil, err
+	}
+
+	ratios, err := p.fetchLatestRatiosSnapshot(client, ticker)
+	if err != nil {
+		return nil, err
+	}
+	if ratios == nil {
+		return []*FinancialRatio{}, nil
+	}
+
+	result := make([]*FinancialRatio, 0, 10)
+	appendRatioValue(&result, "P/E Ratio", ratios.PriceToEarnings, false, "Price to earnings ratio")
+	appendRatioValue(&result, "P/B Ratio", ratios.PriceToBook, false, "Price to book value")
+	appendRatioValue(&result, "P/S Ratio", ratios.PriceToSales, false, "Price to sales ratio")
+	appendRatioValue(&result, "Dividend Yield", ratios.DividendYield, true, "Annual dividend yield")
+	appendRatioValue(&result, "Debt/Equity", ratios.DebtToEquity, false, "Debt to equity ratio")
+	appendRatioValue(&result, "Current Ratio", ratios.Current, false, "Current liquidity ratio")
+	appendRatioValue(&result, "Quick Ratio", ratios.Quick, false, "Immediate liquidity ratio")
+	appendRatioValue(&result, "ROE", ratios.ReturnOnEquity, true, "Return on equity")
+	appendRatioValue(&result, "ROA", ratios.ReturnOnAssets, true, "Return on assets")
+	appendRatioValue(&result, "EV/EBITDA", ratios.EvToEbitda, false, "Enterprise value to EBITDA")
+	appendRatioValue(&result, "EV/Revenue", ratios.EvToSales, false, "Enterprise value to revenue")
+	appendRatioValue(&result, "P/Cash Flow", ratios.PriceToCashFlow, false, "Price to operating cash flow")
+	appendRatioValue(&result, "P/Free Cash Flow", ratios.PriceToFreeCashFlow, false, "Price to free cash flow")
+
+	return result, nil
 }
 
 func (p *MassiveProvider) apiKey() (string, error) {
@@ -237,6 +315,103 @@ func (p *MassiveProvider) SearchTickers(prefix string) ([]TickerSearchResult, er
 		})
 	}
 	return results, nil
+}
+
+type massiveRatiosSnapshot struct {
+	AverageVolume       *float64
+	Current             *float64
+	DebtToEquity        *float64
+	DividendYield       *float64
+	EarningsPerShare    *float64
+	EvToEbitda          *float64
+	EvToSales           *float64
+	MarketCap           *float64
+	PriceToBook         *float64
+	PriceToCashFlow     *float64
+	PriceToEarnings     *float64
+	PriceToFreeCashFlow *float64
+	PriceToSales        *float64
+	Quick               *float64
+	ReturnOnAssets      *float64
+	ReturnOnEquity      *float64
+}
+
+func (p *MassiveProvider) fetchLatestRatiosSnapshot(client *massive.Client, ticker string) (*massiveRatiosSnapshot, error) {
+	params := &gen.GetStocksFinancialsV1RatiosParams{
+		Ticker: massive.String(ticker),
+		Limit:  massive.Int(1),
+		Sort:   massive.String("date.desc"),
+	}
+
+	resp, err := client.GetStocksFinancialsV1RatiosWithResponse(context.Background(), params)
+	if err != nil {
+		return nil, err
+	}
+	if err := massive.CheckResponse(resp); err != nil {
+		return nil, fmt.Errorf("massive ratios failed: %w", err)
+	}
+	if resp.JSON200 == nil || len(resp.JSON200.Results) == 0 {
+		return nil, nil
+	}
+
+	result := resp.JSON200.Results[0]
+	return &massiveRatiosSnapshot{
+		AverageVolume:       result.AverageVolume,
+		Current:             result.Current,
+		DebtToEquity:        result.DebtToEquity,
+		DividendYield:       result.DividendYield,
+		EarningsPerShare:    result.EarningsPerShare,
+		EvToEbitda:          result.EvToEbitda,
+		EvToSales:           result.EvToSales,
+		MarketCap:           result.MarketCap,
+		PriceToBook:         result.PriceToBook,
+		PriceToCashFlow:     result.PriceToCashFlow,
+		PriceToEarnings:     result.PriceToEarnings,
+		PriceToFreeCashFlow: result.PriceToFreeCashFlow,
+		PriceToSales:        result.PriceToSales,
+		Quick:               result.Quick,
+		ReturnOnAssets:      result.ReturnOnAssets,
+		ReturnOnEquity:      result.ReturnOnEquity,
+	}, nil
+}
+
+func applyMassiveRatiosToProfile(profile *CompanyProfile, ratios *massiveRatiosSnapshot) {
+	if profile == nil || ratios == nil {
+		return
+	}
+
+	if profile.MarketCap == 0 && ratios.MarketCap != nil {
+		profile.MarketCap = *ratios.MarketCap
+	}
+	if profile.PeRatio == 0 && ratios.PriceToEarnings != nil {
+		profile.PeRatio = *ratios.PriceToEarnings
+	}
+	if profile.Eps == 0 && ratios.EarningsPerShare != nil {
+		profile.Eps = *ratios.EarningsPerShare
+	}
+	if profile.DivYield == 0 && ratios.DividendYield != nil {
+		profile.DivYield = *ratios.DividendYield
+	}
+	if profile.AvgVolume == 0 && ratios.AverageVolume != nil {
+		profile.AvgVolume = int64(*ratios.AverageVolume)
+	}
+}
+
+func appendRatioValue(target *[]*FinancialRatio, label string, value *float64, percent bool, description string) {
+	if target == nil || value == nil {
+		return
+	}
+
+	formatted := fmt.Sprintf("%.2f", *value)
+	if percent {
+		formatted = fmt.Sprintf("%.2f%%", *value*100)
+	}
+
+	*target = append(*target, &FinancialRatio{
+		Label:       label,
+		Value:       formatted,
+		Description: description,
+	})
 }
 
 func massiveAggregateResolution(interval string) (int, string) {

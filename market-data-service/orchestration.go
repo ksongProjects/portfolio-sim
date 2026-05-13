@@ -100,7 +100,7 @@ func (s *MarketDataService) providerDescriptors(ctx context.Context) []providerD
 				operationQuote:       1,
 				operationIntraday:    1,
 				operationOptionChain: 1,
-				operationProfile:     2,
+				operationProfile:     3,
 			},
 		})
 	}
@@ -114,11 +114,15 @@ func (s *MarketDataService) providerDescriptors(ctx context.Context) []providerD
 					operationSearch:   true,
 					operationQuote:    true,
 					operationIntraday: true,
+					operationProfile:  true,
+					operationRatios:   true,
 				},
 				priority: map[marketDataOperation]int{
 					operationSearch:   2,
 					operationQuote:    2,
 					operationIntraday: 2,
+					operationProfile:  2,
+					operationRatios:   2,
 				},
 			})
 		}
@@ -292,12 +296,12 @@ func (s *MarketDataService) searchTickersComposite(ctx context.Context, query st
 				order = append(order, result.Symbol)
 			}
 			merged[result.Symbol] = mergeSearchResult(merged[result.Symbol], result)
-
 			_ = s.storage.UpsertTickerFromSearch(ctx, result.Symbol, result.Name, result.Exchange, result.Type)
 		}
 	}
 
 	enriched := make([]providers.TickerSearchResult, 0, len(order))
+	s.logClient.InfoWithMeta(ctx, "searchTickersComposite: merging results", map[string]interface{}{"db_count": len(dbResults), "providers_count": len(order)})
 	for _, symbol := range order {
 		result := merged[symbol]
 		if result.Symbol == "" {
@@ -320,6 +324,7 @@ func (s *MarketDataService) searchTickersComposite(ctx context.Context, query st
 
 		enriched = append(enriched, result)
 	}
+	s.logClient.InfoWithMeta(ctx, "searchTickersComposite: final enriched count", map[string]interface{}{"count": len(enriched)})
 
 	return enriched, providerErrors
 }
