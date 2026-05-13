@@ -550,8 +550,8 @@ func (s *MarketDataService) handleSearchTickers(w http.ResponseWriter, r *http.R
 		for i := range allResults {
 			if price, err := priceProvider.FetchPrice(allResults[i].Symbol); err == nil {
 				allResults[i].Price = price.Price
-				allResults[i].Change = price.Price
-				allResults[i].ChangePct = 0
+				allResults[i].Change = price.Change
+				allResults[i].ChangePct = price.ChangePct
 			}
 		}
 	}

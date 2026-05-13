@@ -7,6 +7,8 @@ import (
 type Price struct {
 	Ticker    string
 	Price     float64
+	Change    float64
+	ChangePct float64
 	Bid       float64
 	Ask       float64
 	Volume    int64

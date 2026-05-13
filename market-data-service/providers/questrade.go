@@ -620,12 +620,14 @@ func (p *QuestradeProvider) FetchPrice(ticker string) (*Price, error) {
 
 	var result struct {
 		Quotes []struct {
-			Symbol    string  `json:"symbol"`
-			LastPrice float64 `json:"lastTradePrice"`
-			Bid       float64 `json:"bidPrice"`
-			Ask       float64 `json:"askPrice"`
-			Volume    int64   `json:"volume"`
-			Timestamp int64   `json:"lastTradeTime"`
+			Symbol     string  `json:"symbol"`
+			LastPrice  float64 `json:"lastTradePrice"`
+			Change     float64 `json:"change"`
+			ChangePct  float64 `json:"changePercent"`
+			Bid        float64 `json:"bidPrice"`
+			Ask        float64 `json:"askPrice"`
+			Volume     int64   `json:"volume"`
+			Timestamp  int64   `json:"lastTradeTime"`
 		} `json:"quotes"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
@@ -640,6 +642,8 @@ func (p *QuestradeProvider) FetchPrice(ticker string) (*Price, error) {
 	return &Price{
 		Ticker:    q.Symbol,
 		Price:     q.LastPrice,
+		Change:    q.Change,
+		ChangePct: q.ChangePct,
 		Bid:       q.Bid,
 		Ask:       q.Ask,
 		Volume:    q.Volume,

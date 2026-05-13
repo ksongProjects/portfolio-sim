@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Notifications } from "@/components/notifications";
+import { LiveMarketIndicator } from "@/components/live-market-indicator";
 import {
   LayoutDashboard,
   Briefcase,
@@ -54,7 +55,10 @@ export function Navbar() {
             })}
           </nav>
         </div>
-        <Notifications />
+        <div className="flex items-center gap-4">
+          <LiveMarketIndicator />
+          <Notifications />
+        </div>
       </div>
     </header>
   );

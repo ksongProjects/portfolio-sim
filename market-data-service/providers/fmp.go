@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/portfolio-sim/market-data-service/config"
@@ -164,12 +166,14 @@ func (p *FMPProvider) FetchPrice(ticker string) (*Price, error) {
 	}
 
 	var result []struct {
-		Symbol    string  `json:"symbol"`
-		Price     float64 `json:"price"`
-		Bid       float64 `json:"bid"`
-		Ask       float64 `json:"ask"`
-		Volume    int64   `json:"volume"`
-		Timestamp int64   `json:"timestamp"`
+		Symbol     string  `json:"symbol"`
+		Price      float64 `json:"price"`
+		Change     float64 `json:"changes"`
+		ChangePct  float64 `json:"changesPercentage"`
+		Bid        float64 `json:"bid"`
+		Ask        float64 `json:"ask"`
+		Volume     int64   `json:"volume"`
+		Timestamp  int64   `json:"timestamp"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, err
@@ -183,6 +187,8 @@ func (p *FMPProvider) FetchPrice(ticker string) (*Price, error) {
 	return &Price{
 		Ticker:    q.Symbol,
 		Price:     q.Price,
+		Change:    q.Change,
+		ChangePct:  q.ChangePct,
 		Bid:       q.Bid,
 		Ask:       q.Ask,
 		Volume:    q.Volume,
@@ -449,4 +455,17 @@ func (p *FMPProvider) FetchCashFlow(ticker string) ([]*CashFlow, error) {
 		return nil, err
 	}
 	return result, nil
+}
+
+func parseChangePct(s string) float64 {
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "%")
+	if s == "" {
+		return 0
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0
+	}
+	return f
 }
