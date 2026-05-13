@@ -101,43 +101,41 @@ export function DataTable<TData, TValue>({
       )}
 
       <div className="border border-outline-variant/30 rounded-md overflow-hidden">
-        <table className="w-full caption-bottom text-sm table-fixed">
-          <thead className="bg-surface-container-low">
-            {table.getHeaderGroups().map((headerGroup) => (
-              <tr key={headerGroup.id}>
-                {headerGroup.headers.map((header) => {
-                  const canSort = header.column.getCanSort();
-                  const size = header.column.columnDef.size;
-                  const widthStyle = size
-                    ? typeof size === "number"
-                      ? { width: `${size}%` }
-                      : { width: size }
-                    : undefined;
-                  return (
-                    <th
-                      key={header.id}
-                      style={widthStyle}
-                      className={cn(
-                        "h-9 px-4 text-left align-middle text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant",
-                        canSort && "cursor-pointer select-none hover:text-on-surface"
-                      )}
-                      onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
-                    >
-                      <div className="flex items-center gap-1">
-                        {header.isPlaceholder
-                          ? null
-                          : flexRender(header.column.columnDef.header, header.getContext())}
-                        {canSort && <SortIcon column={header.column} />}
-                      </div>
-                    </th>
-                  );
-                })}
-              </tr>
-            ))}
-          </thead>
-        </table>
         <div className="overflow-auto" style={maxHeight ? { maxHeight } : undefined}>
           <table className="w-full caption-bottom text-sm table-fixed">
+            <thead className="bg-surface-container-low sticky top-0 z-10">
+              {table.getHeaderGroups().map((headerGroup) => (
+                <tr key={headerGroup.id}>
+                  {headerGroup.headers.map((header) => {
+                    const canSort = header.column.getCanSort();
+                    const size = header.column.columnDef.size;
+                    const widthStyle = size
+                      ? typeof size === "number"
+                        ? { width: `${size}%` }
+                        : { width: size }
+                      : undefined;
+                    return (
+                      <th
+                        key={header.id}
+                        style={widthStyle}
+                        className={cn(
+                          "h-9 px-4 text-left align-middle text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant",
+                          canSort && "cursor-pointer select-none hover:text-on-surface"
+                        )}
+                        onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
+                      >
+                        <div className="flex items-center gap-1">
+                          {header.isPlaceholder
+                            ? null
+                            : flexRender(header.column.columnDef.header, header.getContext())}
+                          {canSort && <SortIcon column={header.column} />}
+                        </div>
+                      </th>
+                    );
+                  })}
+                </tr>
+              ))}
+            </thead>
             <tbody className="[&_tr:last-child]:border-0">
               {loading ? (
                 Array.from({ length: pagination.pageSize }).map((_, i) => (
