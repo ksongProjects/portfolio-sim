@@ -163,7 +163,7 @@ const openDetail = (article: NewsArticle) => {
   return (
     <div className="flex flex-col h-full">
       <div className="px-6 pt-6 pb-4">
-<PageHeader title="News Feed" description="Real-time market news and sentiment analysis">
+        <PageHeader title="News Feed" description="Real-time market news and sentiment analysis">
           <div className="flex gap-3 items-center">
             <Button variant="default" size="sm" onClick={handleRefresh} disabled={feedsLoading}>
               <RefreshCw className="h-4 w-4" /> Refresh
