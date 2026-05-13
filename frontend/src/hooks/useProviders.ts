@@ -11,8 +11,10 @@ export interface ProviderConfig {
   description: string;
   type: string;
   api_key_set: boolean;
+  is_validated: boolean;
   is_connected: boolean;
   token_expired: boolean;
+  validation_error?: string;
   rate_limit: number;
   docs_url: string;
 }
@@ -220,6 +222,7 @@ export function useProviders() {
           body: JSON.stringify({ provider_id: providerId, api_key: apiKey }),
         });
         const data = await res.json();
+        await queryClient.invalidateQueries({ queryKey: ["providers"] });
 
         if (!res.ok || !data.valid) {
           throw new Error(data.error || "Failed to validate");
@@ -230,7 +233,7 @@ export function useProviders() {
         return { valid: false, error: getErrorMessage(err) };
       }
     },
-    []
+    [queryClient]
   );
 
   const addRSSFeed = useCallback(

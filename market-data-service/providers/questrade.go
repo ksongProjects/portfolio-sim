@@ -620,14 +620,14 @@ func (p *QuestradeProvider) FetchPrice(ticker string) (*Price, error) {
 
 	var result struct {
 		Quotes []struct {
-			Symbol     string  `json:"symbol"`
-			LastPrice  float64 `json:"lastTradePrice"`
-			Change     float64 `json:"change"`
-			ChangePct  float64 `json:"changePercent"`
-			Bid        float64 `json:"bidPrice"`
-			Ask        float64 `json:"askPrice"`
-			Volume     int64   `json:"volume"`
-			Timestamp  int64   `json:"lastTradeTime"`
+			Symbol    string  `json:"symbol"`
+			LastPrice float64 `json:"lastTradePrice"`
+			Change    float64 `json:"change"`
+			ChangePct float64 `json:"changePercent"`
+			Bid       float64 `json:"bidPrice"`
+			Ask       float64 `json:"askPrice"`
+			Volume    int64   `json:"volume"`
+			Timestamp int64   `json:"lastTradeTime"`
 		} `json:"quotes"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
@@ -653,7 +653,12 @@ func (p *QuestradeProvider) FetchPrice(ticker string) (*Price, error) {
 }
 
 func (p *QuestradeProvider) FetchOptionChain(ticker string) ([]*OptionChain, error) {
-	body, err := p.doRequest("/v1/symbols/" + ticker + "/options")
+	symbolID, err := p.GetSymbolID(ticker)
+	if err != nil {
+		return nil, err
+	}
+
+	body, err := p.doRequest("/v1/symbols/" + strconv.Itoa(symbolID) + "/options")
 	if err != nil {
 		return nil, err
 	}
@@ -703,7 +708,7 @@ func (p *QuestradeProvider) FetchOptionChain(ticker string) ([]*OptionChain, err
 }
 
 func (p *QuestradeProvider) FetchIntradayBars(ticker string, interval string) ([]*IntradayBar, error) {
-	candles, err := p.FetchCandles(ticker, time.Now().Add(-24*time.Hour), time.Now(), interval)
+	candles, err := p.FetchCandlesBySymbol(ticker, time.Now().Add(-24*time.Hour), time.Now(), interval)
 	if err != nil {
 		return nil, err
 	}

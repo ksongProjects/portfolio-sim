@@ -30,17 +30,19 @@ func (s *Storage) GetTickerID(ctx context.Context, symbol string) (uuid.UUID, er
 	return id, nil
 }
 
-func (s *Storage) UpsertNormalizedPrice(ctx context.Context, tickerID uuid.UUID, price, bid, ask float64, volume int64, sourceID string, timestamp time.Time) error {
+func (s *Storage) UpsertNormalizedPrice(ctx context.Context, tickerID uuid.UUID, price, change, changePct, bid, ask float64, volume int64, sourceID string, timestamp time.Time) error {
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO normalized_prices (ticker_id, price, bid, ask, volume, source_id, timestamp, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+		INSERT INTO normalized_prices (ticker_id, price, change, change_pct, bid, ask, volume, source_id, timestamp, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
 		ON CONFLICT (ticker_id, timestamp) DO UPDATE SET
 			price = EXCLUDED.price,
+			change = EXCLUDED.change,
+			change_pct = EXCLUDED.change_pct,
 			bid = EXCLUDED.bid,
 			ask = EXCLUDED.ask,
 			volume = EXCLUDED.volume,
 			updated_at = NOW()
-	`, tickerID, price, bid, ask, volume, sourceID, timestamp)
+	`, tickerID, price, change, changePct, bid, ask, volume, sourceID, timestamp)
 	return err
 }
 
@@ -169,6 +171,23 @@ func (s *Storage) GetProviderAPIKey(ctx context.Context, providerID string) (str
 	return s.codec.DecryptString(encryptedKey)
 }
 
+func (s *Storage) IsProviderValidated(ctx context.Context, providerID string) (bool, error) {
+	var isValidated bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE(is_validated, false)
+		FROM provider_configurations
+		WHERE provider_id = $1
+	`, providerID).Scan(&isValidated)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return false, nil
+		}
+		return false, err
+	}
+
+	return isValidated, nil
+}
+
 func (s *Storage) GetQuestradeTokens(ctx context.Context) (*QuestradeTokens, error) {
 	var encryptedAccessToken, encryptedRefreshToken, encryptedAPIServer string
 	var expiresAt *time.Time
@@ -219,13 +238,16 @@ func (s *Storage) UpdateQuestradeTokens(ctx context.Context, accessToken, refres
 	}
 	expiresAt := time.Now().Add(time.Duration(expiresIn) * time.Second)
 	_, err = s.pool.Exec(ctx, `
-		INSERT INTO provider_configurations (id, provider_id, encrypted_key, access_token, refresh_token, api_server, token_expires_at, created_at, updated_at)
-		VALUES (gen_random_uuid(), 'questrade', '', $1, $2, $3, $4, NOW(), NOW())
+		INSERT INTO provider_configurations (id, provider_id, encrypted_key, access_token, refresh_token, api_server, token_expires_at, is_validated, validated_at, validation_error, created_at, updated_at)
+		VALUES (gen_random_uuid(), 'questrade', '', $1, $2, $3, $4, true, NOW(), NULL, NOW(), NOW())
 		ON CONFLICT (provider_id) DO UPDATE SET
 			access_token = EXCLUDED.access_token,
 			refresh_token = EXCLUDED.refresh_token,
 			api_server = EXCLUDED.api_server,
 			token_expires_at = EXCLUDED.token_expires_at,
+			is_validated = true,
+			validated_at = NOW(),
+			validation_error = NULL,
 			updated_at = NOW()
 	`, encryptedAccessToken, encryptedRefreshToken, encryptedAPIServer, expiresAt)
 	return err
@@ -238,7 +260,13 @@ func (s *Storage) SearchTickers(ctx context.Context, query string) ([]TickerSear
 			COALESCE(np.change, 0) as change,
 			COALESCE(np.change_pct, 0) as change_pct
 		FROM tickers t
-		LEFT JOIN normalized_prices np ON t.id = np.ticker_id
+		LEFT JOIN LATERAL (
+			SELECT price, change, change_pct
+			FROM normalized_prices np
+			WHERE np.ticker_id = t.id
+			ORDER BY np.timestamp DESC
+			LIMIT 1
+		) np ON true
 		WHERE t.is_active = true
 			AND (t.symbol ILIKE $1 OR t.company_name ILIKE $1)
 		ORDER BY t.symbol
@@ -290,7 +318,13 @@ func (s *Storage) GetTickerDetails(ctx context.Context, symbol string) (*TickerD
 			COALESCE(np.price, 0), COALESCE(np.change, 0), COALESCE(np.change_pct, 0),
 			COALESCE(np.volume, 0), COALESCE(np.market_cap, 0)
 		FROM tickers t
-		LEFT JOIN normalized_prices np ON t.id = np.ticker_id
+		LEFT JOIN LATERAL (
+			SELECT price, change, change_pct, volume, market_cap
+			FROM normalized_prices np
+			WHERE np.ticker_id = t.id
+			ORDER BY np.timestamp DESC
+			LIMIT 1
+		) np ON true
 		WHERE t.symbol = $1
 	`, symbol).Scan(
 		&d.Symbol, &d.Name, &d.Exchange,
@@ -317,8 +351,9 @@ type TickerDetails struct {
 func (s *Storage) IsTickerDataStale(ctx context.Context, symbol string, maxAge time.Duration) (bool, error) {
 	var updatedAt *time.Time
 	err := s.pool.QueryRow(ctx, `
-		SELECT t.price_updated_at
-		FROM tickers t
+		SELECT MAX(np.timestamp)
+		FROM normalized_prices np
+		JOIN tickers t ON t.id = np.ticker_id
 		WHERE t.symbol = $1
 	`, symbol).Scan(&updatedAt)
 	if err != nil {
@@ -330,23 +365,15 @@ func (s *Storage) IsTickerDataStale(ctx context.Context, symbol string, maxAge t
 	return time.Since(*updatedAt) > maxAge, nil
 }
 
-func (s *Storage) UpdateTickerPrice(ctx context.Context, symbol string, price, change, changePct float64, volume int64, marketCap float64) error {
-	_, err := s.pool.Exec(ctx, `
-		UPDATE tickers t
-		SET price_updated_at = NOW()
-		WHERE t.symbol = $1
-	`, symbol)
-	if err != nil {
-		return err
-	}
+func (s *Storage) UpdateTickerPrice(ctx context.Context, symbol string, price, change, changePct float64, volume int64, marketCap float64, sourceID string) error {
 	tickerID, err := s.GetTickerID(ctx, symbol)
 	if err != nil {
 		return err
 	}
 	_, err = s.pool.Exec(ctx, `
 		INSERT INTO normalized_prices (ticker_id, price, change, change_pct, volume, market_cap, source_id, timestamp)
-		VALUES ($1, $2, $3, $4, $5, $6, 'fmp', NOW())
-	`, tickerID, price, change, changePct, volume, marketCap)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+	`, tickerID, price, change, changePct, volume, marketCap, sourceID)
 	return err
 }
 

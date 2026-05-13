@@ -682,7 +682,7 @@ func (s *Server) handleGetProviders(w http.ResponseWriter, r *http.Request) {
 	providers, err := s.providerSvc.GetProviders(r.Context(), s.db)
 	if err != nil || providers == nil || len(providers) == 0 {
 		providers = []services.ProviderConfig{
-			{ID: "massive", ProviderID: "massive", Name: "Massive", Description: "Real-time and historical market data", Type: "market_data", RateLimit: 60, DocURL: "https://api.massive.io/docs", TokenExpired: false},
+			{ID: "massive", ProviderID: "massive", Name: "Massive", Description: "Real-time and historical market data", Type: "market_data", RateLimit: 5, DocURL: "https://massive.com/docs/rest/quickstart", TokenExpired: false},
 			{ID: "questrade", ProviderID: "questrade", Name: "Questrade", Description: "Questrade market data API", Type: "market_data", RateLimit: 100, DocURL: "https://www.questrade.com/api", TokenExpired: false},
 			{ID: "fmp", ProviderID: "fmp", Name: "Financial Modeling Prep", Description: "Financial statements and fundamental data", Type: "market_data", RateLimit: 250, DocURL: "https://site.financialmodelingprep.com/developer/docs", TokenExpired: false},
 			{ID: "youtube", ProviderID: "youtube", Name: "YouTube Data API", Description: "YouTube Data API for video transcripts", Type: "youtube", RateLimit: 0, DocURL: "https://developers.google.com/youtube/v3", TokenExpired: false},
@@ -742,15 +742,27 @@ func (s *Server) handleValidateProvider(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	persistValidation, persistErr := s.providerSvc.StoredProviderKeyMatches(r.Context(), s.db, req.ProviderID, req.APIKey)
+	if persistErr != nil {
+		s.logger.Warn("failed to compare stored provider key", "provider", req.ProviderID, "error", persistErr)
+	}
+
 	valid, qtResult, err := s.providerSvc.ValidateProviderKey(r.Context(), s.db, req.ProviderID, req.APIKey)
 	if err != nil {
+		if persistValidation && shouldPersistProviderValidationFailure(err) {
+			_ = s.providerSvc.UpdateProviderValidationState(r.Context(), s.db, req.ProviderID, false, err.Error())
+		}
 		s.logger.Error("provider validation failed", "provider", req.ProviderID, "error", err)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"valid": false, "error": err.Error()})
 		return
 	}
 
-	if valid && req.ProviderID == "questrade" && qtResult != nil && qtResult.RefreshToken != "" {
+	if persistValidation && !valid {
+		_ = s.providerSvc.UpdateProviderValidationState(r.Context(), s.db, req.ProviderID, false, "invalid credentials or no entitlement")
+	}
+
+	if persistValidation && valid && req.ProviderID == "questrade" && qtResult != nil && qtResult.RefreshToken != "" {
 		s.logger.Info("saving questrade OAuth tokens", "provider", req.ProviderID, "expires_in", qtResult.ExpiresIn)
 		if s.logClient != nil {
 			s.logClient.InfoWithMeta(r.Context(), fmt.Sprintf("Questrade OAuth tokens received: %s", req.ProviderID), map[string]interface{}{
@@ -776,10 +788,37 @@ func (s *Server) handleValidateProvider(w http.ResponseWriter, r *http.Request) 
 			json.NewEncoder(w).Encode(map[string]interface{}{"valid": false, "error": "failed to save questrade oauth tokens"})
 			return
 		}
+	} else if persistValidation && valid {
+		if err := s.providerSvc.UpdateProviderValidationState(r.Context(), s.db, req.ProviderID, true, ""); err != nil {
+			s.logger.Error("failed to persist provider validation state", "provider", req.ProviderID, "error", err)
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"valid": valid})
+}
+
+func shouldPersistProviderValidationFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+	for _, token := range []string{
+		"invalid",
+		"unauthorized",
+		"forbidden",
+		"expired",
+		"missing required fields",
+		"unknown provider",
+		"payment required",
+	} {
+		if strings.Contains(msg, token) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (s *Server) handleGetRSSFeeds(w http.ResponseWriter, r *http.Request) {

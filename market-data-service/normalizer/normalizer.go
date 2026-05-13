@@ -12,6 +12,8 @@ type NormalizedPrice struct {
 	TickerID  uuid.UUID
 	Symbol    string
 	Price     float64
+	Change    float64
+	ChangePct float64
 	Bid       float64
 	Ask       float64
 	Volume    int64
@@ -20,7 +22,7 @@ type NormalizedPrice struct {
 }
 
 type NormalizedIntradayBar struct {
-	TickerID uuid.UUID
+	TickerID  uuid.UUID
 	Interval  string
 	Open      float64
 	High      float64
@@ -59,6 +61,8 @@ func (n *Normalizer) NormalizePrice(price *providers.Price, tickerID uuid.UUID) 
 		TickerID:  tickerID,
 		Symbol:    price.Ticker,
 		Price:     price.Price,
+		Change:    price.Change,
+		ChangePct: price.ChangePct,
 		Bid:       price.Bid,
 		Ask:       price.Ask,
 		Volume:    price.Volume,
@@ -69,7 +73,7 @@ func (n *Normalizer) NormalizePrice(price *providers.Price, tickerID uuid.UUID) 
 
 func (n *Normalizer) NormalizeIntradayBar(bar *providers.IntradayBar, tickerID uuid.UUID) (*NormalizedIntradayBar, error) {
 	return &NormalizedIntradayBar{
-		TickerID: tickerID,
+		TickerID:  tickerID,
 		Interval:  bar.Interval,
 		Open:      bar.Open,
 		High:      bar.High,
@@ -83,20 +87,20 @@ func (n *Normalizer) NormalizeIntradayBar(bar *providers.IntradayBar, tickerID u
 func (n *Normalizer) NormalizeOptionChain(chain *providers.OptionChain, tickerID uuid.UUID) (*NormalizedOptionChain, error) {
 	return &NormalizedOptionChain{
 		UnderlyingTickerID: tickerID,
-		Expiration:        chain.Expiration,
-		Strike:            chain.Strike,
-		OptionType:        chain.OptionType,
-		Bid:               chain.Bid,
-		Ask:               chain.Ask,
-		Delta:             chain.Delta,
-		Gamma:             chain.Gamma,
-		Theta:             chain.Theta,
-		Vega:              chain.Vega,
-		ImpliedVol:        chain.ImpliedVol,
-		Volume:            chain.Volume,
-		OpenInterest:      chain.OpenInterest,
-		SourceID:          chain.Source,
-		Timestamp:         chain.Timestamp,
+		Expiration:         chain.Expiration,
+		Strike:             chain.Strike,
+		OptionType:         chain.OptionType,
+		Bid:                chain.Bid,
+		Ask:                chain.Ask,
+		Delta:              chain.Delta,
+		Gamma:              chain.Gamma,
+		Theta:              chain.Theta,
+		Vega:               chain.Vega,
+		ImpliedVol:         chain.ImpliedVol,
+		Volume:             chain.Volume,
+		OpenInterest:       chain.OpenInterest,
+		SourceID:           chain.Source,
+		Timestamp:          chain.Timestamp,
 	}, nil
 }
 

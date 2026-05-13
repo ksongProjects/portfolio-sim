@@ -223,7 +223,7 @@ func (s *MarketDataService) handleSaveQuestradeOAuth(w http.ResponseWriter, r *h
 }
 
 func (s *MarketDataService) setupProviders() {
-	activeProviders := s.availableProviders(context.Background())
+	activeProviders := s.providersForOperation(context.Background(), operationQuote)
 	names := make([]string, 0, len(activeProviders))
 	for _, provider := range activeProviders {
 		names = append(names, provider.Name())
@@ -232,68 +232,19 @@ func (s *MarketDataService) setupProviders() {
 }
 
 func (s *MarketDataService) providerAPIKey(ctx context.Context, providerID string) (string, error) {
-	apiKey, err := s.storage.GetProviderAPIKey(ctx, providerID)
-	if err != nil {
-		return "", err
-	}
-	if apiKey != "" {
-		return apiKey, nil
-	}
-	switch providerID {
-	case "massive":
-		return s.cfg.Massive.APIKey, nil
-	case "fmp":
-		return s.cfg.FMP.APIKey, nil
-	default:
-		return "", nil
-	}
+	return s.storage.GetProviderAPIKey(ctx, providerID)
 }
 
 func (s *MarketDataService) newMassiveProvider() providers.Provider {
-	return providers.NewMassiveProvider(s.cfg.Massive, s.logClient)
+	return providers.NewMassiveProvider(s.cfg.Massive, s.logClient, func() (string, error) {
+		return s.providerAPIKey(context.Background(), "massive")
+	})
 }
 
 func (s *MarketDataService) newFMPProvider() providers.Provider {
 	return providers.NewFMPProvider(s.cfg.FMP, s.logClient, func() (string, error) {
 		return s.providerAPIKey(context.Background(), "fmp")
 	})
-}
-
-func (s *MarketDataService) availableProviders(ctx context.Context) []providers.Provider {
-	activeProviders := []providers.Provider{
-		providers.NewQuestradeProvider(s.cfg.Questrade, s.storage, s.logClient),
-	}
-	if apiKey, err := s.providerAPIKey(ctx, "massive"); err == nil && apiKey != "" {
-		activeProviders = append(activeProviders, s.newMassiveProvider())
-	}
-	if apiKey, err := s.providerAPIKey(ctx, "fmp"); err == nil && apiKey != "" {
-		activeProviders = append(activeProviders, s.newFMPProvider())
-	}
-	return activeProviders
-}
-
-func (s *MarketDataService) preferredBackfillSource(ctx context.Context) string {
-	if apiKey, err := s.providerAPIKey(ctx, "massive"); err == nil && apiKey != "" {
-		return "massive"
-	}
-	if apiKey, err := s.providerAPIKey(ctx, "fmp"); err == nil && apiKey != "" {
-		return "fmp"
-	}
-	return "questrade"
-}
-
-func (s *MarketDataService) providerForSource(ctx context.Context, source string) providers.Provider {
-	switch source {
-	case "massive":
-		if apiKey, err := s.providerAPIKey(ctx, "massive"); err == nil && apiKey != "" {
-			return s.newMassiveProvider()
-		}
-	case "fmp":
-		if apiKey, err := s.providerAPIKey(ctx, "fmp"); err == nil && apiKey != "" {
-			return s.newFMPProvider()
-		}
-	}
-	return providers.NewQuestradeProvider(s.cfg.Questrade, s.storage, s.logClient)
 }
 
 func (s *MarketDataService) fetcherKey(ticker string, provider providers.Provider) string {
@@ -318,7 +269,7 @@ func (s *MarketDataService) runPriceFetchers() {
 		return
 	}
 	for _, ticker := range tickerSymbols {
-		for _, provider := range s.availableProviders(context.Background()) {
+		for _, provider := range s.providersForOperation(context.Background(), operationQuote) {
 			if s.registerFetcher(ticker, provider) {
 				go s.fetchPriceLoop(ticker, provider)
 			}
@@ -339,8 +290,6 @@ func (s *MarketDataService) fetchPriceLoop(ticker string, provider providers.Pro
 		return
 	}
 
-	ticker = provider.Name() + ":" + ticker
-
 	for {
 		price, err := provider.FetchPrice(ticker)
 		if err != nil {
@@ -355,7 +304,7 @@ func (s *MarketDataService) fetchPriceLoop(ticker string, provider providers.Pro
 			continue
 		}
 
-		if err := s.storage.UpsertNormalizedPrice(context.Background(), normPrice.TickerID, normPrice.Price, normPrice.Bid, normPrice.Ask, normPrice.Volume, normPrice.SourceID, normPrice.Timestamp); err != nil {
+		if err := s.storage.UpsertNormalizedPrice(context.Background(), normPrice.TickerID, normPrice.Price, normPrice.Change, normPrice.ChangePct, normPrice.Bid, normPrice.Ask, normPrice.Volume, normPrice.SourceID, normPrice.Timestamp); err != nil {
 			s.logClient.ErrorWithMeta(context.Background(), "failed to store price", map[string]interface{}{"error": err.Error()})
 		}
 
@@ -392,7 +341,7 @@ func (s *MarketDataService) handleTickerSubscribe() {
 		_ = tickerID // validated that ticker exists
 
 		if req.Action == "subscribe" {
-			for _, provider := range s.availableProviders(context.Background()) {
+			for _, provider := range s.providersForOperation(context.Background(), operationQuote) {
 				if s.registerFetcher(req.Symbol, provider) {
 					go s.fetchPriceLoop(req.Symbol, provider)
 					s.logClient.InfoWithMeta(context.Background(), "started price fetcher for ticker", map[string]interface{}{"ticker": req.Symbol, "provider": provider.Name()})
@@ -433,8 +382,16 @@ func (s *MarketDataService) processBackfill(req *sse.BackfillRequest) {
 		return
 	}
 
-	var provider providers.Provider
-	provider = s.providerForSource(context.Background(), req.Source)
+	operation := backfillOperation(req.DataType)
+	provider := s.providerForOperation(context.Background(), operation, req.Source)
+	if provider == nil {
+		s.logClient.ErrorWithMeta(context.Background(), "no provider available for backfill", map[string]interface{}{
+			"ticker":    req.Ticker,
+			"data_type": req.DataType,
+			"source":    req.Source,
+		})
+		return
+	}
 
 	switch req.DataType {
 	case "intraday_bars":
@@ -491,67 +448,12 @@ func (s *MarketDataService) handleSearchTickers(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	dbResults, err := s.storage.SearchTickers(r.Context(), query)
-	if err == nil && len(dbResults) > 0 {
-		s.logClient.InfoWithMeta(r.Context(), "search returning DB results", map[string]interface{}{
-			"query": query,
-			"count": len(dbResults),
-		})
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(dbResults)
-		return
-	}
-
-	var allResults []providers.TickerSearchResult
-	var providerErrors []string
-	successCount := 0
-	seenSymbols := make(map[string]bool)
-	var priceProvider providers.Provider
-	for _, prov := range s.availableProviders(r.Context()) {
-		results, err := prov.SearchTickers(query)
-		if err != nil {
-			s.logClient.WarnWithMeta(context.Background(), "search failed for provider", map[string]interface{}{"provider": prov.Name(), "error": err.Error()})
-			providerErrors = append(providerErrors, fmt.Sprintf("%s: %v", prov.Name(), err))
-			continue
-		}
-		successCount++
-		priceProvider = prov
-		s.logClient.InfoWithMeta(context.Background(), "search succeeded for provider", map[string]interface{}{
-			"provider": prov.Name(),
-			"query":    query,
-			"count":    len(results),
-		})
-		for _, result := range results {
-			if !seenSymbols[result.Symbol] {
-				seenSymbols[result.Symbol] = true
-				if result.Exchange == "NYSE" || result.Exchange == "NASDAQ" {
-					allResults = append(allResults, result)
-				}
-			}
-		}
-
-		for _, result := range results {
-			if result.Exchange == "NYSE" || result.Exchange == "NASDAQ" {
-				s.storage.UpsertTickerFromSearch(r.Context(), result.Symbol, result.Name, result.Exchange, result.Type)
-			}
-		}
-	}
-
-	if successCount == 0 && len(providerErrors) > 0 {
+	allResults, providerErrors := s.searchTickersComposite(r.Context(), query)
+	if len(allResults) == 0 && len(providerErrors) > 0 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadGateway)
 		json.NewEncoder(w).Encode(map[string]string{"error": strings.Join(providerErrors, "; ")})
 		return
-	}
-
-	if priceProvider != nil {
-		for i := range allResults {
-			if price, err := priceProvider.FetchPrice(allResults[i].Symbol); err == nil {
-				allResults[i].Price = price.Price
-				allResults[i].Change = price.Change
-				allResults[i].ChangePct = price.ChangePct
-			}
-		}
 	}
 
 	if allResults == nil {
@@ -587,17 +489,16 @@ func (s *MarketDataService) handleTickerDetails(w http.ResponseWriter, r *http.R
 		return
 	}
 	details, err := s.storage.GetTickerDetails(r.Context(), symbol)
+	stale := true
 	if err == nil && details != nil && details.Price > 0 {
-		stale, _ := s.storage.IsTickerDataStale(r.Context(), symbol, 24*time.Hour)
+		stale, _ = s.storage.IsTickerDataStale(r.Context(), symbol, 24*time.Hour)
 		if !stale {
-			s.logClient.InfoWithMeta(r.Context(), "returning cached ticker details", map[string]interface{}{"symbol": symbol})
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(details)
-			return
+			s.logClient.InfoWithMeta(r.Context(), "using cached quote with provider polyfill", map[string]interface{}{"symbol": symbol})
+		} else {
+			s.logClient.InfoWithMeta(r.Context(), "ticker data stale, refreshing from provider", map[string]interface{}{"symbol": symbol})
 		}
-		s.logClient.InfoWithMeta(r.Context(), "ticker data stale, refreshing from provider", map[string]interface{}{"symbol": symbol})
 	}
-	newDetails := s.fetchTickerDetailsFromProvider(symbol)
+	newDetails, quoteSource := s.fetchTickerDetailsComposite(r.Context(), symbol, details, stale)
 	if newDetails == nil {
 		if details != nil && details.Price > 0 {
 			s.logClient.WarnWithMeta(r.Context(), "provider fetch failed, returning stale data", map[string]interface{}{"symbol": symbol})
@@ -611,37 +512,11 @@ func (s *MarketDataService) handleTickerDetails(w http.ResponseWriter, r *http.R
 		json.NewEncoder(w).Encode(map[string]string{"error": "ticker not found"})
 		return
 	}
-	s.storage.UpdateTickerPrice(r.Context(), symbol, newDetails.Price, newDetails.Change, newDetails.ChangePct, newDetails.Volume, newDetails.MarketCap)
+	if quoteSource != "" {
+		s.storage.UpdateTickerPrice(r.Context(), symbol, newDetails.Price, newDetails.Change, newDetails.ChangePct, newDetails.Volume, newDetails.MarketCap, quoteSource)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(newDetails)
-}
-
-func (s *MarketDataService) fetchTickerDetailsFromProvider(symbol string) *storage.TickerDetails {
-	for _, provider := range s.availableProviders(context.Background()) {
-		profile, err := provider.FetchCompanyProfile(symbol)
-		if err != nil {
-			s.logClient.ErrorWithMeta(context.Background(), "FetchCompanyProfile failed", map[string]interface{}{"provider": provider.Name(), "symbol": symbol, "error": err.Error()})
-			continue
-		}
-		var price float64
-		var volume int64
-
-		priceData, err := provider.FetchPrice(symbol)
-		if err == nil {
-			price = priceData.Price
-			volume = priceData.Volume
-		}
-
-		return &storage.TickerDetails{
-			Symbol:    profile.Symbol,
-			Name:      profile.Name,
-			Exchange:  profile.Exchange,
-			Price:     price,
-			Volume:    volume,
-			MarketCap: profile.MarketCap,
-		}
-	}
-	return nil
 }
 
 func (s *MarketDataService) handleIntradayBars(w http.ResponseWriter, r *http.Request) {
@@ -670,14 +545,14 @@ func (s *MarketDataService) handleIntradayBars(w http.ResponseWriter, r *http.Re
 
 	if len(bars) == 0 {
 		s.logClient.InfoWithMeta(r.Context(), "no intraday data for ticker, triggering backfill", map[string]interface{}{"symbol": symbol})
-		s.triggerBackfill(symbol, "intraday_bars", "1min")
+		s.triggerBackfill(symbol, "intraday_bars", interval)
 		s.triggerTickerSubscribe(symbol)
 		bars = []storage.IntradayBarRecord{}
 	} else {
 		oldest := bars[len(bars)-1].Timestamp
 		if time.Since(oldest) > 5*time.Minute {
 			s.logClient.InfoWithMeta(r.Context(), "intraday data stale for ticker, triggering refresh", map[string]interface{}{"symbol": symbol})
-			s.triggerBackfill(symbol, "intraday_bars", "1min")
+			s.triggerBackfill(symbol, "intraday_bars", interval)
 		}
 	}
 
@@ -686,11 +561,12 @@ func (s *MarketDataService) handleIntradayBars(w http.ResponseWriter, r *http.Re
 }
 
 func (s *MarketDataService) triggerBackfill(ticker, dataType, interval string) {
+	operation := backfillOperation(dataType)
 	req := sse.BackfillRequest{
 		Ticker:   ticker,
 		DataType: dataType,
 		Interval: interval,
-		Source:   s.preferredBackfillSource(context.Background()),
+		Source:   s.preferredProviderNameForOperation(context.Background(), operation),
 	}
 	data, _ := json.Marshal(req)
 	s.redis.LPush(context.Background(), "queue:backfill", string(data))
@@ -714,7 +590,25 @@ func (s *MarketDataService) handleFinancialRatios(w http.ResponseWriter, r *http
 		return
 	}
 	ratios, err := s.storage.GetFinancialRatios(r.Context(), symbol)
-	if err != nil || ratios == nil {
+	if err == nil && ratios != nil && len(ratios) > 0 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(ratios)
+		return
+	}
+
+	fetchedRatios, source := s.fetchRatiosComposite(r.Context(), symbol)
+	if len(fetchedRatios) > 0 {
+		if tickerID, tickerErr := s.storage.GetTickerID(r.Context(), symbol); tickerErr == nil {
+			if err := s.storage.InsertFundamentalData(r.Context(), tickerID, source, "ratios", "latest", fetchedRatios, time.Now()); err != nil {
+				s.logClient.WarnWithMeta(r.Context(), "failed to store fetched ratios", map[string]interface{}{
+					"symbol":   symbol,
+					"provider": source,
+					"error":    err.Error(),
+				})
+			}
+		}
+		ratios = fetchedRatios
+	} else {
 		ratios = []storage.FinancialRatioRecord{}
 	}
 	w.Header().Set("Content-Type", "application/json")

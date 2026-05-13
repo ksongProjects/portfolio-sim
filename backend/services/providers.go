@@ -31,16 +31,18 @@ func NewProviderService(logger *slog.Logger, logClient *logging.Client, codec *s
 }
 
 type ProviderConfig struct {
-	ID           string `json:"id"`
-	ProviderID   string `json:"provider_id"`
-	Name         string `json:"name"`
-	Description  string `json:"description"`
-	Type         string `json:"type"`
-	APIKeySet    bool   `json:"api_key_set"`
-	IsConnected  bool   `json:"is_connected"`
-	TokenExpired bool   `json:"token_expired"`
-	RateLimit    int    `json:"rate_limit"`
-	DocURL       string `json:"docs_url"`
+	ID              string `json:"id"`
+	ProviderID      string `json:"provider_id"`
+	Name            string `json:"name"`
+	Description     string `json:"description"`
+	Type            string `json:"type"`
+	APIKeySet       bool   `json:"api_key_set"`
+	IsValidated     bool   `json:"is_validated"`
+	IsConnected     bool   `json:"is_connected"`
+	TokenExpired    bool   `json:"token_expired"`
+	ValidationError string `json:"validation_error,omitempty"`
+	RateLimit       int    `json:"rate_limit"`
+	DocURL          string `json:"docs_url"`
 }
 
 type ConnectionStatus struct {
@@ -56,9 +58,13 @@ func (s *ProviderService) GetProviders(ctx context.Context, db interface {
 }) ([]ProviderConfig, error) {
 	query := `
 		SELECT ds.id, ds.name, ds.source_priority, ds.rate_limit_per_min,
-			   CASE WHEN pc.id IS NOT NULL THEN true ELSE false END as has_key,
-			   CASE WHEN pc.id IS NOT NULL THEN true ELSE false END as is_connected,
-			   pc.token_expires_at
+			   CASE
+				   WHEN COALESCE(pc.encrypted_key, '') <> '' OR COALESCE(pc.access_token, '') <> '' OR COALESCE(pc.refresh_token, '') <> '' THEN true
+				   ELSE false
+			   END as has_key,
+			   COALESCE(pc.is_validated, false) as is_validated,
+			   pc.token_expires_at,
+			   COALESCE(pc.validation_error, '')
 		FROM data_sources ds
 		LEFT JOIN provider_configurations pc ON pc.provider_id = ds.id
 		ORDER BY ds.source_priority
@@ -75,7 +81,7 @@ func (s *ProviderService) GetProviders(ctx context.Context, db interface {
 		DocURL      string
 	}{
 		"questrade": {"Questrade market data", "market_data", "https://www.questrade.com/api"},
-		"massive":   {"Massive real-time and historical market data", "market_data", "https://api.massive.io/docs"},
+		"massive":   {"Massive real-time and historical market data", "market_data", "https://massive.com/docs/rest/quickstart"},
 		"fmp":       {"Financial Modeling Prep financial data", "market_data", "https://site.financialmodelingprep.com/developer/docs"},
 		"youtube":   {"YouTube Data API for video transcripts", "youtube", "https://developers.google.com/youtube/v3"},
 		"gemini":    {"Google Gemini API for content summarization", "gemini", "https://ai.google.dev/docs"},
@@ -86,7 +92,7 @@ func (s *ProviderService) GetProviders(ctx context.Context, db interface {
 		DocURL    string
 	}{
 		"questrade": {100, "https://www.questrade.com/api"},
-		"massive":   {60, "https://api.massive.io/docs"},
+		"massive":   {5, "https://massive.com/docs/rest/quickstart"},
 		"fmp":       {250, "https://site.financialmodelingprep.com/developer/docs"},
 		"youtube":   {0, "https://developers.google.com/youtube/v3"},
 		"gemini":    {0, "https://ai.google.dev/docs"},
@@ -96,31 +102,38 @@ func (s *ProviderService) GetProviders(ctx context.Context, db interface {
 	for rows.Next() {
 		var id, name string
 		var priority, rateLimit int
-		var hasKey, isConnected bool
+		var hasKey, isValidated bool
 		var tokenExpiresAt *time.Time
-		if err := rows.Scan(&id, &name, &priority, &rateLimit, &hasKey, &isConnected, &tokenExpiresAt); err != nil {
+		var validationError string
+		if err := rows.Scan(&id, &name, &priority, &rateLimit, &hasKey, &isValidated, &tokenExpiresAt, &validationError); err != nil {
 			continue
 		}
 		meta := providerMeta[id]
 		def := defaults[id]
 		tokenExpired := tokenExpiresAt != nil && tokenExpiresAt.Before(time.Now())
+		isConnected := isValidated
+		if id == "questrade" && tokenExpired {
+			isConnected = false
+		}
 		results = append(results, ProviderConfig{
-			ID:           id,
-			ProviderID:   id,
-			Name:         name,
-			Description:  meta.Description,
-			Type:         meta.Type,
-			APIKeySet:    hasKey,
-			IsConnected:  isConnected && !tokenExpired,
-			TokenExpired: tokenExpired,
-			RateLimit:    rateLimit,
-			DocURL:       def.DocURL,
+			ID:              id,
+			ProviderID:      id,
+			Name:            name,
+			Description:     meta.Description,
+			Type:            meta.Type,
+			APIKeySet:       hasKey,
+			IsValidated:     isValidated,
+			IsConnected:     isConnected,
+			TokenExpired:    tokenExpired,
+			ValidationError: validationError,
+			RateLimit:       rateLimit,
+			DocURL:          def.DocURL,
 		})
 	}
 
 	if len(results) == 0 {
 		results = []ProviderConfig{
-			{ID: "massive", ProviderID: "massive", Name: "Massive", Description: "Real-time and historical market data", Type: "market_data", RateLimit: 60, DocURL: "https://api.massive.io/docs", TokenExpired: false},
+			{ID: "massive", ProviderID: "massive", Name: "Massive", Description: "Real-time and historical market data", Type: "market_data", RateLimit: 5, DocURL: "https://massive.com/docs/rest/quickstart", TokenExpired: false},
 			{ID: "questrade", ProviderID: "questrade", Name: "Questrade", Description: "Questrade market data API", Type: "market_data", RateLimit: 100, DocURL: "https://www.questrade.com/api", TokenExpired: false},
 			{ID: "fmp", ProviderID: "fmp", Name: "Financial Modeling Prep", Description: "Financial statements and fundamental data", Type: "market_data", RateLimit: 250, DocURL: "https://site.financialmodelingprep.com/developer/docs", TokenExpired: false},
 			{ID: "youtube", ProviderID: "youtube", Name: "YouTube Data API", Description: "YouTube Data API for video transcripts", Type: "youtube", RateLimit: 0, DocURL: "https://developers.google.com/youtube/v3", TokenExpired: false},
@@ -149,12 +162,62 @@ func (s *ProviderService) SaveProviderKey(ctx context.Context, db interface {
 		return err
 	}
 	query := `
-		INSERT INTO provider_configurations (id, provider_id, encrypted_key, created_at, updated_at)
-		VALUES (gen_random_uuid(), $1, $2, NOW(), NOW())
-		ON CONFLICT (provider_id) DO UPDATE SET encrypted_key = $2, updated_at = NOW()
+		INSERT INTO provider_configurations (id, provider_id, encrypted_key, is_validated, validated_at, validation_error, created_at, updated_at)
+		VALUES (gen_random_uuid(), $1, $2, false, NULL, NULL, NOW(), NOW())
+		ON CONFLICT (provider_id) DO UPDATE SET encrypted_key = $2, is_validated = false, validated_at = NULL, validation_error = NULL, updated_at = NOW()
 	`
 	_, err = db.Exec(ctx, query, providerID, encryptedKey)
 	return err
+}
+
+func (s *ProviderService) UpdateProviderValidationState(ctx context.Context, db interface {
+	Exec(ctx context.Context, sql string, args ...interface{}) (int64, error)
+}, providerID string, isValidated bool, validationError string) error {
+	if isValidated {
+		validationError = ""
+	}
+
+	query := `
+		UPDATE provider_configurations
+		SET is_validated = $2,
+			validated_at = CASE WHEN $2 THEN NOW() ELSE NULL END,
+			validation_error = NULLIF($3, ''),
+			updated_at = NOW()
+		WHERE provider_id = $1
+	`
+	_, err := db.Exec(ctx, query, providerID, isValidated, validationError)
+	return err
+}
+
+func (s *ProviderService) StoredProviderKeyMatches(ctx context.Context, db interface {
+	QueryRow(ctx context.Context, sql string, args ...interface{}) (pgx.Row, error)
+}, providerID, apiKey string) (bool, error) {
+	row, err := db.QueryRow(ctx, `
+		SELECT COALESCE(encrypted_key, '')
+		FROM provider_configurations
+		WHERE provider_id = $1
+	`, providerID)
+	if err != nil {
+		return false, err
+	}
+
+	var encryptedKey string
+	if err := row.Scan(&encryptedKey); err != nil {
+		if err == pgx.ErrNoRows {
+			return false, nil
+		}
+		return false, err
+	}
+	if strings.TrimSpace(encryptedKey) == "" || apiKey == "" {
+		return false, nil
+	}
+
+	savedKey, err := s.codec.DecryptString(encryptedKey)
+	if err != nil {
+		return false, err
+	}
+
+	return savedKey == apiKey, nil
 }
 
 func (s *ProviderService) SaveQuestradeOAuth(ctx context.Context, db interface {
@@ -175,9 +238,9 @@ func (s *ProviderService) SaveQuestradeOAuth(ctx context.Context, db interface {
 	}
 	expiresAt := time.Now().Add(time.Duration(expiresIn) * time.Second)
 	query := `
-		INSERT INTO provider_configurations (id, provider_id, encrypted_key, access_token, refresh_token, api_server, token_expires_at, created_at, updated_at)
-		VALUES (gen_random_uuid(), $1, '', $2, $3, $4, $5, NOW(), NOW())
-		ON CONFLICT (provider_id) DO UPDATE SET access_token = $2, refresh_token = $3, api_server = $4, token_expires_at = $5, updated_at = NOW()
+		INSERT INTO provider_configurations (id, provider_id, encrypted_key, access_token, refresh_token, api_server, token_expires_at, is_validated, validated_at, validation_error, created_at, updated_at)
+		VALUES (gen_random_uuid(), $1, '', $2, $3, $4, $5, true, NOW(), NULL, NOW(), NOW())
+		ON CONFLICT (provider_id) DO UPDATE SET access_token = $2, refresh_token = $3, api_server = $4, token_expires_at = $5, is_validated = true, validated_at = NOW(), validation_error = NULL, updated_at = NOW()
 	`
 	_, err = db.Exec(ctx, query, providerID, encryptedAccessToken, encryptedRefreshToken, encryptedAPIServer, expiresAt)
 	return err
@@ -337,7 +400,7 @@ type QuestradeOAuthResult struct {
 }
 
 func (s *ProviderService) validateMassiveKey(ctx context.Context, apiKey string) (bool, error) {
-	url := fmt.Sprintf("https://api.massive.io/v2/aggs/ticker/AAPL/prev?adjusted=true&apiKey=%s", apiKey)
+	url := fmt.Sprintf("https://api.massive.com/v2/aggs/ticker/AAPL/prev?adjusted=true&apiKey=%s", apiKey)
 
 	if s.logClient != nil {
 		s.logClient.InfoWithMeta(ctx, "Massive validation request", map[string]interface{}{

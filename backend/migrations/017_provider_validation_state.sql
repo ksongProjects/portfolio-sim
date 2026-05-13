@@ -1,0 +1,4 @@
+ALTER TABLE provider_configurations
+ADD COLUMN IF NOT EXISTS is_validated BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN IF NOT EXISTS validated_at TIMESTAMPTZ,
+ADD COLUMN IF NOT EXISTS validation_error TEXT;

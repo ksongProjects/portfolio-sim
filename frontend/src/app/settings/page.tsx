@@ -27,7 +27,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useProviders, ProviderConfig, ConnectionStatus, RSSFeed, MarketIndexConfig } from "@/hooks/useProviders";
 
-type ProviderStatus = "connected" | "disconnected" | "error" | "expired" | "available";
+type ProviderStatus = "connected" | "disconnected" | "error" | "expired" | "configured";
 
 function ProviderCard({
   provider,
@@ -43,6 +43,7 @@ function ProviderCard({
   const [apiKey, setApiKey] = useState("");
   const [showSecret, setShowSecret] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<ProviderStatus | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -50,11 +51,20 @@ function ProviderCard({
 
   const handleSave = async () => {
     if (!apiKey) return;
+    setSaving(true);
     const success = await onSave(provider.provider_id, apiKey);
-    if (success) {
+    if (!success) {
+      setSaving(false);
+      return;
+    }
+
+    const result = await onValidate(provider.provider_id, apiKey);
+    setTestResult(result.valid ? "connected" : "error");
+    if (result.valid) {
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     }
+    setSaving(false);
   };
 
   const handleTest = async () => {
@@ -77,13 +87,21 @@ function ProviderCard({
     setRefreshing(false);
   };
 
-  const status: ProviderStatus = provider.token_expired ? "expired" : provider.is_connected ? "connected" : provider.api_key_set ? "available" : "disconnected";
+  const status: ProviderStatus = provider.token_expired
+    ? "expired"
+    : provider.is_connected
+      ? "connected"
+      : provider.validation_error
+        ? "error"
+        : provider.api_key_set
+          ? "configured"
+          : "disconnected";
   const statusVariant: Record<ProviderStatus, "success" | "error" | "warning" | "secondary"> = {
     connected: "success",
     error: "error",
     disconnected: "warning",
     expired: "error",
-    available: "secondary",
+    configured: "secondary",
   };
   const hasStoredKey = provider.api_key_set;
 
@@ -143,6 +161,12 @@ function ProviderCard({
             </span>
           </div>
         )}
+        {provider.validation_error && !testResult && (
+          <div className="flex items-center gap-2 text-sm text-error">
+            <XCircle className="h-4 w-4" />
+            <span>{provider.validation_error}</span>
+          </div>
+        )}
         {refreshError && (
           <div className="flex items-center gap-2 text-sm text-error">
             <XCircle className="h-4 w-4" />
@@ -154,9 +178,9 @@ function ProviderCard({
             <TestTube className="h-4 w-4" />
             {testing ? "Testing..." : "Test"}
           </Button>
-          <Button variant="default" size="sm" onClick={handleSave} disabled={!apiKey}>
+          <Button variant="default" size="sm" onClick={handleSave} disabled={!apiKey || saving}>
             <Save className="h-4 w-4" />
-            {saved ? "Saved!" : "Save"}
+            {saving ? "Saving..." : saved ? "Saved!" : "Save"}
           </Button>
           {provider.provider_id === "questrade" && onRefresh && (
             <Button variant="warning" size="sm" onClick={handleRefresh} disabled={refreshing}>

@@ -72,7 +72,7 @@ func Load() *Config {
 		},
 		Massive: MassiveConfig{
 			APIKey:       getEnv("MASSIVE_API_KEY", ""),
-			RateLimitMin: getEnvInt("MASSIVE_RATE_LIMIT_MIN", 60),
+			RateLimitMin: getEnvInt("MASSIVE_RATE_LIMIT_MIN", 5),
 		},
 		FMP: FMPConfig{
 			APIKey:       getEnv("FMP_API_KEY", ""),

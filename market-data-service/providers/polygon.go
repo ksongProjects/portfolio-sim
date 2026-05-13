@@ -13,14 +13,16 @@ import (
 )
 
 type MassiveProvider struct {
-	cfg       config.MassiveConfig
-	logClient *logging.Client
+	cfg            config.MassiveConfig
+	logClient      *logging.Client
+	apiKeyResolver APIKeyResolver
 }
 
-func NewMassiveProvider(cfg config.MassiveConfig, logClient *logging.Client) *MassiveProvider {
+func NewMassiveProvider(cfg config.MassiveConfig, logClient *logging.Client, apiKeyResolver APIKeyResolver) *MassiveProvider {
 	return &MassiveProvider{
-		cfg:       cfg,
-		logClient: logClient,
+		cfg:            cfg,
+		logClient:      logClient,
+		apiKeyResolver: apiKeyResolver,
 	}
 }
 
@@ -40,13 +42,29 @@ func (p *MassiveProvider) FetchFinancialRatios(ticker string) ([]*FinancialRatio
 	return nil, fmt.Errorf("massive does not support financial ratios")
 }
 
+func (p *MassiveProvider) apiKey() (string, error) {
+	if p.apiKeyResolver != nil {
+		apiKey, err := p.apiKeyResolver()
+		if err == nil && apiKey != "" {
+			return apiKey, nil
+		}
+		if p.cfg.APIKey == "" && err != nil {
+			return "", err
+		}
+	}
+	if p.cfg.APIKey == "" {
+		return "", fmt.Errorf("massive API key not configured")
+	}
+	return p.cfg.APIKey, nil
+}
+
 func (p *MassiveProvider) FetchPrice(ticker string) (*Price, error) {
-	apiKey := p.cfg.APIKey
-	if apiKey == "" {
-		return nil, fmt.Errorf("massive API key not configured")
+	apiKey, err := p.apiKey()
+	if err != nil {
+		return nil, err
 	}
 
-	url := fmt.Sprintf("https://api.massive.io/v2/aggs/ticker/%s/prev?adjusted=true&apiKey=%s", ticker, apiKey)
+	url := fmt.Sprintf("https://api.massive.com/v2/aggs/ticker/%s/prev?adjusted=true&apiKey=%s", ticker, apiKey)
 
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
@@ -108,9 +126,9 @@ func (p *MassiveProvider) FetchOptionChain(ticker string) ([]*OptionChain, error
 }
 
 func (p *MassiveProvider) FetchIntradayBars(ticker string, interval string) ([]*IntradayBar, error) {
-	apiKey := p.cfg.APIKey
-	if apiKey == "" {
-		return nil, fmt.Errorf("massive API key not configured")
+	apiKey, err := p.apiKey()
+	if err != nil {
+		return nil, err
 	}
 
 	multiplier := "1"
@@ -130,7 +148,7 @@ func (p *MassiveProvider) FetchIntradayBars(ticker string, interval string) ([]*
 	from := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
 	to := time.Now().Format("2006-01-02")
 
-	url := fmt.Sprintf("https://api.massive.io/v2/aggs/ticker/%s/range/%s/%s/%s/%s?adjusted=true&apiKey=%s",
+	url := fmt.Sprintf("https://api.massive.com/v2/aggs/ticker/%s/range/%s/%s/%s/%s?adjusted=true&apiKey=%s",
 		ticker, multiplier, timespan, from, to, apiKey)
 
 	req, err := http.NewRequest(http.MethodGet, url, nil)
@@ -174,7 +192,7 @@ func (p *MassiveProvider) FetchIntradayBars(ticker string, interval string) ([]*
 			Interval:  interval,
 			Open:      b.Open,
 			High:      b.High,
-			Low:      b.Low,
+			Low:       b.Low,
 			Close:     b.Close,
 			Volume:    int64(b.Volume),
 			Timestamp: time.UnixMilli(b.Timestamp),
@@ -184,12 +202,12 @@ func (p *MassiveProvider) FetchIntradayBars(ticker string, interval string) ([]*
 }
 
 func (p *MassiveProvider) SearchTickers(prefix string) ([]TickerSearchResult, error) {
-	apiKey := p.cfg.APIKey
-	if apiKey == "" {
-		return nil, fmt.Errorf("massive API key not configured")
+	apiKey, err := p.apiKey()
+	if err != nil {
+		return nil, err
 	}
 
-	searchURL := fmt.Sprintf("https://api.massive.io/v3/reference/tickers?search=%s&active=true&apiKey=%s", url.QueryEscape(prefix), apiKey)
+	searchURL := fmt.Sprintf("https://api.massive.com/v3/reference/tickers?search=%s&active=true&apiKey=%s", url.QueryEscape(prefix), apiKey)
 
 	req, err := http.NewRequest(http.MethodGet, searchURL, nil)
 	if err != nil {
