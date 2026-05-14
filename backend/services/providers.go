@@ -220,6 +220,32 @@ func (s *ProviderService) StoredProviderKeyMatches(ctx context.Context, db inter
 	return savedKey == apiKey, nil
 }
 
+func (s *ProviderService) GetDecryptedProviderKey(ctx context.Context, db interface {
+	QueryRow(ctx context.Context, sql string, args ...interface{}) (pgx.Row, error)
+}, providerID string) (string, error) {
+	row, err := db.QueryRow(ctx, `
+		SELECT COALESCE(encrypted_key, '')
+		FROM provider_configurations
+		WHERE provider_id = $1 AND is_validated = true
+	`, providerID)
+	if err != nil {
+		return "", err
+	}
+
+	var encryptedKey string
+	if err := row.Scan(&encryptedKey); err != nil {
+		if err == pgx.ErrNoRows {
+			return "", nil
+		}
+		return "", err
+	}
+	if strings.TrimSpace(encryptedKey) == "" {
+		return "", nil
+	}
+
+	return s.codec.DecryptString(encryptedKey)
+}
+
 func (s *ProviderService) SaveQuestradeOAuth(ctx context.Context, db interface {
 	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
 	Exec(ctx context.Context, sql string, args ...interface{}) (int64, error)

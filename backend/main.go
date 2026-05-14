@@ -195,6 +195,7 @@ func (s *Server) Start() error {
 	http.HandleFunc("POST /api/notifications/dismiss", lm(http.HandlerFunc(s.handleDismissNotification)))
 	http.HandleFunc("GET /api/providers", lm(http.HandlerFunc(s.handleGetProviders)))
 	http.HandleFunc("PUT /api/providers", lm(http.HandlerFunc(s.handleUpdateProvider)))
+	http.HandleFunc("GET /api/providers/", lm(http.HandlerFunc(s.handleGetProviderKey)))
 	http.HandleFunc("POST /api/providers/validate", lm(http.HandlerFunc(s.handleValidateProvider)))
 	http.HandleFunc("POST /api/providers/questrade/oauth", lm(http.HandlerFunc(s.handleSaveQuestradeOAuth)))
 	http.HandleFunc("GET /api/providers/questrade/oauth", lm(http.HandlerFunc(s.handleGetQuestradeOAuth)))
@@ -605,32 +606,12 @@ func (s *Server) fetchMarketIndexDetails(ctx context.Context, symbol string) (*s
 }
 
 func (s *Server) hydrateMissingMarketIndices(ctx context.Context, indices []services.MarketIndex) []services.MarketIndex {
-	hydrated := make([]services.MarketIndex, len(indices))
-	copy(hydrated, indices)
-
-	for i := range hydrated {
-		if hydrated[i].Price > 0 {
+	for i := range indices {
+		if indices[i].Price > 0 {
 			continue
-		}
-
-		details, err := s.fetchMarketIndexDetails(ctx, hydrated[i].Symbol)
-		if err != nil {
-			s.logger.Warn("market index fallback fetch failed", "symbol", hydrated[i].Symbol, "error", err)
-			continue
-		}
-		if details == nil || details.Price <= 0 {
-			continue
-		}
-
-		hydrated[i].Price = details.Price
-		hydrated[i].Change = details.Change
-		hydrated[i].ChangePct = details.ChangePct
-		if strings.TrimSpace(hydrated[i].Name) == "" {
-			hydrated[i].Name = details.Name
 		}
 	}
-
-	return hydrated
+	return indices
 }
 
 func (s *Server) handleGetPositions(w http.ResponseWriter, r *http.Request) {
@@ -823,6 +804,28 @@ func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "saved"})
+}
+
+func (s *Server) handleGetProviderKey(w http.ResponseWriter, r *http.Request) {
+	providerID := strings.TrimPrefix(r.URL.Path, "/api/providers/")
+	if providerID == "" {
+		http.Error(w, "provider_id required", http.StatusBadRequest)
+		return
+	}
+
+	key, err := s.providerSvc.GetDecryptedProviderKey(r.Context(), s.db, providerID)
+	if err != nil {
+		s.logger.Error("get provider key failed", "provider", providerID, "error", err)
+		http.Error(w, "failed to get key", http.StatusInternalServerError)
+		return
+	}
+	if key == "" {
+		http.Error(w, "key not found or not validated", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"api_key": key})
 }
 
 func (s *Server) handleGetConnections(w http.ResponseWriter, r *http.Request) {

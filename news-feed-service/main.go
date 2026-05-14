@@ -29,6 +29,43 @@ func truncateString(s string, maxLen int) string {
 	return s[:maxLen] + "..."
 }
 
+func fetchProviderKey(providerID string) string {
+	mainAPIURL := os.Getenv("MAIN_API_URL")
+	if mainAPIURL == "" {
+		mainAPIURL = "http://main-api:8080"
+	}
+	url := fmt.Sprintf("%s/api/providers/%s", mainAPIURL, providerID)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return ""
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		log.Printf("fetch provider key %s: %v", providerID, err)
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("fetch provider key %s: status %d", providerID, resp.StatusCode)
+		return ""
+	}
+
+	var result struct {
+		APIKey string `json:"api_key"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		log.Printf("fetch provider key %s: decode error: %v", providerID, err)
+		return ""
+	}
+	return result.APIKey
+}
+
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
@@ -53,8 +90,20 @@ func main() {
 	}
 	logClient := logging.NewClient("news-feed-service", logURL)
 
-	geminiClient := gemini.NewClient(cfg.GeminiAPIKey)
-	youtubeClient, _ := youtube.NewClient(cfg.YouTubeAPIKey)
+	geminiAPIKey := cfg.GeminiAPIKey
+	if geminiAPIKey == "" {
+		geminiAPIKey = fetchProviderKey("gemini")
+	}
+	geminiClient := gemini.NewClient(geminiAPIKey)
+
+	youtubeAPIKey := cfg.YouTubeAPIKey
+	if youtubeAPIKey == "" {
+		youtubeAPIKey = fetchProviderKey("youtube")
+	}
+	youtubeClient, err := youtube.NewClient(youtubeAPIKey)
+	if err != nil {
+		log.Printf("youtube client failed to init: %v", err)
+	}
 
 	feedManager := feed.NewManager(redisClient.Redis(), db.Pool, logClient, geminiClient)
 	sseManager := sse.NewManager(redisClient.Redis())
@@ -123,7 +172,7 @@ func main() {
 				return
 			}
 			defer rows.Close()
-			var channels []map[string]string
+			channels := []map[string]string{}
 			for rows.Next() {
 				var id, channelID, name, handle string
 				if err := rows.Scan(&id, &channelID, &name, &handle); err != nil {
