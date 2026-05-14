@@ -49,7 +49,7 @@ export async function fetchJson<T>(
   if (!res.ok) {
     throw new ApiError(errorMessage, {
       status: res.status,
-      retryable: res.status >= 500 || res.status === 429,
+      retryable: false,
     });
   }
 
