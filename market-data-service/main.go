@@ -33,7 +33,14 @@ type MarketDataService struct {
 	logClient       *loggingpkg.Client
 	sseMgr          *sse.Manager
 	normalizer      *normalizer.Normalizer
-	fetcherRegistry sync.Map
+	fetcherMu       sync.Mutex
+	fetcherRegistry map[string]*fetcherState
+}
+
+type fetcherState struct {
+	refs      int
+	permanent bool
+	cancel    context.CancelFunc
 }
 
 func NewMarketDataService(cfg *config.Config) *MarketDataService {
@@ -73,13 +80,14 @@ func NewMarketDataService(cfg *config.Config) *MarketDataService {
 	}
 
 	return &MarketDataService{
-		cfg:        cfg,
-		db:         db,
-		redis:      redisClient,
-		storage:    storage.NewStorage(db.Pool(), secretCodec),
-		logClient:  logClient,
-		sseMgr:     sse.NewManager(redisClient),
-		normalizer: normalizer.NewNormalizer(),
+		cfg:             cfg,
+		db:              db,
+		redis:           redisClient,
+		storage:         storage.NewStorage(db.Pool(), secretCodec),
+		logClient:       logClient,
+		sseMgr:          sse.NewManager(redisClient),
+		normalizer:      normalizer.NewNormalizer(),
+		fetcherRegistry: make(map[string]*fetcherState),
 	}
 }
 
@@ -251,15 +259,73 @@ func (s *MarketDataService) fetcherKey(ticker string, provider providers.Provide
 	return ticker + ":" + provider.Name()
 }
 
-func (s *MarketDataService) registerFetcher(ticker string, provider providers.Provider) bool {
+func (s *MarketDataService) startFetcher(ticker string, provider providers.Provider, permanent bool) bool {
+	if provider == nil {
+		return false
+	}
 	key := s.fetcherKey(ticker, provider)
-	_, loaded := s.fetcherRegistry.LoadOrStore(key, true)
-	return !loaded
+	ctx, cancel := context.WithCancel(context.Background())
+
+	s.fetcherMu.Lock()
+	if existing, ok := s.fetcherRegistry[key]; ok {
+		cancel()
+		if permanent {
+			existing.permanent = true
+		} else {
+			existing.refs++
+		}
+		s.fetcherMu.Unlock()
+		return false
+	}
+
+	refs := 0
+	if !permanent {
+		refs = 1
+	}
+	s.fetcherRegistry[key] = &fetcherState{
+		refs:      refs,
+		permanent: permanent,
+		cancel:    cancel,
+	}
+	s.fetcherMu.Unlock()
+
+	go s.fetchPriceLoop(ctx, ticker, provider)
+	return true
 }
 
 func (s *MarketDataService) unregisterFetcher(ticker string, provider providers.Provider) {
 	key := s.fetcherKey(ticker, provider)
-	s.fetcherRegistry.Delete(key)
+	s.fetcherMu.Lock()
+	delete(s.fetcherRegistry, key)
+	s.fetcherMu.Unlock()
+}
+
+func (s *MarketDataService) stopFetcher(ticker string, provider providers.Provider) bool {
+	if provider == nil {
+		return false
+	}
+	key := s.fetcherKey(ticker, provider)
+
+	s.fetcherMu.Lock()
+	state, ok := s.fetcherRegistry[key]
+	if !ok {
+		s.fetcherMu.Unlock()
+		return false
+	}
+	if state.refs > 0 {
+		state.refs--
+	}
+	shouldStop := !state.permanent && state.refs == 0
+	if shouldStop {
+		delete(s.fetcherRegistry, key)
+	}
+	cancel := state.cancel
+	s.fetcherMu.Unlock()
+
+	if shouldStop {
+		cancel()
+	}
+	return shouldStop
 }
 
 func (s *MarketDataService) runPriceFetchers() {
@@ -284,34 +350,38 @@ func (s *MarketDataService) runPriceFetchers() {
 	}
 	for _, ticker := range tickerSymbols {
 		provider := s.providerForOperation(context.Background(), operationQuote, "")
-		if provider != nil && s.registerFetcher(ticker, provider) {
-			go s.fetchPriceLoop(ticker, provider)
+		if s.startFetcher(ticker, provider, true) {
+			s.logClient.InfoWithMeta(context.Background(), "started permanent price fetcher", map[string]interface{}{"ticker": ticker, "provider": provider.Name()})
 		}
 	}
 }
 
-func (s *MarketDataService) fetchPriceLoop(ticker string, provider providers.Provider) {
-	if !s.registerFetcher(ticker, provider) {
-		s.logClient.InfoWithMeta(context.Background(), "fetcher already running, skipping", map[string]interface{}{"ticker": ticker, "provider": provider.Name()})
-		return
-	}
+func (s *MarketDataService) fetchPriceLoop(ctx context.Context, ticker string, provider providers.Provider) {
 	defer s.unregisterFetcher(ticker, provider)
 
-	if err := s.storage.EnsureTickerExists(context.Background(), ticker); err != nil {
+	if err := s.storage.EnsureTickerExists(ctx, ticker); err != nil {
 		s.logClient.Warn(context.Background(), fmt.Sprintf("failed to ensure ticker exists: %s: %v", ticker, err))
 	}
 
-	tickerID, err := s.storage.GetTickerID(context.Background(), ticker)
+	tickerID, err := s.storage.GetTickerID(ctx, ticker)
 	if err != nil {
 		s.logClient.Warn(context.Background(), fmt.Sprintf("ticker not found: %s", ticker))
 		return
 	}
 
 	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
 		price, err := provider.FetchPrice(ticker)
 		if err != nil {
 			s.logClient.ErrorWithMeta(context.Background(), "failed to fetch price", map[string]interface{}{"ticker": ticker, "provider": provider.Name(), "error": err.Error()})
-			time.Sleep(5 * time.Second)
+			if !sleepWithContext(ctx, 5*time.Second) {
+				return
+			}
 			continue
 		}
 
@@ -327,7 +397,20 @@ func (s *MarketDataService) fetchPriceLoop(ticker string, provider providers.Pro
 
 		s.sseMgr.PublishTick(ticker, normPrice)
 
-		time.Sleep(time.Second)
+		if !sleepWithContext(ctx, time.Second) {
+			return
+		}
+	}
+}
+
+func sleepWithContext(ctx context.Context, d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
 	}
 }
 
@@ -350,18 +433,29 @@ func (s *MarketDataService) handleTickerSubscribe() {
 			continue
 		}
 
-		tickerID, err := s.storage.GetTickerID(context.Background(), req.Symbol)
-		if err != nil {
-			s.logClient.Warn(context.Background(), fmt.Sprintf("ticker not found: %s", req.Symbol))
-			continue
-		}
-		_ = tickerID // validated that ticker exists
-
-		if req.Action == "subscribe" {
+		switch req.Action {
+		case "subscribe":
+			if err := s.storage.EnsureTickerExists(context.Background(), req.Symbol); err != nil {
+				s.logClient.Warn(context.Background(), fmt.Sprintf("ticker not found: %s", req.Symbol))
+				continue
+			}
 			provider := s.providerForOperation(context.Background(), operationQuote, "")
-			if provider != nil && s.registerFetcher(req.Symbol, provider) {
-				go s.fetchPriceLoop(req.Symbol, provider)
+			if s.startFetcher(req.Symbol, provider, false) {
 				s.logClient.InfoWithMeta(context.Background(), "started price fetcher for ticker", map[string]interface{}{"ticker": req.Symbol, "provider": provider.Name()})
+			}
+		case "unsubscribe":
+			provider := s.providerForOperation(context.Background(), operationQuote, "")
+			if s.stopFetcher(req.Symbol, provider) {
+				s.logClient.InfoWithMeta(context.Background(), "stopped price fetcher for ticker", map[string]interface{}{"ticker": req.Symbol, "provider": provider.Name()})
+			}
+		case "ensure":
+			if err := s.storage.EnsureTickerExists(context.Background(), req.Symbol); err != nil {
+				s.logClient.Warn(context.Background(), fmt.Sprintf("ticker not found: %s", req.Symbol))
+				continue
+			}
+			provider := s.providerForOperation(context.Background(), operationQuote, "")
+			if s.startFetcher(req.Symbol, provider, true) {
+				s.logClient.InfoWithMeta(context.Background(), "started permanent price fetcher for ticker", map[string]interface{}{"ticker": req.Symbol, "provider": provider.Name()})
 			}
 		}
 	}
@@ -587,7 +681,7 @@ func (s *MarketDataService) triggerBackfill(ticker, dataType, interval string) {
 }
 
 func (s *MarketDataService) triggerTickerSubscribe(symbol string) {
-	req := map[string]string{"symbol": symbol, "action": "subscribe"}
+	req := map[string]string{"symbol": symbol, "action": "ensure"}
 	data, _ := json.Marshal(req)
 	s.redis.LPush(context.Background(), "queue:ticker:subscribe", string(data))
 }
