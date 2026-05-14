@@ -575,7 +575,7 @@ func (s *Server) queueTickerSubscribe(ctx context.Context, symbol string) {
 
 func (s *Server) fetchMarketIndexDetails(ctx context.Context, symbol string) (*services.TickerDetails, error) {
 	details, err := s.tickerSvc.GetTickerDetails(ctx, symbol)
-	if err == nil && details != nil && details.Price > 0 {
+	if err == nil && details != nil {
 		return details, nil
 	}
 

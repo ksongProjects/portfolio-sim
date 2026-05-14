@@ -54,12 +54,12 @@ function MiniChart() {
 }
 
 export default function DashboardPage() {
-  const { positions, summary, indices: restIndices, loading } = usePortfolio();
+  const { positions, summary, indices: restIndices, loading, indicesLoading: restIndicesLoading } = usePortfolio();
   const { indices: liveIndices, isLive, loading: liveIndicesLoading } = useLiveIndices();
   const [activePeriod, setActivePeriod] = useState("1M");
 
   const indices = isLive ? liveIndices : restIndices;
-  const indicesLoading = loading || (isLive && liveIndicesLoading);
+  const indicesLoading = isLive ? liveIndicesLoading : restIndicesLoading;
 
   const posValue = summary?.TotalValue ?? 0;
   const posDayChange = summary?.DayChange ?? 0;

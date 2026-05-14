@@ -128,7 +128,7 @@ const columns: ColumnDef<Position>[] = [
 ];
 
 export default function PortfolioPage() {
-  const { positions, summary, loading, addPosition } = usePortfolio();
+  const { positions, summary, loading, addPosition } = usePortfolio("default", { includeIndices: false });
   const [modalOpen, setModalOpen] = useState(false);
 
   const handleAddPosition = async (position: { symbol: string; shares: number; price: number }) => {

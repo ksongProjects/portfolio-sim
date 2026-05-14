@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/portfolio-sim/backend/logging"
 )
@@ -19,72 +20,59 @@ type NewsFeedService struct {
 
 func NewNewsFeedService(newsFeedURL string, logClient *logging.Client) *NewsFeedService {
 	if newsFeedURL == "" {
-		newsFeedURL = "http://localhost:8082"
+		newsFeedURL = "http://news-feed-service:8080"
 	}
 	return &NewsFeedService{
 		newsFeedURL: newsFeedURL,
-		client:      &http.Client{Timeout: 10 * 1e9},
+		client:      &http.Client{Timeout: 10 * time.Second},
 		logger:      logClient,
 	}
 }
 
-func (s *NewsFeedService) GetChannels(ctx context.Context) ([]byte, error) {
-	url := fmt.Sprintf("%s/api/channels", s.newsFeedURL)
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+func (s *NewsFeedService) doRequest(ctx context.Context, method, url string, body io.Reader, contentType string, expectedStatus int) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
 		return nil, err
 	}
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+
 	resp, err := s.client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	return io.ReadAll(resp.Body)
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != expectedStatus {
+		return nil, fmt.Errorf("%s %s failed: %d - %s", method, url, resp.StatusCode, string(respBody))
+	}
+
+	return respBody, nil
+}
+
+func (s *NewsFeedService) GetChannels(ctx context.Context) ([]byte, error) {
+	url := fmt.Sprintf("%s/api/channels", s.newsFeedURL)
+	return s.doRequest(ctx, http.MethodGet, url, nil, "", http.StatusOK)
 }
 
 func (s *NewsFeedService) GetLatestVideos(ctx context.Context, channelID string) ([]byte, error) {
 	url := fmt.Sprintf("%s/api/videos/latest?channel_id=%s", s.newsFeedURL, channelID)
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	return io.ReadAll(resp.Body)
+	return s.doRequest(ctx, http.MethodGet, url, nil, "", http.StatusOK)
 }
 
 func (s *NewsFeedService) GetStoredVideos(ctx context.Context) ([]byte, error) {
 	url := fmt.Sprintf("%s/api/videos", s.newsFeedURL)
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	return io.ReadAll(resp.Body)
+	return s.doRequest(ctx, http.MethodGet, url, nil, "", http.StatusOK)
 }
 
 func (s *NewsFeedService) AnalyzeVideo(ctx context.Context, videoID, title string) error {
 	url := fmt.Sprintf("%s/api/videos/analyze", s.newsFeedURL)
 	body, _ := json.Marshal(map[string]string{"video_id": videoID, "title": title})
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("analyze failed: %d", resp.StatusCode)
-	}
-	return nil
+	_, err := s.doRequest(ctx, http.MethodPost, url, bytes.NewBuffer(body), "application/json", http.StatusNoContent)
+	return err
 }

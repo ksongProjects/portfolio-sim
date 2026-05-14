@@ -69,8 +69,25 @@ async function fetchIndicesData() {
 	return fetchJson<MarketIndex[]>("/api/market/indices", undefined, "Failed to fetch indices");
 }
 
-export function usePortfolio(portfolioId = "default") {
+interface UsePortfolioOptions {
+	includeIndices?: boolean;
+}
+
+interface AddPositionVariables {
+	targetPortfolioId: string;
+	symbol: string;
+	shares: number;
+	price: number;
+}
+
+interface AddPositionContext {
+	previousPositions?: Position[];
+	previousSummary?: PortfolioSummary | null;
+}
+
+export function usePortfolio(portfolioId = "default", options: UsePortfolioOptions = {}) {
 	const queryClient = useQueryClient();
+	const includeIndices = options.includeIndices ?? true;
 
 	const positionsQuery = useQuery({
 		queryKey: ["portfolio", "positions", portfolioId],
@@ -85,20 +102,11 @@ export function usePortfolio(portfolioId = "default") {
 	const indicesQuery = useQuery({
 		queryKey: ["portfolio", "indices"],
 		queryFn: fetchIndicesData,
+		enabled: includeIndices,
 	});
 
 	const addPositionMutation = useMutation({
-		mutationFn: async ({
-			targetPortfolioId,
-			symbol,
-			shares,
-			price,
-		}: {
-			targetPortfolioId: string;
-			symbol: string;
-			shares: number;
-			price: number;
-		}) => {
+		mutationFn: async ({ targetPortfolioId, symbol, shares, price }: AddPositionVariables) => {
 			const res = await apiFetch("/api/portfolio/positions", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
@@ -112,6 +120,86 @@ export function usePortfolio(portfolioId = "default") {
 
 			if (!res.ok) {
 				throw new Error("Failed to add position");
+			}
+		},
+		onMutate: async (variables): Promise<AddPositionContext> => {
+			await Promise.all([
+				queryClient.cancelQueries({
+					queryKey: ["portfolio", "positions", variables.targetPortfolioId],
+				}),
+				queryClient.cancelQueries({
+					queryKey: ["portfolio", "summary", variables.targetPortfolioId],
+				}),
+			]);
+
+			const previousPositions = queryClient.getQueryData<Position[]>([
+				"portfolio",
+				"positions",
+				variables.targetPortfolioId,
+			]);
+			const previousSummary = queryClient.getQueryData<PortfolioSummary | null>([
+				"portfolio",
+				"summary",
+				variables.targetPortfolioId,
+			]);
+
+			const symbol = variables.symbol.trim().toUpperCase();
+			const now = new Date().toISOString();
+			const costBasis = variables.shares * variables.price;
+			const optimisticPosition: Position = {
+				ID: `optimistic:${symbol}:${now}`,
+				PortfolioID: variables.targetPortfolioId,
+				TickerID: "",
+				Symbol: symbol,
+				CompanyName: symbol,
+				Quantity: variables.shares,
+				AvgCost: variables.price,
+				CurrentPrice: variables.price,
+				CurrentValue: costBasis,
+				DayChange: 0,
+				DayChangePct: 0,
+				TotalGain: 0,
+				TotalGainPct: 0,
+				OpenedAt: now,
+			};
+
+			queryClient.setQueryData<Position[]>(
+				["portfolio", "positions", variables.targetPortfolioId],
+				(current = []) => [optimisticPosition, ...current]
+			);
+
+			if (previousSummary) {
+				const totalValue = previousSummary.TotalValue + costBasis;
+				const totalInvested = previousSummary.TotalInvested + costBasis;
+				const totalGain = totalValue - totalInvested;
+
+				queryClient.setQueryData<PortfolioSummary>(
+					["portfolio", "summary", variables.targetPortfolioId],
+					{
+						...previousSummary,
+						TotalValue: totalValue,
+						TotalInvested: totalInvested,
+						TotalGain: totalGain,
+						TotalGainPct: totalInvested === 0 ? 0 : (totalGain / totalInvested) * 100,
+						DayChangePct: totalValue === 0 ? 0 : (previousSummary.DayChange / totalValue) * 100,
+					}
+				);
+			}
+
+			return { previousPositions, previousSummary };
+		},
+		onError: (_error, variables, context) => {
+			if (context?.previousPositions) {
+				queryClient.setQueryData(
+					["portfolio", "positions", variables.targetPortfolioId],
+					context.previousPositions
+				);
+			}
+			if (context?.previousSummary) {
+				queryClient.setQueryData(
+					["portfolio", "summary", variables.targetPortfolioId],
+					context.previousSummary
+				);
 			}
 		},
 		onSuccess: async (_, variables) => {
@@ -210,18 +298,22 @@ export function usePortfolio(portfolioId = "default") {
 	const combinedError =
 		positionsQuery.error ??
 		summaryQuery.error ??
-		indicesQuery.error ??
+		(includeIndices ? indicesQuery.error : null) ??
 		addPositionMutation.error;
+
+	const positionsLoading = positionsQuery.isLoading;
+	const summaryLoading = summaryQuery.isLoading;
+	const indicesLoading = includeIndices && indicesQuery.isLoading;
 
 	return {
 		positions: positionsQuery.data ?? [],
 		summary: summaryQuery.data ?? null,
 		indices: indicesQuery.data ?? [],
-		loading:
-			positionsQuery.isLoading ||
-			summaryQuery.isLoading ||
-			indicesQuery.isLoading ||
-			addPositionMutation.isPending,
+		loading: positionsLoading || summaryLoading,
+		positionsLoading,
+		summaryLoading,
+		indicesLoading,
+		isAddingPosition: addPositionMutation.isPending,
 		error: combinedError ? getErrorMessage(combinedError) : null,
 		fetchPositions,
 		fetchSummary,
