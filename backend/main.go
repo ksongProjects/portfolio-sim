@@ -707,6 +707,10 @@ func (s *Server) handleUpdateMarketIndexSettings(w http.ResponseWriter, r *http.
 		return
 	}
 
+	for _, idx := range settings {
+		s.queueTickerSubscribe(r.Context(), idx.Symbol)
+	}
+
 	savedSettings, err := s.portfolioSvc.GetMarketIndexSettings(r.Context(), s.db)
 	if err != nil {
 		s.logger.Error("reload market index settings failed", "error", err)

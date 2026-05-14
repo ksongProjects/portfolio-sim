@@ -312,6 +312,15 @@ func (s *Storage) UpsertTickerFromSearch(ctx context.Context, symbol, name, exch
 	return err
 }
 
+func (s *Storage) EnsureTickerExists(ctx context.Context, symbol string) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO tickers (symbol, is_active)
+		VALUES ($1, true)
+		ON CONFLICT (symbol) DO NOTHING
+	`, symbol)
+	return err
+}
+
 func (s *Storage) GetTickerDetails(ctx context.Context, symbol string) (*TickerDetails, error) {
 	var d TickerDetails
 	err := s.pool.QueryRow(ctx, `

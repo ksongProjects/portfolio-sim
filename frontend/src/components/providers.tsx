@@ -10,7 +10,14 @@ function shouldRetryQuery(failureCount: number, error: unknown) {
   }
 
   if (error instanceof ApiError) {
-    return error.retryable;
+    if (!error.retryable) {
+      return false;
+    }
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes("ECONNREFUSED") || message.includes("connection refused")) {
+    return false;
   }
 
   return true;

@@ -264,6 +264,20 @@ func (s *MarketDataService) unregisterFetcher(ticker string, provider providers.
 
 func (s *MarketDataService) runPriceFetchers() {
 	tickerSymbols := s.storage.GetActiveTickers(context.Background())
+
+	for _, sym := range s.cfg.AlwaysFetchTicks {
+		found := false
+		for _, t := range tickerSymbols {
+			if t == sym {
+				found = true
+				break
+			}
+		}
+		if !found {
+			tickerSymbols = append(tickerSymbols, sym)
+		}
+	}
+
 	if len(tickerSymbols) == 0 {
 		s.logClient.Info(context.Background(), "no tickers to fetch")
 		return
@@ -283,6 +297,10 @@ func (s *MarketDataService) fetchPriceLoop(ticker string, provider providers.Pro
 		return
 	}
 	defer s.unregisterFetcher(ticker, provider)
+
+	if err := s.storage.EnsureTickerExists(context.Background(), ticker); err != nil {
+		s.logClient.Warn(context.Background(), fmt.Sprintf("failed to ensure ticker exists: %s: %v", ticker, err))
+	}
 
 	tickerID, err := s.storage.GetTickerID(context.Background(), ticker)
 	if err != nil {

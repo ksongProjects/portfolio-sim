@@ -3,15 +3,17 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 )
 
 type Config struct {
-	Server    ServerConfig
-	Database  DatabaseConfig
-	Redis     RedisConfig
-	Questrade QuestradeConfig
-	Massive   MassiveConfig
-	FMP       FMPConfig
+	Server           ServerConfig
+	Database         DatabaseConfig
+	Redis            RedisConfig
+	Questrade        QuestradeConfig
+	Massive          MassiveConfig
+	FMP              FMPConfig
+	AlwaysFetchTicks []string
 }
 
 type ServerConfig struct {
@@ -78,7 +80,24 @@ func Load() *Config {
 			APIKey:       getEnv("FMP_API_KEY", ""),
 			RateLimitMin: getEnvInt("FMP_RATE_LIMIT", 250),
 		},
+		AlwaysFetchTicks: parseAlwaysFetchTicks(),
 	}
+}
+
+func parseAlwaysFetchTicks() []string {
+	val := getEnv("ALWAYS_FETCH_TICKERS", "")
+	if val == "" {
+		return []string{}
+	}
+	symbols := strings.Split(val, ",")
+	result := make([]string, 0, len(symbols))
+	for _, s := range symbols {
+		s = strings.TrimSpace(strings.ToUpper(s))
+		if s != "" {
+			result = append(result, s)
+		}
+	}
+	return result
 }
 
 func getEnv(key, defaultVal string) string {
