@@ -300,7 +300,8 @@ func (p *QuestradeProvider) doRequest(endpoint string) ([]byte, error) {
 			p.logError("GET", reqURL, err)
 			return nil, err
 		}
-		req.Header.Set("Authorization", "Bearer "+p.token)
+req.Header.Set("Authorization", "Bearer "+p.token)
+	req.Header.Set("Accept", "application/json")
 		p.logRequest("GET", reqURL, req.Header)
 		resp, err = p.client.Do(req)
 		if err != nil {
