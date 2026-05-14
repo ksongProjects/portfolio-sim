@@ -5,7 +5,6 @@ import { PageGrid, PageCell, PageHeader, MetricLabel, MetricValue, MetricSubValu
 import { CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Skeleton, MetricSkeleton } from "@/components/ui/skeleton";
 import { usePortfolio } from "@/hooks/usePortfolio";
 import { useLiveIndices } from "@/hooks/useLiveIndices";
 
@@ -54,12 +53,11 @@ function MiniChart() {
 }
 
 export default function DashboardPage() {
-  const { positions, summary, indices: restIndices, loading, indicesLoading: restIndicesLoading } = usePortfolio();
-  const { indices: liveIndices, isLive, loading: liveIndicesLoading } = useLiveIndices();
+  const { positions, summary, indices: restIndices } = usePortfolio();
+  const { indices: liveIndices, isLive } = useLiveIndices();
   const [activePeriod, setActivePeriod] = useState("1M");
 
   const indices = isLive ? liveIndices : restIndices;
-  const indicesLoading = isLive ? liveIndicesLoading : restIndicesLoading;
 
   const posValue = summary?.TotalValue ?? 0;
   const posDayChange = summary?.DayChange ?? 0;
@@ -81,15 +79,11 @@ export default function DashboardPage() {
         <PageGrid style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
           {[1, 2, 3, 4].map((i) => (
             <PageCell key={i}>
-              {loading ? <MetricSkeleton /> : (
-                <>
-                  <MetricLabel>{i === 1 ? "Total Portfolio Value" : i === 2 ? "Today's P&L" : i === 3 ? "Total Gain/Loss" : "Cash Balance"}</MetricLabel>
-                  <MetricValue>{i === 1 ? fmtCurrency(posValue) : i === 2 ? fmtCurrency(posDayChange) : i === 3 ? fmtCurrency(posTotalGain) : fmtCurrency(posCash)}</MetricValue>
-                  <MetricSubValue positive>
-                    {i === 1 ? `${fmtCurrency(posDayChange)} (${fmtPct(posDayPct)})` : i === 2 ? fmtPct(posDayPct) : i === 3 ? fmtPct(posTotalGainPct) : "Buying Power"}
-                  </MetricSubValue>
-                </>
-              )}
+              <MetricLabel>{i === 1 ? "Total Portfolio Value" : i === 2 ? "Today's P&L" : i === 3 ? "Total Gain/Loss" : "Cash Balance"}</MetricLabel>
+              <MetricValue>{i === 1 ? fmtCurrency(posValue) : i === 2 ? fmtCurrency(posDayChange) : i === 3 ? fmtCurrency(posTotalGain) : fmtCurrency(posCash)}</MetricValue>
+              <MetricSubValue positive>
+                {i === 1 ? `${fmtCurrency(posDayChange)} (${fmtPct(posDayPct)})` : i === 2 ? fmtPct(posDayPct) : i === 3 ? fmtPct(posTotalGainPct) : "Buying Power"}
+              </MetricSubValue>
             </PageCell>
           ))}
         </PageGrid>
@@ -115,7 +109,7 @@ export default function DashboardPage() {
               </div>
             </div>
             <div className="h-[200px] border border-outline-variant/30">
-              {loading ? <div className="h-full flex items-center justify-center"><Skeleton className="h-full w-full" /></div> : positions.length > 0 ? <MiniChart /> : <NoDataMessage />}
+              {positions.length > 0 ? <MiniChart /> : <NoDataMessage />}
             </div>
           </PageCell>
 
@@ -130,38 +124,25 @@ export default function DashboardPage() {
                   <TableHead>Change</TableHead>
                 </TableRow>
               </TableHeader>
-              {loading ? (
-                <TableBody>
-                  {[1, 2, 3, 4, 5].map((i) => (
-                    <TableRow key={i}>
-                      <TableCell><Skeleton className="h-4 w-12" /></TableCell>
-                      <TableCell><Skeleton className="h-4 w-16" /></TableCell>
-                      <TableCell><Skeleton className="h-4 w-20" /></TableCell>
-                      <TableCell><Skeleton className="h-4 w-14" /></TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              ) : (
-                <TableBody>
-                  {positions.slice(0, 5).map((pos) => (
-                    <TableRow key={pos.ID}>
-                      <TableCell>
-                        <span className="font-mono font-semibold">{pos.Symbol}</span>
-                      </TableCell>
-                      <TableCell className="font-mono">{fmtCurrency(pos.CurrentPrice)}</TableCell>
-                      <TableCell className="font-mono">{fmtCurrency(pos.CurrentValue)}</TableCell>
-                      <TableCell className={`font-mono ${pos.DayChangePct >= 0 ? "text-primary" : "text-error"}`}>
-                        {fmtPct(pos.DayChangePct)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {positions.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={4} className="text-center text-on-surface-variant text-sm py-8">No positions available</TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              )}
+              <TableBody>
+                {positions.slice(0, 5).map((pos) => (
+                  <TableRow key={pos.ID}>
+                    <TableCell>
+                      <span className="font-mono font-semibold">{pos.Symbol}</span>
+                    </TableCell>
+                    <TableCell className="font-mono">{fmtCurrency(pos.CurrentPrice)}</TableCell>
+                    <TableCell className="font-mono">{fmtCurrency(pos.CurrentValue)}</TableCell>
+                    <TableCell className={`font-mono ${pos.DayChangePct >= 0 ? "text-primary" : "text-error"}`}>
+                      {fmtPct(pos.DayChangePct)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {positions.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center text-on-surface-variant text-sm py-8">No positions available</TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
             </Table>
           </PageCell>
 
@@ -178,58 +159,30 @@ export default function DashboardPage() {
                   <TableHead>Time</TableHead>
                 </TableRow>
               </TableHeader>
-              {loading ? (
-                <TableBody>
-                  {[1, 2, 3, 4].map((i) => (
-                    <TableRow key={i}>
-                      <TableCell><Skeleton className="h-5 w-12" /></TableCell>
-                      <TableCell><Skeleton className="h-4 w-14" /></TableCell>
-                      <TableCell><Skeleton className="h-4 w-12" /></TableCell>
-                      <TableCell><Skeleton className="h-4 w-16" /></TableCell>
-                      <TableCell><Skeleton className="h-4 w-20" /></TableCell>
-                      <TableCell><Skeleton className="h-4 w-12" /></TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              ) : (
-                <TableBody>
-                  {positions.slice(0, 4).map((pos) => (
-                    <TableRow key={pos.ID}>
-                      <TableCell><Badge variant="success">BUY</Badge></TableCell>
-                      <TableCell className="font-mono font-semibold">{pos.Symbol}</TableCell>
-                      <TableCell className="font-mono">{pos.Quantity}</TableCell>
-                      <TableCell className="font-mono">{fmtCurrency(pos.AvgCost)}</TableCell>
-                      <TableCell className="font-mono">{fmtCurrency(pos.CurrentValue)}</TableCell>
-                      <TableCell className="text-on-surface-variant">Today</TableCell>
-                    </TableRow>
-                  ))}
-                  {positions.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center text-on-surface-variant text-sm py-8">No recent activity</TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              )}
+              <TableBody>
+                {positions.slice(0, 4).map((pos) => (
+                  <TableRow key={pos.ID}>
+                    <TableCell><Badge variant="success">BUY</Badge></TableCell>
+                    <TableCell className="font-mono font-semibold">{pos.Symbol}</TableCell>
+                    <TableCell className="font-mono">{pos.Quantity}</TableCell>
+                    <TableCell className="font-mono">{fmtCurrency(pos.AvgCost)}</TableCell>
+                    <TableCell className="font-mono">{fmtCurrency(pos.CurrentValue)}</TableCell>
+                    <TableCell className="text-on-surface-variant">Today</TableCell>
+                  </TableRow>
+                ))}
+                {positions.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center text-on-surface-variant text-sm py-8">No recent activity</TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
             </Table>
           </PageCell>
 
           <PageCell className="col-span-1 row-span-1">
             <CardTitle className="mb-4">Market Indices</CardTitle>
             <div className="grid grid-cols-2 gap-2">
-              {indicesLoading ? (
-                Array.from({ length: 4 }).map((_, i) => (
-                  <div key={i} className="flex items-center justify-between p-3 border border-outline-variant/30">
-                    <div className="space-y-1">
-                      <Skeleton className="h-4 w-16" />
-                      <Skeleton className="h-3 w-20" />
-                    </div>
-                    <div className="space-y-1 text-right">
-                      <Skeleton className="h-4 w-16 ml-auto" />
-                      <Skeleton className="h-3 w-12 ml-auto" />
-                    </div>
-                  </div>
-                ))
-              ) : indices.length > 0 ? indices.map((index) => (
+              {indices.length > 0 ? indices.map((index) => (
                 <div key={index.Symbol} className="flex items-center justify-between p-3 border border-outline-variant/30">
                   <div>
                     <div className="font-mono text-sm font-semibold">{index.Symbol}</div>
