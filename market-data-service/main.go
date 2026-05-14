@@ -283,10 +283,9 @@ func (s *MarketDataService) runPriceFetchers() {
 		return
 	}
 	for _, ticker := range tickerSymbols {
-		for _, provider := range s.providersForOperation(context.Background(), operationQuote) {
-			if s.registerFetcher(ticker, provider) {
-				go s.fetchPriceLoop(ticker, provider)
-			}
+		provider := s.providerForOperation(context.Background(), operationQuote, "")
+		if provider != nil && s.registerFetcher(ticker, provider) {
+			go s.fetchPriceLoop(ticker, provider)
 		}
 	}
 }
@@ -359,13 +358,10 @@ func (s *MarketDataService) handleTickerSubscribe() {
 		_ = tickerID // validated that ticker exists
 
 		if req.Action == "subscribe" {
-			for _, provider := range s.providersForOperation(context.Background(), operationQuote) {
-				if s.registerFetcher(req.Symbol, provider) {
-					go s.fetchPriceLoop(req.Symbol, provider)
-					s.logClient.InfoWithMeta(context.Background(), "started price fetcher for ticker", map[string]interface{}{"ticker": req.Symbol, "provider": provider.Name()})
-				} else {
-					s.logClient.InfoWithMeta(context.Background(), "fetcher already running, skipping", map[string]interface{}{"ticker": req.Symbol, "provider": provider.Name()})
-				}
+			provider := s.providerForOperation(context.Background(), operationQuote, "")
+			if provider != nil && s.registerFetcher(req.Symbol, provider) {
+				go s.fetchPriceLoop(req.Symbol, provider)
+				s.logClient.InfoWithMeta(context.Background(), "started price fetcher for ticker", map[string]interface{}{"ticker": req.Symbol, "provider": provider.Name()})
 			}
 		}
 	}

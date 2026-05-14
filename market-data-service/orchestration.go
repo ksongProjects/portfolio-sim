@@ -324,16 +324,14 @@ func (s *MarketDataService) searchTickersComposite(ctx context.Context, query st
 		}
 
 		if result.Price == 0 {
-			for _, provider := range s.providersForOperation(ctx, operationQuote) {
+			provider := s.providerForOperation(ctx, operationQuote, "")
+			if provider != nil {
 				price, err := provider.FetchPrice(result.Symbol)
-				if err != nil {
-					continue
+				if err == nil {
+					result.Price = price.Price
+					result.Change = price.Change
+					result.ChangePct = price.ChangePct
 				}
-
-				result.Price = price.Price
-				result.Change = price.Change
-				result.ChangePct = price.ChangePct
-				break
 			}
 		}
 
@@ -465,7 +463,8 @@ func (s *MarketDataService) fetchTickerDetailsComposite(ctx context.Context, sym
 
 	quoteSource := ""
 	if refreshQuote || cached == nil || cached.Price == 0 {
-		for _, provider := range s.providersForOperation(ctx, operationQuote) {
+		provider := s.providerForOperation(ctx, operationQuote, "")
+		if provider != nil {
 			price, err := provider.FetchPrice(symbol)
 			if err != nil {
 				s.logClient.WarnWithMeta(ctx, "quote fetch failed", map[string]interface{}{
@@ -473,12 +472,10 @@ func (s *MarketDataService) fetchTickerDetailsComposite(ctx context.Context, sym
 					"symbol":   symbol,
 					"error":    err.Error(),
 				})
-				continue
+			} else {
+				mergePriceIntoTickerDetails(details, price)
+				quoteSource = price.Source
 			}
-
-			mergePriceIntoTickerDetails(details, price)
-			quoteSource = price.Source
-			break
 		}
 	}
 
