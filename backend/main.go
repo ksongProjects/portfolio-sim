@@ -506,6 +506,9 @@ func (s *Server) handleMarketStream(w http.ResponseWriter, r *http.Request) {
 	streamStreams := make([]string, 0)
 	if len(symbols) > 0 {
 		for _, sym := range symbols {
+			s.queueTickerSubscribe(ctx, sym)
+		}
+		for _, sym := range symbols {
 			streamStreams = append(streamStreams, fmt.Sprintf("stream:market:ticks:%s", sym))
 		}
 	} else {
@@ -548,6 +551,86 @@ func (s *Server) handleMarketStream(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+func (s *Server) queueTickerSubscribe(ctx context.Context, symbol string) {
+	symbol = strings.ToUpper(strings.TrimSpace(symbol))
+	if symbol == "" {
+		return
+	}
+
+	payload, err := json.Marshal(map[string]string{
+		"symbol": symbol,
+		"action": "subscribe",
+	})
+	if err != nil {
+		s.logger.Warn("marshal ticker subscribe failed", "symbol", symbol, "error", err)
+		return
+	}
+
+	if err := s.redisClient.LPush(ctx, "queue:ticker:subscribe", string(payload)); err != nil {
+		s.logger.Warn("enqueue ticker subscribe failed", "symbol", symbol, "error", err)
+	}
+}
+
+func (s *Server) fetchMarketIndexDetails(ctx context.Context, symbol string) (*services.TickerDetails, error) {
+	details, err := s.tickerSvc.GetTickerDetails(ctx, symbol)
+	if err == nil && details != nil && details.Price > 0 {
+		return details, nil
+	}
+
+	results, searchErr := s.tickerSvc.SearchTickers(ctx, symbol)
+	if searchErr != nil {
+		if err != nil {
+			return nil, err
+		}
+		return nil, searchErr
+	}
+
+	match := ""
+	for _, result := range results {
+		if strings.EqualFold(strings.TrimSpace(result.Symbol), symbol) {
+			match = result.Symbol
+			break
+		}
+	}
+	if match == "" {
+		if err != nil {
+			return nil, err
+		}
+		return details, nil
+	}
+
+	return s.tickerSvc.GetTickerDetails(ctx, match)
+}
+
+func (s *Server) hydrateMissingMarketIndices(ctx context.Context, indices []services.MarketIndex) []services.MarketIndex {
+	hydrated := make([]services.MarketIndex, len(indices))
+	copy(hydrated, indices)
+
+	for i := range hydrated {
+		if hydrated[i].Price > 0 {
+			continue
+		}
+
+		details, err := s.fetchMarketIndexDetails(ctx, hydrated[i].Symbol)
+		if err != nil {
+			s.logger.Warn("market index fallback fetch failed", "symbol", hydrated[i].Symbol, "error", err)
+			continue
+		}
+		if details == nil || details.Price <= 0 {
+			continue
+		}
+
+		hydrated[i].Price = details.Price
+		hydrated[i].Change = details.Change
+		hydrated[i].ChangePct = details.ChangePct
+		if strings.TrimSpace(hydrated[i].Name) == "" {
+			hydrated[i].Name = details.Name
+		}
+	}
+
+	return hydrated
 }
 
 func (s *Server) handleGetPositions(w http.ResponseWriter, r *http.Request) {
@@ -608,6 +691,7 @@ func (s *Server) handleGetPortfolioSummary(w http.ResponseWriter, r *http.Reques
 
 func (s *Server) handleGetMarketIndices(w http.ResponseWriter, r *http.Request) {
 	indices, _ := s.portfolioSvc.GetMarketIndices(r.Context(), s.db)
+	indices = s.hydrateMissingMarketIndices(r.Context(), indices)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(indices)
 }

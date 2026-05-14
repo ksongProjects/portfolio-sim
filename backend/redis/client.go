@@ -31,6 +31,10 @@ func (c *Client) Publish(ctx context.Context, channel string, message interface{
 	return c.rdb.Publish(ctx, channel, message).Err()
 }
 
+func (c *Client) LPush(ctx context.Context, key string, values ...interface{}) error {
+	return c.rdb.LPush(ctx, key, values...).Err()
+}
+
 func (c *Client) XAdd(ctx context.Context, stream string, values ...interface{}) error {
 	return c.rdb.XAdd(ctx, &redis.XAddArgs{
 		Stream: stream,
