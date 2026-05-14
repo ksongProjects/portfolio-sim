@@ -275,21 +275,35 @@ func (s *ProviderService) SaveQuestradeOAuth(ctx context.Context, db interface {
 func (s *ProviderService) GetQuestradeOAuth(ctx context.Context, db interface {
 	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
 	QueryRow(ctx context.Context, sql string, args ...interface{}) (pgx.Row, error)
-}, providerID string) (accessToken, refreshToken, apiServer string) {
+	Exec(ctx context.Context, sql string, args ...interface{}) (int64, error)
+}, providerID string) (accessToken, refreshToken, apiServer string, err error) {
 	query := `
-		SELECT COALESCE(access_token, ''), COALESCE(refresh_token, ''), COALESCE(api_server, '')
+		SELECT COALESCE(access_token, ''), COALESCE(refresh_token, ''), COALESCE(api_server, ''), COALESCE(token_expires_at, NOW() - INTERVAL '1 second')
 		FROM provider_configurations
 		WHERE provider_id = $1
 	`
 	row, _ := db.QueryRow(ctx, query, providerID)
 	var encryptedAccessToken, encryptedRefreshToken, encryptedAPIServer string
-	if err := row.Scan(&encryptedAccessToken, &encryptedRefreshToken, &encryptedAPIServer); err != nil {
-		return "", "", ""
+	var expiresAt time.Time
+	if err := row.Scan(&encryptedAccessToken, &encryptedRefreshToken, &encryptedAPIServer, &expiresAt); err != nil {
+		return "", "", "", err
 	}
 	accessToken, _ = s.codec.DecryptString(encryptedAccessToken)
 	refreshToken, _ = s.codec.DecryptString(encryptedRefreshToken)
 	apiServer, _ = s.codec.DecryptString(encryptedAPIServer)
-	return
+
+	if time.Now().Add(5 * time.Minute).After(expiresAt) {
+		newAccess, newRefresh, newServer, expiresIn, refreshErr := s.ExchangeQuestradeToken(ctx, refreshToken)
+		if refreshErr != nil {
+			return "", "", "", refreshErr
+		}
+		if err := s.SaveQuestradeOAuth(ctx, db, providerID, newAccess, newRefresh, newServer, expiresIn); err != nil {
+			return "", "", "", err
+		}
+		return newAccess, newRefresh, newServer, nil
+	}
+
+	return accessToken, refreshToken, apiServer, nil
 }
 
 func (s *ProviderService) ExchangeQuestradeToken(ctx context.Context, initialRefreshToken string) (accessToken, newRefreshToken, apiServer string, expiresIn int, err error) {

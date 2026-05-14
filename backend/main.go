@@ -195,7 +195,7 @@ func (s *Server) Start() error {
 	http.HandleFunc("POST /api/notifications/dismiss", lm(http.HandlerFunc(s.handleDismissNotification)))
 	http.HandleFunc("GET /api/providers", lm(http.HandlerFunc(s.handleGetProviders)))
 	http.HandleFunc("PUT /api/providers", lm(http.HandlerFunc(s.handleUpdateProvider)))
-	http.HandleFunc("GET /api/providers/", lm(http.HandlerFunc(s.handleGetProviderKey)))
+	http.HandleFunc("GET /internal/providers/", lm(http.HandlerFunc(s.handleGetInternalProviderKey)))
 	http.HandleFunc("POST /api/providers/validate", lm(http.HandlerFunc(s.handleValidateProvider)))
 	http.HandleFunc("POST /api/providers/questrade/oauth", lm(http.HandlerFunc(s.handleSaveQuestradeOAuth)))
 	http.HandleFunc("GET /api/providers/questrade/oauth", lm(http.HandlerFunc(s.handleGetQuestradeOAuth)))
@@ -503,12 +503,17 @@ func (s *Server) handleMarketStream(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	symbols := r.URL.Query()["symbols"]
+	symbols := uniqueSymbols(r.URL.Query()["symbols"])
 	streamStreams := make([]string, 0)
 	if len(symbols) > 0 {
 		for _, sym := range symbols {
 			s.queueTickerSubscribe(ctx, sym)
 		}
+		defer func() {
+			for _, sym := range symbols {
+				s.queueTickerAction(context.Background(), sym, "unsubscribe")
+			}
+		}()
 		for _, sym := range symbols {
 			streamStreams = append(streamStreams, fmt.Sprintf("stream:market:ticks:%s", sym))
 		}
@@ -554,29 +559,54 @@ func (s *Server) handleMarketStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func uniqueSymbols(symbols []string) []string {
+	seen := make(map[string]struct{}, len(symbols))
+	unique := make([]string, 0, len(symbols))
+	for _, symbol := range symbols {
+		symbol = strings.ToUpper(strings.TrimSpace(symbol))
+		if symbol == "" {
+			continue
+		}
+		if _, ok := seen[symbol]; ok {
+			continue
+		}
+		seen[symbol] = struct{}{}
+		unique = append(unique, symbol)
+	}
+	return unique
+}
+
 func (s *Server) queueTickerSubscribe(ctx context.Context, symbol string) {
+	s.queueTickerAction(ctx, symbol, "subscribe")
+}
+
+func (s *Server) queueTickerAction(ctx context.Context, symbol, action string) {
 	symbol = strings.ToUpper(strings.TrimSpace(symbol))
 	if symbol == "" {
+		return
+	}
+	action = strings.ToLower(strings.TrimSpace(action))
+	if action == "" {
 		return
 	}
 
 	payload, err := json.Marshal(map[string]string{
 		"symbol": symbol,
-		"action": "subscribe",
+		"action": action,
 	})
 	if err != nil {
-		s.logger.Warn("marshal ticker subscribe failed", "symbol", symbol, "error", err)
+		s.logger.Warn("marshal ticker action failed", "symbol", symbol, "action", action, "error", err)
 		return
 	}
 
 	if err := s.redisClient.LPush(ctx, "queue:ticker:subscribe", string(payload)); err != nil {
-		s.logger.Warn("enqueue ticker subscribe failed", "symbol", symbol, "error", err)
+		s.logger.Warn("enqueue ticker action failed", "symbol", symbol, "action", action, "error", err)
 	}
 }
 
 func (s *Server) fetchMarketIndexDetails(ctx context.Context, symbol string) (*services.TickerDetails, error) {
 	details, err := s.tickerSvc.GetTickerDetails(ctx, symbol)
-	if err == nil && details != nil {
+	if err == nil && details != nil && details.Price > 0 {
 		return details, nil
 	}
 
@@ -606,12 +636,32 @@ func (s *Server) fetchMarketIndexDetails(ctx context.Context, symbol string) (*s
 }
 
 func (s *Server) hydrateMissingMarketIndices(ctx context.Context, indices []services.MarketIndex) []services.MarketIndex {
-	for i := range indices {
-		if indices[i].Price > 0 {
+	hydrated := make([]services.MarketIndex, len(indices))
+	copy(hydrated, indices)
+
+	for i := range hydrated {
+		if hydrated[i].Price > 0 {
 			continue
 		}
+
+		details, err := s.fetchMarketIndexDetails(ctx, hydrated[i].Symbol)
+		if err != nil {
+			s.logger.Warn("market index fallback fetch failed", "symbol", hydrated[i].Symbol, "error", err)
+			continue
+		}
+		if details == nil || details.Price <= 0 {
+			continue
+		}
+
+		hydrated[i].Price = details.Price
+		hydrated[i].Change = details.Change
+		hydrated[i].ChangePct = details.ChangePct
+		if strings.TrimSpace(hydrated[i].Name) == "" {
+			hydrated[i].Name = details.Name
+		}
 	}
-	return indices
+
+	return hydrated
 }
 
 func (s *Server) handleGetPositions(w http.ResponseWriter, r *http.Request) {
@@ -705,10 +755,6 @@ func (s *Server) handleUpdateMarketIndexSettings(w http.ResponseWriter, r *http.
 		s.logger.Error("save market index settings failed", "error", err)
 		http.Error(w, "failed to save market index settings", http.StatusInternalServerError)
 		return
-	}
-
-	for _, idx := range settings {
-		s.queueTickerSubscribe(r.Context(), idx.Symbol)
 	}
 
 	savedSettings, err := s.portfolioSvc.GetMarketIndexSettings(r.Context(), s.db)
@@ -810,9 +856,27 @@ func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "saved"})
 }
 
-func (s *Server) handleGetProviderKey(w http.ResponseWriter, r *http.Request) {
-	providerID := strings.TrimPrefix(r.URL.Path, "/api/providers/")
-	if providerID == "" {
+func (s *Server) requireInternalAPI(w http.ResponseWriter, r *http.Request) bool {
+	expected := strings.TrimSpace(os.Getenv("INTERNAL_API_TOKEN"))
+	if expected == "" {
+		s.logger.Error("internal api token not configured")
+		http.Error(w, "internal api unavailable", http.StatusServiceUnavailable)
+		return false
+	}
+	if r.Header.Get("X-Internal-API-Token") != expected {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return false
+	}
+	return true
+}
+
+func (s *Server) handleGetInternalProviderKey(w http.ResponseWriter, r *http.Request) {
+	if !s.requireInternalAPI(w, r) {
+		return
+	}
+
+	providerID := strings.Trim(strings.TrimPrefix(r.URL.Path, "/internal/providers/"), "/")
+	if providerID == "" || strings.Contains(providerID, "/") {
 		http.Error(w, "provider_id required", http.StatusBadRequest)
 		return
 	}
@@ -995,7 +1059,12 @@ func (s *Server) handleScrapeRSSFeeds(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetQuestradeOAuth(w http.ResponseWriter, r *http.Request) {
-	accessToken, refreshToken, apiServer := s.providerSvc.GetQuestradeOAuth(r.Context(), s.db, "questrade")
+	accessToken, refreshToken, apiServer, err := s.providerSvc.GetQuestradeOAuth(r.Context(), s.db, "questrade")
+	if err != nil {
+		s.logger.Error("get questrade oauth failed", "error", err)
+		http.Error(w, "failed to get oauth tokens", http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
 		"access_token":  accessToken,
@@ -1035,8 +1104,8 @@ func (s *Server) handleRefreshQuestradeToken(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	_, refreshToken, _ := s.providerSvc.GetQuestradeOAuth(r.Context(), s.db, "questrade")
-	if refreshToken == "" {
+	_, refreshToken, _, err := s.providerSvc.GetQuestradeOAuth(r.Context(), s.db, "questrade")
+	if err != nil || refreshToken == "" {
 		http.Error(w, "no refresh token available", http.StatusBadRequest)
 		return
 	}
