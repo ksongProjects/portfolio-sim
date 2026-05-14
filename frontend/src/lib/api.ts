@@ -43,7 +43,7 @@ export async function fetchJson<T>(
   try {
     res = await apiFetch(path, init);
   } catch (error) {
-    throw new ApiError(errorMessage, { retryable: true, cause: error });
+    throw new ApiError(errorMessage, { retryable: false, cause: error });
   }
 
   if (!res.ok) {
