@@ -34,26 +34,46 @@ func fetchProviderKey(providerID string) string {
 	if mainAPIURL == "" {
 		mainAPIURL = "http://main-api:8080"
 	}
-	url := fmt.Sprintf("%s/api/providers/%s", mainAPIURL, providerID)
+	internalToken := os.Getenv("INTERNAL_API_TOKEN")
+	if internalToken == "" {
+		log.Printf("fetch provider key %s: INTERNAL_API_TOKEN not configured", providerID)
+		return ""
+	}
+	url := fmt.Sprintf("%s/internal/providers/%s", mainAPIURL, providerID)
 
+	for attempt := 1; attempt <= 12; attempt++ {
+		key, retry := fetchProviderKeyOnce(providerID, url, internalToken)
+		if key != "" {
+			return key
+		}
+		if !retry {
+			return ""
+		}
+		time.Sleep(2 * time.Second)
+	}
+	return ""
+}
+
+func fetchProviderKeyOnce(providerID, url, internalToken string) (string, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		return ""
+		return "", false
 	}
+	req.Header.Set("X-Internal-API-Token", internalToken)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		log.Printf("fetch provider key %s: %v", providerID, err)
-		return ""
+		return "", true
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		log.Printf("fetch provider key %s: status %d", providerID, resp.StatusCode)
-		return ""
+		return "", resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
 	}
 
 	var result struct {
@@ -61,9 +81,9 @@ func fetchProviderKey(providerID string) string {
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		log.Printf("fetch provider key %s: decode error: %v", providerID, err)
-		return ""
+		return "", false
 	}
-	return result.APIKey
+	return result.APIKey, false
 }
 
 func main() {
@@ -231,6 +251,10 @@ func main() {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		if youtubeClient == nil {
+			http.Error(w, "youtube client not configured", http.StatusInternalServerError)
+			return
+		}
 		var req struct {
 			VideoID string `json:"video_id"`
 			Title   string `json:"title"`
@@ -282,8 +306,8 @@ func main() {
 	wrappedMux := logging.LoggingMiddleware(mux, logClient)
 
 	srv := &http.Server{
-		Addr:              ":" + port,
-		Handler:           http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		Addr: ":" + port,
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/health" || r.URL.Path == "/api/health" || r.URL.Path == "/api/scrape" {
 				mux.ServeHTTP(w, r)
 				return
