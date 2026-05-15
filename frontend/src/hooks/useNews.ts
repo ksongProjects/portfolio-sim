@@ -75,6 +75,7 @@ export function useNews() {
     queryFn: () => fetchLatestVideosData(latestChannelId!),
     enabled: Boolean(latestChannelId),
     placeholderData: (previousData) => previousData,
+    retry: false,
   });
 
   const analyzeVideoMutation = useMutation({
@@ -128,20 +129,9 @@ export function useNews() {
   const fetchLatestVideos = useCallback(
     async (channelId: string) => {
       setActionError(null);
-
-      if (!channelId) {
-        setLatestChannelId(null);
-        return;
-      }
-
-      if (channelId !== latestChannelId) {
-        setLatestChannelId(channelId);
-        return;
-      }
-
-      await latestVideosQuery.refetch();
+      setLatestChannelId(channelId || null);
     },
-    [latestChannelId, latestVideosQuery]
+    []
   );
 
   const searchChannels = useCallback(
