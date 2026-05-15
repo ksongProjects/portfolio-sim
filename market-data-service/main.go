@@ -606,7 +606,8 @@ func (s *MarketDataService) handleTickerDetails(w http.ResponseWriter, r *http.R
 			s.logClient.InfoWithMeta(r.Context(), "ticker data stale, refreshing from provider", map[string]interface{}{"symbol": symbol})
 		}
 	}
-	newDetails, quoteSource := s.fetchTickerDetailsComposite(r.Context(), symbol, details, stale)
+	includeProfile := strings.ToLower(r.URL.Query().Get("profile")) != "false"
+	newDetails, quoteSource := s.fetchTickerDetailsComposite(r.Context(), symbol, details, stale, includeProfile)
 	if newDetails == nil {
 		if details != nil && details.Price > 0 {
 			s.logClient.WarnWithMeta(r.Context(), "provider fetch failed, returning stale data", map[string]interface{}{"symbol": symbol})
@@ -621,7 +622,11 @@ func (s *MarketDataService) handleTickerDetails(w http.ResponseWriter, r *http.R
 		return
 	}
 	if quoteSource != "" {
-		s.storage.UpdateTickerPrice(r.Context(), symbol, newDetails.Price, newDetails.Change, newDetails.ChangePct, newDetails.Volume, newDetails.MarketCap, quoteSource)
+		if err := s.storage.EnsureTickerExists(r.Context(), symbol); err != nil {
+			s.logClient.WarnWithMeta(r.Context(), "ensure ticker failed before price update", map[string]interface{}{"symbol": symbol, "error": err.Error()})
+		} else if err := s.storage.UpdateTickerPrice(r.Context(), symbol, newDetails.Price, newDetails.Change, newDetails.ChangePct, newDetails.Volume, newDetails.MarketCap, quoteSource); err != nil {
+			s.logClient.WarnWithMeta(r.Context(), "update ticker price failed", map[string]interface{}{"symbol": symbol, "provider": quoteSource, "error": err.Error()})
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(newDetails)

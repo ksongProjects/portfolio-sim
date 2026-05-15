@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"math"
 	"sort"
 	"strings"
 	"time"
@@ -264,10 +263,8 @@ func (s *MarketDataService) searchTickersComposite(ctx context.Context, query st
 	dbResults, err := s.storage.SearchTickers(ctx, query)
 	if err == nil {
 		s.logClient.InfoWithMeta(ctx, "DB search returned", map[string]interface{}{"count": len(dbResults)})
-		for i, result := range dbResults {
-			s.logClient.InfoWithMeta(ctx, "DB result", map[string]interface{}{"i": i, "symbol": result.Symbol, "name": result.Name})
+		for _, result := range dbResults {
 			converted := storageSearchToProviderSearch(result)
-			s.logClient.InfoWithMeta(ctx, "DB converted", map[string]interface{}{"symbol": converted.Symbol, "name": converted.Name})
 			if _, seen := merged[converted.Symbol]; !seen {
 				order = append(order, converted.Symbol)
 			}
@@ -310,29 +307,11 @@ func (s *MarketDataService) searchTickersComposite(ctx context.Context, query st
 	}
 
 	enriched := make([]providers.TickerSearchResult, 0, len(order))
-	s.logClient.InfoWithMeta(ctx, "searchTickersComposite: merging results", map[string]interface{}{"db_count": len(dbResults), "providers_count": len(order), "order_sample": order[:int(math.Min(5, float64(len(order))))]})
-	s.logClient.InfoWithMeta(ctx, "searchTickersComposite: merged map contents", map[string]interface{}{"merged_len": len(merged)})
-	for symbol, result := range merged {
-		s.logClient.InfoWithMeta(ctx, "merged entry", map[string]interface{}{"symbol": symbol, "name": result.Name, "exchange": result.Exchange, "price": result.Price})
-	}
 	for _, symbol := range order {
 		result := merged[symbol]
-		s.logClient.InfoWithMeta(ctx, "processing order symbol", map[string]interface{}{"symbol": symbol, "result_symbol": result.Symbol, "result_name": result.Name})
 		if result.Symbol == "" {
 			s.logClient.WarnWithMeta(ctx, "skipping empty symbol", map[string]interface{}{"symbol": symbol})
 			continue
-		}
-
-		if result.Price == 0 {
-			provider := s.providerForOperation(ctx, operationQuote, "")
-			if provider != nil {
-				price, err := provider.FetchPrice(result.Symbol)
-				if err == nil {
-					result.Price = price.Price
-					result.Change = price.Change
-					result.ChangePct = price.ChangePct
-				}
-			}
 		}
 
 		enriched = append(enriched, result)
@@ -441,23 +420,25 @@ func hasTickerDetailsData(details *tickerDetailsResponse) bool {
 		details.MarketCap != 0
 }
 
-func (s *MarketDataService) fetchTickerDetailsComposite(ctx context.Context, symbol string, cached *storage.TickerDetails, refreshQuote bool) (*tickerDetailsResponse, string) {
+func (s *MarketDataService) fetchTickerDetailsComposite(ctx context.Context, symbol string, cached *storage.TickerDetails, refreshQuote bool, includeProfile bool) (*tickerDetailsResponse, string) {
 	details := newTickerDetailsResponse(symbol, cached)
 
-	for _, provider := range s.providersForOperation(ctx, operationProfile) {
-		profile, err := provider.FetchCompanyProfile(symbol)
-		if err != nil {
-			s.logClient.WarnWithMeta(ctx, "profile fetch failed", map[string]interface{}{
-				"provider": provider.Name(),
-				"symbol":   symbol,
-				"error":    err.Error(),
-			})
-			continue
-		}
+	if includeProfile {
+		for _, provider := range s.providersForOperation(ctx, operationProfile) {
+			profile, err := provider.FetchCompanyProfile(symbol)
+			if err != nil {
+				s.logClient.WarnWithMeta(ctx, "profile fetch failed", map[string]interface{}{
+					"provider": provider.Name(),
+					"symbol":   symbol,
+					"error":    err.Error(),
+				})
+				continue
+			}
 
-		mergeProfileIntoTickerDetails(details, profile)
-		if !tickerDetailsNeedProfileFill(details) {
-			break
+			mergeProfileIntoTickerDetails(details, profile)
+			if !tickerDetailsNeedProfileFill(details) {
+				break
+			}
 		}
 	}
 

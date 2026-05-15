@@ -194,11 +194,16 @@ func (s *TickerService) SearchTickers(ctx context.Context, query string) ([]Tick
 	return results, nil
 }
 
-func (s *TickerService) GetTickerDetails(ctx context.Context, symbol string) (*TickerDetails, error) {
-	url := fmt.Sprintf("%s/api/tickers/%s/details", s.marketDataURL, symbol)
+func (s *TickerService) getTickerDetails(ctx context.Context, symbol string, includeProfile bool) (*TickerDetails, error) {
+	url := fmt.Sprintf("%s/api/tickers/%s/details", s.marketDataURL, url.PathEscape(symbol))
+	operation := "get_ticker_details"
+	if !includeProfile {
+		url += "?profile=false"
+		operation = "get_ticker_quote"
+	}
 	s.logger.Info("Fetching ticker details", "url", url, "symbol", symbol)
 
-	body, status, _, err := s.doGet(ctx, url, map[string]interface{}{"symbol": symbol, "operation": "get_ticker_details"})
+	body, status, _, err := s.doGet(ctx, url, map[string]interface{}{"symbol": symbol, "operation": operation})
 	if err != nil {
 		s.logger.Error("GetTickerDetails request failed", "error", err, "symbol", symbol)
 		return nil, err
@@ -217,6 +222,14 @@ func (s *TickerService) GetTickerDetails(ctx context.Context, symbol string) (*T
 		return nil, err
 	}
 	return &details, nil
+}
+
+func (s *TickerService) GetTickerDetails(ctx context.Context, symbol string) (*TickerDetails, error) {
+	return s.getTickerDetails(ctx, symbol, true)
+}
+
+func (s *TickerService) GetTickerQuote(ctx context.Context, symbol string) (*TickerDetails, error) {
+	return s.getTickerDetails(ctx, symbol, false)
 }
 
 func (s *TickerService) GetIntradayBars(ctx context.Context, symbol string, interval string) ([]IntradayBar, error) {
