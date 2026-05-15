@@ -33,18 +33,19 @@ function fmtNumber(v: number): string {
 function IntradayChart({ data }: { data: IntradayBar[] }) {
   if (data.length === 0) return <div className="h-32 flex items-center justify-center text-on-surface-variant text-sm">No chart data</div>;
 
-  const prices = data.map((d) => d.close);
+  const sorted = [...data].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  const prices = sorted.map((d) => d.close);
   const min = Math.min(...prices);
   const max = Math.max(...prices);
   const range = max - min || 1;
   const height = 120;
 
-  const firstClose = data[0]?.close || 0;
-  const lastClose = data[data.length - 1]?.close || 0;
+  const firstClose = sorted[0]?.close || 0;
+  const lastClose = sorted[sorted.length - 1]?.close || 0;
   const isUp = lastClose >= firstClose;
 
-  const points = data.map((bar, i) => {
-    const x = (i / (data.length - 1)) * 100;
+  const points = sorted.map((bar, i) => {
+    const x = (i / (sorted.length - 1)) * 100;
     const y = height - ((bar.close - min) / range) * height;
     return `${x},${y}`;
   }).join(" ");
@@ -61,8 +62,8 @@ function IntradayChart({ data }: { data: IntradayBar[] }) {
         />
       </svg>
       <div className="absolute bottom-0 left-0 right-0 flex justify-between text-[10px] text-on-surface-variant/50 pt-1">
-        <span>{data[0]?.timestamp?.split(" ")[1] || ""}</span>
-        <span>{data[data.length - 1]?.timestamp?.split(" ")[1] || ""}</span>
+        <span>{sorted[0]?.timestamp?.split(" ")[1] || ""}</span>
+        <span>{sorted[sorted.length - 1]?.timestamp?.split(" ")[1] || ""}</span>
       </div>
     </div>
   );

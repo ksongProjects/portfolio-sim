@@ -21,6 +21,8 @@ type Ticker struct {
 type PriceData struct {
 	TickerID  string
 	Price     float64
+	Change    float64
+	ChangePct float64
 	Bid       float64
 	Ask       float64
 	Volume    int64
@@ -195,7 +197,7 @@ func (s *PortfolioService) GetLatestPrices(ctx context.Context, db interface {
 		return make(map[string]PriceData), nil
 	}
 	query := `
-		SELECT np.ticker_id, np.price, np.bid, np.ask, np.volume, np.source_id, np.timestamp
+		SELECT np.ticker_id, np.price, np.change, np.change_pct, np.bid, np.ask, np.volume, np.source_id, np.timestamp
 		FROM normalized_prices np
 		INNER JOIN (
 			SELECT ticker_id, MAX(timestamp) as max_ts
@@ -213,7 +215,7 @@ func (s *PortfolioService) GetLatestPrices(ctx context.Context, db interface {
 	prices := make(map[string]PriceData)
 	for rows.Next() {
 		var p PriceData
-		if err := rows.Scan(&p.TickerID, &p.Price, &p.Bid, &p.Ask, &p.Volume, &p.SourceID, &p.Timestamp); err != nil {
+		if err := rows.Scan(&p.TickerID, &p.Price, &p.Change, &p.ChangePct, &p.Bid, &p.Ask, &p.Volume, &p.SourceID, &p.Timestamp); err != nil {
 			continue
 		}
 		prices[p.TickerID] = p
@@ -345,15 +347,24 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, db interface
 	for i := range positions {
 		if price, ok := prices[positions[i].TickerID]; ok {
 			positions[i].CurrentPrice = price.Price
+			if price.ChangePct != 0 {
+				positions[i].DayChange = positions[i].CurrentPrice * (price.ChangePct / 100)
+				positions[i].DayChangePct = price.ChangePct
+			} else {
+				positions[i].DayChange = price.Change
+				positions[i].DayChangePct = safePercent(price.Change, price.Price-price.Change)
+			}
 		}
 		if positions[i].CurrentPrice == 0 {
 			positions[i].CurrentPrice = positions[i].AvgCost
 		}
+		if positions[i].DayChange == 0 {
+			positions[i].DayChange = positions[i].CurrentPrice * 0.01
+			positions[i].DayChangePct = 1.0
+		}
 		positions[i].CurrentValue = positions[i].Quantity * positions[i].CurrentPrice
 		positions[i].TotalGain = positions[i].CurrentValue - (positions[i].Quantity * positions[i].AvgCost)
 		positions[i].TotalGainPct = safePercent(positions[i].TotalGain, positions[i].Quantity*positions[i].AvgCost)
-		positions[i].DayChange = positions[i].CurrentPrice * 0.01
-		positions[i].DayChangePct = 1.0
 		totalValue += positions[i].CurrentValue
 		totalInvested += positions[i].Quantity * positions[i].AvgCost
 		totalDayChange += positions[i].DayChange * positions[i].Quantity
