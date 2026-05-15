@@ -605,34 +605,7 @@ func (s *Server) queueTickerAction(ctx context.Context, symbol, action string) {
 }
 
 func (s *Server) fetchMarketIndexDetails(ctx context.Context, symbol string) (*services.TickerDetails, error) {
-	details, err := s.tickerSvc.GetTickerDetails(ctx, symbol)
-	if err == nil && details != nil && details.Price > 0 {
-		return details, nil
-	}
-
-	results, searchErr := s.tickerSvc.SearchTickers(ctx, symbol)
-	if searchErr != nil {
-		if err != nil {
-			return nil, err
-		}
-		return nil, searchErr
-	}
-
-	match := ""
-	for _, result := range results {
-		if strings.EqualFold(strings.TrimSpace(result.Symbol), symbol) {
-			match = result.Symbol
-			break
-		}
-	}
-	if match == "" {
-		if err != nil {
-			return nil, err
-		}
-		return details, nil
-	}
-
-	return s.tickerSvc.GetTickerDetails(ctx, match)
+	return s.tickerSvc.GetTickerQuote(ctx, symbol)
 }
 
 func (s *Server) hydrateMissingMarketIndices(ctx context.Context, indices []services.MarketIndex) []services.MarketIndex {
@@ -1082,6 +1055,7 @@ func (s *Server) handleSaveQuestradeOAuth(w http.ResponseWriter, r *http.Request
 		AccessToken  string `json:"access_token"`
 		RefreshToken string `json:"refresh_token"`
 		APIServer    string `json:"api_server"`
+		ExpiresIn    int    `json:"expires_in"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
@@ -1091,7 +1065,11 @@ func (s *Server) handleSaveQuestradeOAuth(w http.ResponseWriter, r *http.Request
 		http.Error(w, "refresh_token is required", http.StatusBadRequest)
 		return
 	}
-	if err := s.providerSvc.SaveQuestradeOAuth(r.Context(), s.db, "questrade", req.AccessToken, req.RefreshToken, req.APIServer, 3600); err != nil {
+	expiresIn := req.ExpiresIn
+	if expiresIn == 0 {
+		expiresIn = 3600
+	}
+	if err := s.providerSvc.SaveQuestradeOAuth(r.Context(), s.db, "questrade", req.AccessToken, req.RefreshToken, req.APIServer, expiresIn); err != nil {
 		http.Error(w, "failed to save", http.StatusInternalServerError)
 		return
 	}
@@ -1100,24 +1078,41 @@ func (s *Server) handleSaveQuestradeOAuth(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handleRefreshQuestradeToken(w http.ResponseWriter, r *http.Request) {
+	writeRefreshError := func(status int, message string) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		json.NewEncoder(w).Encode(map[string]string{"error": message})
+	}
+
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeRefreshError(http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	_, refreshToken, _, err := s.providerSvc.GetQuestradeOAuth(r.Context(), s.db, "questrade")
 	if err != nil || refreshToken == "" {
-		http.Error(w, "no refresh token available", http.StatusBadRequest)
+		message := "no refresh token available"
+		if err != nil {
+			message = err.Error()
+		}
+		if updateErr := s.providerSvc.UpdateProviderValidationState(r.Context(), s.db, "questrade", false, message); updateErr != nil {
+			s.logger.Error("failed to record questrade refresh failure", "error", updateErr)
+		}
+		writeRefreshError(http.StatusBadRequest, message)
 		return
 	}
 	s.logger.Info("refreshing questrade token")
 	newAccessToken, newRefreshToken, newAPIServer, expiresIn, err := s.providerSvc.ExchangeQuestradeToken(r.Context(), refreshToken)
 	if err != nil {
 		s.logger.Error("failed to refresh questrade token", "error", err)
-		http.Error(w, "failed to refresh token: "+err.Error(), http.StatusInternalServerError)
+		message := "failed to refresh token: " + err.Error()
+		if updateErr := s.providerSvc.UpdateProviderValidationState(r.Context(), s.db, "questrade", false, message); updateErr != nil {
+			s.logger.Error("failed to record questrade refresh failure", "error", updateErr)
+		}
+		writeRefreshError(http.StatusInternalServerError, message)
 		return
 	}
 	if err := s.providerSvc.SaveQuestradeOAuth(r.Context(), s.db, "questrade", newAccessToken, newRefreshToken, newAPIServer, expiresIn); err != nil {
-		http.Error(w, "failed to save new token", http.StatusInternalServerError)
+		writeRefreshError(http.StatusInternalServerError, "failed to save new token")
 		return
 	}
 	s.logger.Info("questrade token refreshed successfully")

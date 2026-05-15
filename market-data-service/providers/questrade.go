@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/portfolio-sim/market-data-service/config"
@@ -33,16 +34,19 @@ type QuestradeProvider struct {
 	rateLimiter    *RateLimiter
 	storage        questradeTokenStore
 	logClient      *logging.Client
+	symbolIDMu     sync.RWMutex
+	symbolIDCache  map[string]int
 }
 
 func NewQuestradeProvider(cfg config.QuestradeConfig, storage *storage.Storage, logClient *logging.Client) *QuestradeProvider {
 	return &QuestradeProvider{
-		cfg:         cfg,
-		client:      &http.Client{Timeout: 30 * time.Second},
-		oauthURL:    questradeOAuthURL,
-		rateLimiter: NewRateLimiter(20, 15000),
-		storage:     storage,
-		logClient:   logClient,
+		cfg:           cfg,
+		client:        &http.Client{Timeout: 30 * time.Second},
+		oauthURL:      questradeOAuthURL,
+		rateLimiter:   NewRateLimiter(20, 15000),
+		storage:       storage,
+		logClient:     logClient,
+		symbolIDCache: map[string]int{},
 	}
 }
 
@@ -184,6 +188,7 @@ func (p *QuestradeProvider) refreshToken(force bool) error {
 		p.logError("GET", tokenURL, err)
 		return err
 	}
+	req.Header.Set("Accept", "application/json")
 	p.logRequest("GET", tokenURL, req.Header)
 	resp, err := p.client.Do(req)
 	if err != nil {
@@ -234,6 +239,7 @@ func (p *QuestradeProvider) refreshToken(force bool) error {
 
 	if err := p.storage.UpdateQuestradeTokens(context.Background(), result.AccessToken, result.RefreshToken, result.APIServer, result.ExpiresIn); err != nil {
 		p.logError("GET", tokenURL, fmt.Errorf("persist refreshed questrade token: %w", err))
+		return fmt.Errorf("persist refreshed questrade token: %w", err)
 	}
 
 	return nil
@@ -267,6 +273,7 @@ func (p *QuestradeProvider) doRequest(endpoint string) ([]byte, error) {
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+p.token)
+	req.Header.Set("Accept", "application/json")
 	p.logRequest("GET", reqURL, req.Header)
 	if p.logClient != nil {
 		p.logClient.InfoWithMeta(nil, "Questrade API Request Details", map[string]interface{}{
@@ -300,8 +307,8 @@ func (p *QuestradeProvider) doRequest(endpoint string) ([]byte, error) {
 			p.logError("GET", reqURL, err)
 			return nil, err
 		}
-req.Header.Set("Authorization", "Bearer "+p.token)
-	req.Header.Set("Accept", "application/json")
+		req.Header.Set("Authorization", "Bearer "+p.token)
+		req.Header.Set("Accept", "application/json")
 		p.logRequest("GET", reqURL, req.Header)
 		resp, err = p.client.Do(req)
 		if err != nil {
@@ -353,12 +360,15 @@ type QuestradeQuote struct {
 	AskSize        int     `json:"askSize"`
 	LastTradePrice float64 `json:"lastTradePrice"`
 	LastTradeSize  int     `json:"lastTradeSize"`
+	LastTradeTime  string  `json:"lastTradeTime"`
 	LastTradeTick  string  `json:"lastTradeTick"`
+	Change         float64 `json:"change"`
+	ChangePct      float64 `json:"changePercent"`
 	Volume         int64   `json:"volume"`
 	OpenPrice      float64 `json:"openPrice"`
 	HighPrice      float64 `json:"highPrice"`
 	LowPrice       float64 `json:"lowPrice"`
-	Delay          bool    `json:"delay"`
+	Delay          int     `json:"delay"`
 	IsHalted       bool    `json:"isHalted"`
 }
 
@@ -615,42 +625,44 @@ func (p *QuestradeProvider) FetchQuoteOptions(symbolIDs []string) error {
 }
 
 func (p *QuestradeProvider) FetchPrice(ticker string) (*Price, error) {
-	body, err := p.doRequest("/v1/markets/quotes/" + ticker)
+	symbolID, err := p.GetSymbolID(ticker)
+	if err != nil {
+		return nil, err
+	}
+	quote, err := p.FetchQuote(strconv.Itoa(symbolID))
 	if err != nil {
 		return nil, err
 	}
 
-	var result struct {
-		Quotes []struct {
-			Symbol    string  `json:"symbol"`
-			LastPrice float64 `json:"lastTradePrice"`
-			Change    float64 `json:"change"`
-			ChangePct float64 `json:"changePercent"`
-			Bid       float64 `json:"bidPrice"`
-			Ask       float64 `json:"askPrice"`
-			Volume    int64   `json:"volume"`
-			Timestamp int64   `json:"lastTradeTime"`
-		} `json:"quotes"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, err
+	price := quote.LastTradePrice
+	if price == 0 {
+		switch {
+		case quote.BidPrice > 0 && quote.AskPrice > 0:
+			price = (quote.BidPrice + quote.AskPrice) / 2
+		case quote.BidPrice > 0:
+			price = quote.BidPrice
+		case quote.AskPrice > 0:
+			price = quote.AskPrice
+		}
 	}
 
-	if len(result.Quotes) == 0 {
-		return nil, fmt.Errorf("no quote for %s", ticker)
+	timestamp := time.Now()
+	if quote.LastTradeTime != "" {
+		if parsed, err := ParseQuestradeTimestamp(quote.LastTradeTime); err == nil && !parsed.IsZero() {
+			timestamp = parsed
+		}
 	}
 
-	q := result.Quotes[0]
 	return &Price{
-		Ticker:    q.Symbol,
-		Price:     q.LastPrice,
-		Change:    q.Change,
-		ChangePct: q.ChangePct,
-		Bid:       q.Bid,
-		Ask:       q.Ask,
-		Volume:    q.Volume,
+		Ticker:    quote.Symbol,
+		Price:     price,
+		Change:    quote.Change,
+		ChangePct: quote.ChangePct,
+		Bid:       quote.BidPrice,
+		Ask:       quote.AskPrice,
+		Volume:    quote.Volume,
 		Source:    p.Name(),
-		Timestamp: time.UnixMilli(q.Timestamp),
+		Timestamp: timestamp,
 	}, nil
 }
 
@@ -732,28 +744,33 @@ func (p *QuestradeProvider) FetchIntradayBars(ticker string, interval string) ([
 }
 
 func (p *QuestradeProvider) GetSymbolID(ticker string) (int, error) {
-	body, err := p.doRequest("/v1/reference/symbols?prefix=" + url.QueryEscape(ticker))
+	wanted := strings.ToUpper(strings.TrimSpace(ticker))
+	if wanted == "" {
+		return 0, fmt.Errorf("symbol not found: %s", ticker)
+	}
+
+	p.symbolIDMu.RLock()
+	if symbolID, ok := p.symbolIDCache[wanted]; ok {
+		p.symbolIDMu.RUnlock()
+		return symbolID, nil
+	}
+	p.symbolIDMu.RUnlock()
+
+	symbols, err := p.FetchSymbolSearch(ticker)
 	if err != nil {
 		return 0, err
 	}
 
-	var result struct {
-		Symbols []struct {
-			SymbolID int    `json:"symbolId"`
-			Symbol   string `json:"symbol"`
-		} `json:"symbols"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return 0, err
-	}
-
-	for _, s := range result.Symbols {
-		if s.Symbol == ticker {
+	for _, s := range symbols {
+		if strings.ToUpper(strings.TrimSpace(s.Symbol)) == wanted {
+			p.symbolIDMu.Lock()
+			if p.symbolIDCache == nil {
+				p.symbolIDCache = map[string]int{}
+			}
+			p.symbolIDCache[wanted] = s.SymbolID
+			p.symbolIDMu.Unlock()
 			return s.SymbolID, nil
 		}
-	}
-	if len(result.Symbols) > 0 {
-		return result.Symbols[0].SymbolID, nil
 	}
 	return 0, fmt.Errorf("symbol not found: %s", ticker)
 }

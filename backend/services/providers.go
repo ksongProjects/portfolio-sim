@@ -265,8 +265,8 @@ func (s *ProviderService) SaveQuestradeOAuth(ctx context.Context, db interface {
 	expiresAt := time.Now().Add(time.Duration(expiresIn) * time.Second)
 	query := `
 		INSERT INTO provider_configurations (id, provider_id, encrypted_key, access_token, refresh_token, api_server, token_expires_at, is_validated, validated_at, validation_error, created_at, updated_at)
-		VALUES (gen_random_uuid(), $1, $3, $2, $3, $4, $5, true, NOW(), NULL, NOW(), NOW())
-		ON CONFLICT (provider_id) DO UPDATE SET encrypted_key = $3, access_token = $2, refresh_token = $3, api_server = $4, token_expires_at = $5, is_validated = true, validated_at = NOW(), validation_error = NULL, updated_at = NOW()
+		VALUES (gen_random_uuid(), $1, $2, $2, $3, $4, $5, true, NOW(), NULL, NOW(), NOW())
+		ON CONFLICT (provider_id) DO UPDATE SET encrypted_key = $2, access_token = $2, refresh_token = $3, api_server = $4, token_expires_at = $5, is_validated = true, validated_at = NOW(), validation_error = NULL, updated_at = NOW()
 	`
 	_, err = db.Exec(ctx, query, providerID, encryptedAccessToken, encryptedRefreshToken, encryptedAPIServer, expiresAt)
 	return err
