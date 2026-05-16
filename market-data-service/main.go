@@ -762,13 +762,16 @@ func (s *MarketDataService) handleIntradayBars(w http.ResponseWriter, r *http.Re
 	default:
 		from = to.AddDate(0, 0, -1)
 	}
-	bars, err := s.storage.GetIntradayBars(r.Context(), symbol, interval, from, to)
+
+	openPrice, closePrice, change, changePct, err := s.storage.GetIntradayBarsRange(r.Context(), symbol, interval, from, to)
 	if err != nil {
 		s.logClient.ErrorWithMeta(r.Context(), "get intraday bars failed", map[string]interface{}{"symbol": symbol, "error": err.Error()})
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]interface{}{})
+		json.NewEncoder(w).Encode(map[string]interface{}{})
 		return
 	}
+
+	bars, _ := s.storage.GetIntradayBars(r.Context(), symbol, interval, from, to)
 
 	if len(bars) == 0 {
 		s.logClient.InfoWithMeta(r.Context(), "no intraday data for ticker, triggering backfill", map[string]interface{}{"symbol": symbol})
@@ -776,15 +779,23 @@ func (s *MarketDataService) handleIntradayBars(w http.ResponseWriter, r *http.Re
 		s.triggerTickerSubscribe(symbol)
 		bars = []storage.IntradayBarRecord{}
 	} else {
-		oldest := bars[len(bars)-1].Timestamp
+		oldest := bars[0].Timestamp
 		if time.Since(oldest) > 5*time.Minute {
 			s.logClient.InfoWithMeta(r.Context(), "intraday data stale for ticker, triggering refresh", map[string]interface{}{"symbol": symbol})
 			s.triggerBackfill(symbol, "intraday_bars", interval)
 		}
 	}
 
+	response := map[string]interface{}{
+		"bars":       bars,
+		"openPrice":  openPrice,
+		"closePrice": closePrice,
+		"change":     change,
+		"changePct":  changePct,
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(bars)
+	json.NewEncoder(w).Encode(response)
 }
 
 func (s *MarketDataService) triggerBackfill(ticker, dataType, interval string) {

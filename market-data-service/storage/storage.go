@@ -405,7 +405,7 @@ func (s *Storage) GetIntradayBars(ctx context.Context, symbol string, interval s
 		FROM intraday_bars ib
 		JOIN tickers t ON t.id = ib.ticker_id
 		WHERE t.symbol = $1 AND ib.interval = $2 AND ib.timestamp >= $3 AND ib.timestamp <= $4
-		ORDER BY ib.timestamp DESC
+		ORDER BY ib.timestamp ASC
 	`, symbol, interval, from, to)
 	if err != nil {
 		return nil, err
@@ -421,6 +421,23 @@ func (s *Storage) GetIntradayBars(ctx context.Context, symbol string, interval s
 		bars = append(bars, b)
 	}
 	return bars, nil
+}
+
+func (s *Storage) GetIntradayBarsRange(ctx context.Context, symbol string, interval string, from time.Time, to time.Time) (openPrice float64, closePrice float64, change float64, changePct float64, err error) {
+	bars, err := s.GetIntradayBars(ctx, symbol, interval, from, to)
+	if err != nil {
+		return 0, 0, 0, 0, err
+	}
+	if len(bars) == 0 {
+		return 0, 0, 0, 0, nil
+	}
+	openPrice = bars[0].Open
+	closePrice = bars[len(bars)-1].Close
+	if openPrice > 0 {
+		change = closePrice - openPrice
+		changePct = (change / openPrice) * 100
+	}
+	return openPrice, closePrice, change, changePct, nil
 }
 
 type IntradayBarRecord struct {

@@ -42,6 +42,12 @@ function formatHourLabel(timestamp: string): string {
   return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
 }
 
+function formatDateTimeLabel(timestamp: string): string {
+  const date = new Date(timestamp);
+  if (isNaN(date.getTime())) return "";
+  return date.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
+}
+
 function formatDayLabel(timestamp: string): string {
   const date = new Date(timestamp);
   if (isNaN(date.getTime())) return "";
@@ -121,12 +127,12 @@ function IntradayChart({ data, chartRange = "1d" }: { data: { timestamp: string;
   const reversedData = [...data].reverse();
   const chartData = reversedData.map((d) => ({
     ...d,
-    time: formatTime(d.timestamp),
+    time: formatDateTimeLabel(d.timestamp),
   }));
   const hourTimestamps = reversedData.filter(d => {
     const date = new Date(d.timestamp);
     return !isNaN(date.getTime()) && date.getMinutes() === 0;
-  }).map(d => formatTime(d.timestamp));
+  }).map(d => formatDateTimeLabel(d.timestamp));
 
   const showDayBoundaries = chartRange !== "1d";
   const dayBoundaries = showDayBoundaries ? getDayBoundaryIndices(reversedData) : [];
@@ -160,7 +166,7 @@ function IntradayChart({ data, chartRange = "1d" }: { data: { timestamp: string;
         )}
         {showDayBoundaries && dayBoundaries.map((boundary) => {
           const boundaryTimestamp = reversedData[boundary.index]?.timestamp;
-          const boundaryTime = boundaryTimestamp ? formatTime(boundaryTimestamp) : "";
+          const boundaryTime = boundaryTimestamp ? formatDateTimeLabel(boundaryTimestamp) : "";
           return (
             <ReferenceLine
               key={boundary.label}

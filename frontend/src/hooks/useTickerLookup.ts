@@ -33,6 +33,12 @@ export interface IntradayBar {
   volume: number;
 }
 
+export interface IntradayData {
+  bars: IntradayBar[];
+  change: number;
+  changePct: number;
+}
+
 export interface FinancialRatio {
   label: string;
   value: string;
@@ -58,12 +64,12 @@ async function fetchTickerDetails(symbol: string) {
 }
 
 async function fetchIntradayBars(symbol: string, range: string) {
-  const response = await fetchJson<TickerLookupResponse>(
+  const response = await fetchJson<IntradayData>(
     `/api/tickers/${encodeURIComponent(symbol)}/details?range=${range}`,
     undefined,
     "Failed to fetch intraday data"
   );
-  return response.intraday ?? [];
+  return response ?? { bars: [], change: 0, changePct: 0 };
 }
 
 export type ChartRange = "1d" | "1w" | "1m";
