@@ -15,5 +15,12 @@ dist/
 *.dll
 *.so
 *.dylib
+
+# Backend
+backend/backend.exe
+backend/bin/
+
+# Market data service
+market-data-service/bin/
+
 /testbed/
-bin/
