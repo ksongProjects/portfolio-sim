@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -27,6 +29,20 @@ func truncateString(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+type videoSummaryRequest struct {
+	VideoID string `json:"video_id"`
+	Title   string `json:"title,omitempty"`
+}
+
+type videoSummaryResult struct {
+	VideoID          string `json:"video_id"`
+	Title            string `json:"title,omitempty"`
+	Summary          string `json:"summary,omitempty"`
+	Status           string `json:"status"`
+	Error            string `json:"error,omitempty"`
+	TranscriptSource string `json:"transcript_source,omitempty"`
 }
 
 func fetchProviderKey(providerID string) string {
@@ -84,6 +100,104 @@ func fetchProviderKeyOnce(providerID, url, internalToken string) (string, bool) 
 		return "", false
 	}
 	return result.APIKey, false
+}
+
+func summarizeVideo(ctx context.Context, db *database.Postgres, ytClient *youtube.Client, gemClient *gemini.Client, req videoSummaryRequest) videoSummaryResult {
+	videoID := strings.TrimSpace(req.VideoID)
+	result := videoSummaryResult{VideoID: videoID, Status: "error"}
+	if videoID == "" {
+		result.Error = "video_id required"
+		return result
+	}
+	if ytClient == nil {
+		result.Error = "youtube client not configured"
+		return result
+	}
+	if gemClient == nil {
+		result.Error = "gemini client not configured"
+		return result
+	}
+
+	details, err := ytClient.GetVideoDetails(ctx, videoID)
+	if err != nil {
+		result.Error = fmt.Sprintf("failed to get video details: %v", err)
+		return result
+	}
+	if details == nil {
+		result.Error = "video not found"
+		return result
+	}
+
+	title := strings.TrimSpace(req.Title)
+	if title == "" {
+		title = details.Title
+	}
+	result.Title = title
+
+	transcript, transcriptErr := ytClient.GetTranscript(ctx, videoID)
+	transcript = strings.TrimSpace(transcript)
+	transcriptSource := "captions"
+	if transcript == "" {
+		transcript = strings.TrimSpace(details.Description)
+		transcriptSource = "description"
+	}
+	if transcript == "" {
+		if transcriptErr != nil {
+			result.Error = fmt.Sprintf("no transcript or description available: %v", transcriptErr)
+		} else {
+			result.Error = "no transcript or description available"
+		}
+		return result
+	}
+
+	summary, err := gemClient.SummarizeVideo(ctx, title, transcript)
+	if err != nil {
+		result.Error = fmt.Sprintf("failed to summarize video: %v", err)
+		return result
+	}
+
+	sentiment := "neutral"
+	sentimentValue := "0.5"
+	tickers := []string{}
+	if analyzedSentiment, analyzedValue, analyzedTickers, err := gemClient.AnalyzeArticle(ctx, title, transcript); err == nil {
+		sentiment = analyzedSentiment
+		if analyzedValue != "" {
+			sentimentValue = analyzedValue
+		}
+		tickers = analyzedTickers
+	} else {
+		log.Printf("video sentiment analysis failed: %v", err)
+	}
+
+	tickersJSON, _ := json.Marshal(tickers)
+	articleID := uuid.New()
+	_, err = db.Pool.Exec(ctx, `
+		INSERT INTO news_articles (id, tickers, source, source_type, title, url, summary, content, sentiment, sentiment_value, published_at, fetched_at, channel)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), $12)
+		ON CONFLICT (url) DO UPDATE SET
+			source = EXCLUDED.source,
+			source_type = EXCLUDED.source_type,
+			title = EXCLUDED.title,
+			summary = EXCLUDED.summary,
+			content = EXCLUDED.content,
+			sentiment = EXCLUDED.sentiment,
+			sentiment_value = EXCLUDED.sentiment_value,
+			tickers = EXCLUDED.tickers,
+			published_at = EXCLUDED.published_at,
+			fetched_at = EXCLUDED.fetched_at,
+			channel = EXCLUDED.channel
+	`, articleID, tickersJSON, details.ChannelName, "youtube",
+		title, fmt.Sprintf("https://youtube.com/watch?v=%s", videoID),
+		truncateString(summary, 2000), transcript, sentiment, sentimentValue, details.PublishedAt, details.ChannelName)
+	if err != nil {
+		result.Error = fmt.Sprintf("failed to store video summary: %v", err)
+		return result
+	}
+
+	result.Summary = summary
+	result.Status = "ok"
+	result.TranscriptSource = transcriptSource
+	return result
 }
 
 func main() {
@@ -170,7 +284,7 @@ func main() {
 			http.Error(w, "youtube client not configured", http.StatusInternalServerError)
 			return
 		}
-		query := r.URL.Query().Get("q")
+		query := strings.TrimSpace(r.URL.Query().Get("q"))
 		if query == "" {
 			http.Error(w, "q parameter required", http.StatusBadRequest)
 			return
@@ -186,7 +300,7 @@ func main() {
 
 	mux.HandleFunc("/api/channels", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" {
-			rows, err := db.Pool.Query(r.Context(), "SELECT id::text, channel_id, name, youtube_handle FROM youtube_channels WHERE is_active = true")
+			rows, err := db.Pool.Query(r.Context(), "SELECT id::text, channel_id, name, COALESCE(youtube_handle, '') FROM youtube_channels WHERE is_active = true")
 			if err != nil {
 				http.Error(w, "failed to query channels", http.StatusInternalServerError)
 				return
@@ -213,6 +327,12 @@ func main() {
 				http.Error(w, "invalid request", http.StatusBadRequest)
 				return
 			}
+			req.ChannelID = strings.TrimSpace(req.ChannelID)
+			req.Name = strings.TrimSpace(req.Name)
+			if req.ChannelID == "" || req.Name == "" {
+				http.Error(w, "channel_id and name required", http.StatusBadRequest)
+				return
+			}
 			_, err := db.Pool.Exec(r.Context(), `
 				INSERT INTO youtube_channels (channel_id, name) VALUES ($1, $2)
 				ON CONFLICT (channel_id) DO UPDATE SET name = $2
@@ -232,12 +352,24 @@ func main() {
 			http.Error(w, "youtube client not configured", http.StatusInternalServerError)
 			return
 		}
-		channelID := r.URL.Query().Get("channel_id")
+		channelID := strings.TrimSpace(r.URL.Query().Get("channel_id"))
 		if channelID == "" {
 			http.Error(w, "channel_id required", http.StatusBadRequest)
 			return
 		}
-		videos, err := youtubeClient.GetLatestVideos(r.Context(), channelID, 20)
+		limit := int64(10)
+		if rawLimit := r.URL.Query().Get("limit"); rawLimit != "" {
+			parsed, err := strconv.ParseInt(rawLimit, 10, 64)
+			if err != nil || parsed <= 0 {
+				http.Error(w, "limit must be a positive integer", http.StatusBadRequest)
+				return
+			}
+			if parsed > 50 {
+				parsed = 50
+			}
+			limit = parsed
+		}
+		videos, err := youtubeClient.GetLatestVideos(r.Context(), channelID, limit)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("failed to fetch videos: %v", err), http.StatusInternalServerError)
 			return
@@ -246,57 +378,44 @@ func main() {
 		json.NewEncoder(w).Encode(videos)
 	})
 
-	mux.HandleFunc("/api/videos/analyze", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/videos/summarize", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if youtubeClient == nil {
-			http.Error(w, "youtube client not configured", http.StatusInternalServerError)
-			return
-		}
 		var req struct {
-			VideoID string `json:"video_id"`
-			Title   string `json:"title"`
+			Videos []videoSummaryRequest `json:"videos"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid request", http.StatusBadRequest)
 			return
 		}
-
-		details, err := youtubeClient.GetVideoDetails(r.Context(), req.VideoID)
-		if err != nil {
-			http.Error(w, "failed to get video details", http.StatusInternalServerError)
+		if len(req.Videos) == 0 {
+			http.Error(w, "videos required", http.StatusBadRequest)
 			return
 		}
 
-		transcript, _ := youtubeClient.GetVideoCaption(r.Context(), req.VideoID)
-		if transcript == "" {
-			transcript = details.Description
+		results := make([]videoSummaryResult, 0, len(req.Videos))
+		for _, video := range req.Videos {
+			results = append(results, summarizeVideo(r.Context(), db, youtubeClient, geminiClient, video))
 		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string][]videoSummaryResult{"results": results})
+	})
 
-		sentiment, sentimentValue, tickers, err := geminiClient.AnalyzeArticle(r.Context(), req.Title, transcript)
-		if err != nil {
-			http.Error(w, "failed to analyze video", http.StatusInternalServerError)
+	mux.HandleFunc("/api/videos/analyze", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-
-		tickersJSON, _ := json.Marshal(tickers)
-		articleID := uuid.New()
-		_, err = db.Pool.Exec(r.Context(), `
-			INSERT INTO news_articles (id, tickers, source, source_type, title, url, summary, content, sentiment, sentiment_value, published_at, fetched_at, channel)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), $12)
-			ON CONFLICT (url) DO UPDATE SET
-				content = EXCLUDED.content,
-				sentiment = EXCLUDED.sentiment,
-				sentiment_value = EXCLUDED.sentiment_value,
-				tickers = EXCLUDED.tickers
-		`, articleID, tickersJSON, details.ChannelName, "youtube",
-			req.Title, fmt.Sprintf("https://youtube.com/watch?v=%s", req.VideoID),
-			truncateString(transcript, 500), transcript, sentiment, sentimentValue, details.PublishedAt, details.ChannelName)
-		if err != nil {
-			log.Printf("failed to store video analysis: %v", err)
-			http.Error(w, "failed to store video analysis", http.StatusInternalServerError)
+		var req videoSummaryRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		result := summarizeVideo(r.Context(), db, youtubeClient, geminiClient, req)
+		if result.Status != "ok" {
+			http.Error(w, result.Error, http.StatusInternalServerError)
 			return
 		}
 
@@ -370,13 +489,19 @@ func processTranscribeJobs(ctx context.Context, rdb *redis.Client, ytClient *you
 			continue
 		}
 
+		title := job.VideoID
 		transcript, err := ytClient.GetTranscript(ctx, job.VideoID)
-		if err != nil {
-			fmt.Println("transcript error:", err)
-			continue
+		if err != nil || strings.TrimSpace(transcript) == "" {
+			details, detailsErr := ytClient.GetVideoDetails(ctx, job.VideoID)
+			if detailsErr != nil || details == nil || strings.TrimSpace(details.Description) == "" {
+				fmt.Println("transcript error:", err)
+				continue
+			}
+			title = details.Title
+			transcript = details.Description
 		}
 
-		summary, err := gemClient.Summarize(ctx, transcript)
+		summary, err := gemClient.SummarizeVideo(ctx, title, transcript)
 		if err != nil {
 			fmt.Println("summarize error:", err)
 			continue

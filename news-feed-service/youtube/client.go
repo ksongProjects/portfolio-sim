@@ -23,13 +23,13 @@ func NewClient(apiKey string) (*Client, error) {
 }
 
 type Video struct {
-	ID           string
-	Title        string
-	Description  string
-	ChannelID    string
-	ChannelName  string
-	PublishedAt  time.Time
-	ThumbURL     string
+	ID          string    `json:"id"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	ChannelID   string    `json:"channel_id"`
+	ChannelName string    `json:"channel_name"`
+	PublishedAt time.Time `json:"published_at"`
+	ThumbURL    string    `json:"thumb_url"`
 }
 
 func (c *Client) GetLatestVideos(ctx context.Context, channelID string, maxResults int64) ([]Video, error) {
@@ -56,7 +56,7 @@ func (c *Client) GetLatestVideos(ctx context.Context, channelID string, maxResul
 			ChannelID:   item.Snippet.ChannelId,
 			ChannelName: item.Snippet.ChannelTitle,
 			PublishedAt: publishedAt,
-			ThumbURL:    item.Snippet.Thumbnails.Default.Url,
+			ThumbURL:    thumbnailURL(item.Snippet.Thumbnails),
 		})
 	}
 	return videos, nil
@@ -99,18 +99,18 @@ func (c *Client) GetVideoDetails(ctx context.Context, videoID string) (*Video, e
 		ChannelID:   item.Snippet.ChannelId,
 		ChannelName: item.Snippet.ChannelTitle,
 		PublishedAt: publishedAt,
-		ThumbURL:    item.Snippet.Thumbnails.Default.Url,
-}, nil
+		ThumbURL:    thumbnailURL(item.Snippet.Thumbnails),
+	}, nil
 }
 
 func (c *Client) GetTranscript(ctx context.Context, videoID string) (string, error) {
-	return "", fmt.Errorf("transcript download requires OAuth - not implemented via API key")
+	return c.GetVideoCaption(ctx, videoID)
 }
 
 type Channel struct {
-	ID   string
-	Name string
-	Handle string
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Handle string `json:"handle"`
 }
 
 func (c *Client) SearchChannels(ctx context.Context, query string) ([]Channel, error) {
@@ -131,4 +131,20 @@ func (c *Client) SearchChannels(ctx context.Context, query string) ([]Channel, e
 		})
 	}
 	return channels, nil
+}
+
+func thumbnailURL(thumbnails *youtube.ThumbnailDetails) string {
+	if thumbnails == nil {
+		return ""
+	}
+	if thumbnails.Default != nil {
+		return thumbnails.Default.Url
+	}
+	if thumbnails.Medium != nil {
+		return thumbnails.Medium.Url
+	}
+	if thumbnails.High != nil {
+		return thumbnails.High.Url
+	}
+	return ""
 }

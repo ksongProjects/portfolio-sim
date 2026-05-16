@@ -41,6 +41,17 @@ func (c *Client) Summarize(ctx context.Context, text string) (string, error) {
 	return fmt.Sprintf("%v", resp.Candidates[0].Content), nil
 }
 
+func (c *Client) SummarizeVideo(ctx context.Context, title, transcript string) (string, error) {
+	prompt := fmt.Sprintf(`Summarize this financial YouTube video for a portfolio dashboard.
+
+Title: %s
+Transcript or description:
+%s
+
+Return a concise plain-text summary in 3-5 bullets. Include mentioned companies, tickers, market direction, and key risks when present.`, title, transcript)
+	return c.Summarize(ctx, prompt)
+}
+
 func (c *Client) AnalyzeArticle(ctx context.Context, title, summary string) (string, string, []string, error) {
 	if c.apiKey == "" {
 		return "neutral", "", nil, fmt.Errorf("api key required")

@@ -28,7 +28,7 @@ function timeAgo(dateStr: string): string {
 }
 
 export default function NewsFeedPage() {
-  const { articles, channels, latestVideos, loading, fetchNews, fetchLatestVideos, analyzeVideo, searchChannels, addChannel } = useNews();
+  const { articles, channels, latestVideos, loading, fetchNews, fetchLatestVideos, summarizeVideos, searchChannels, addChannel } = useNews();
   const [search, setSearch] = useState("");
   const [saved, setSaved] = useState<string[]>([]);
   const [toast, setToast] = useState<string | null>(null);
@@ -40,7 +40,7 @@ export default function NewsFeedPage() {
 const { feeds, loading: feedsLoading, addFeed, scrapeFeeds } = useRSSFeeds();
   const [selectedChannel, setSelectedChannel] = useState<string>("");
   const [selectedVideoIds, setSelectedVideoIds] = useState<Set<string>>(new Set());
-  const [analyzingIds, setAnalyzingIds] = useState<Set<string>>(new Set());
+  const [summarizingIds, setSummarizingIds] = useState<Set<string>>(new Set());
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [detailItem, setDetailItem] = useState<NewsArticle | null>(null);
   const [showAddChannel, setShowAddChannel] = useState(false);
@@ -98,19 +98,26 @@ const { feeds, loading: feedsLoading, addFeed, scrapeFeeds } = useRSSFeeds();
     });
   };
 
-  const handleAnalyzeSelected = async () => {
+  const handleSummarizeSelected = async () => {
     if (selectedVideoIds.size === 0) return;
-    showToast("Analyzing videos...");
-    setAnalyzingIds(new Set(selectedVideoIds));
-    for (const vid of selectedVideoIds) {
-      const video = latestVideos.find((v) => v.id === vid);
-      if (video) {
-        await analyzeVideo(vid, video.title);
-      }
+    const selectedVideos = latestVideos
+      .filter((video) => selectedVideoIds.has(video.id))
+      .map((video) => ({ video_id: video.id, title: video.title }));
+    if (selectedVideos.length === 0) return;
+
+    showToast("Summarizing videos...");
+    setSummarizingIds(new Set(selectedVideoIds));
+    try {
+      const results = await summarizeVideos(selectedVideos);
+      const failed = results.filter((result) => result.status !== "ok");
+      const succeeded = results.length - failed.length;
+      setSelectedVideoIds(new Set(failed.map((result) => result.video_id)));
+      showToast(failed.length > 0 ? `${succeeded} summarized, ${failed.length} failed` : "Videos summarized");
+    } catch {
+      showToast("Failed to summarize videos");
+    } finally {
+      setSummarizingIds(new Set());
     }
-    setAnalyzingIds(new Set());
-    setSelectedVideoIds(new Set());
-    showToast("Videos analyzed successfully");
   };
 
   const handleAddChannel = async () => {
@@ -119,11 +126,14 @@ const { feeds, loading: feedsLoading, addFeed, scrapeFeeds } = useRSSFeeds();
     const success = await addChannel(newChannelId, newChannelName);
 
     if (success) {
+      const addedChannelId = newChannelId;
       setNewChannelId("");
       setNewChannelName("");
       setShowAddChannel(false);
       setChannelSearch("");
       setChannelResults([]);
+      setSelectedChannel(addedChannelId);
+      setSelectedVideoIds(new Set());
       showToast("Channel added");
     } else {
       showToast("Failed to add channel");
@@ -270,7 +280,10 @@ const openDetail = (article: NewsArticle) => {
               {channels.map((ch) => (
                 <button
                   key={ch.id}
-                  onClick={() => setSelectedChannel(ch.channel_id)}
+                  onClick={() => {
+                    setSelectedChannel(ch.channel_id);
+                    setSelectedVideoIds(new Set());
+                  }}
                   className={`w-full flex items-center gap-2 p-2 rounded border transition-colors text-left ${
                     selectedChannel === ch.channel_id ? "bg-primary/10 border-primary" : "border-outline-variant hover:bg-surface-container"
                   }`}
@@ -287,11 +300,11 @@ const openDetail = (article: NewsArticle) => {
             {selectedChannel && (
               <>
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-on-surface-variant">{latestVideos.length} videos</span>
+                  <span className="text-xs text-on-surface-variant">{latestVideos.length} latest videos</span>
                   <div className="flex gap-2">
                     {selectedVideoIds.size > 0 && (
-                      <Button size="sm" onClick={handleAnalyzeSelected} disabled={analyzingIds.size > 0}>
-                        <Play className="h-4 w-4" /> Analyze {selectedVideoIds.size}
+                      <Button size="sm" onClick={handleSummarizeSelected} disabled={summarizingIds.size > 0}>
+                        <Play className="h-4 w-4" /> Summarize {selectedVideoIds.size}
                       </Button>
                     )}
                   </div>
@@ -310,14 +323,14 @@ const openDetail = (article: NewsArticle) => {
                         <tr><td colSpan={3} className="p-4 text-center text-on-surface-variant"><Loader className="h-4 w-4 animate-spin inline mr-2" />Loading...</td></tr>
                       ) : latestVideos.map((video) => {
                         const isSelected = selectedVideoIds.has(video.id);
-                        const isAnalyzing = analyzingIds.has(video.id);
+                        const isSummarizing = summarizingIds.has(video.id);
                         const isAnalyzed = articles.some(a => a.SourceType === "youtube" && a.URL.includes(video.id));
                         return (
                           <tr key={video.id} className="border-b border-outline-variant/20 hover:bg-surface-container-low">
                             <td className="p-2 text-center">
                               <button
-                                onClick={() => !isAnalyzing && !isAnalyzed && toggleVideoSelection(video.id)}
-                                disabled={isAnalyzing || isAnalyzed}
+                                onClick={() => !isSummarizing && !isAnalyzed && toggleVideoSelection(video.id)}
+                                disabled={isSummarizing || isAnalyzed}
                                 className={`h-5 w-5 rounded border flex items-center justify-center transition-colors ${
                                   isSelected ? "bg-primary border-primary" : isAnalyzed ? "bg-primary/30 border-primary/30" : "border-outline hover:border-primary"
                                 }`}

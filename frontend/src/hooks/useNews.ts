@@ -36,6 +36,20 @@ export interface YouTubeVideo {
   thumb_url: string;
 }
 
+export interface YouTubeVideoSummaryRequest {
+  video_id: string;
+  title?: string;
+}
+
+export interface YouTubeVideoSummaryResult {
+  video_id: string;
+  title?: string;
+  summary?: string;
+  status: "ok" | "error";
+  error?: string;
+  transcript_source?: "captions" | "description";
+}
+
 async function fetchNewsData() {
   const data = await fetchJson<NewsArticle[]>("/api/news", undefined, "Failed to fetch news");
   return Array.isArray(data) ? data : [];
@@ -48,7 +62,7 @@ async function fetchChannelsData() {
 
 async function fetchLatestVideosData(channelId: string) {
   const data = await fetchJson<YouTubeVideo[]>(
-    `/api/videos/latest?channel_id=${encodeURIComponent(channelId)}`,
+    `/api/videos/latest?channel_id=${encodeURIComponent(channelId)}&limit=10`,
     undefined,
     "Failed to fetch videos"
   );
@@ -78,17 +92,14 @@ export function useNews() {
     retry: false,
   });
 
-  const analyzeVideoMutation = useMutation({
-    mutationFn: async ({ videoId, title }: { videoId: string; title: string }) => {
-      const res = await apiFetch("/api/videos/analyze", {
+  const summarizeVideosMutation = useMutation({
+    mutationFn: async (videos: YouTubeVideoSummaryRequest[]) => {
+      const data = await fetchJson<{ results: YouTubeVideoSummaryResult[] }>("/api/videos/summarize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ video_id: videoId, title }),
-      });
-
-      if (!res.ok) {
-        throw new Error("Failed to analyze video");
-      }
+        body: JSON.stringify({ videos }),
+      }, "Failed to summarize videos");
+      return Array.isArray(data.results) ? data.results : [];
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["news", "articles"] });
@@ -152,6 +163,7 @@ export function useNews() {
               "Search failed"
             ),
           staleTime: 5 * 60 * 1000,
+          retry: false,
         });
 
         return Array.isArray(data) ? data : [];
@@ -163,12 +175,12 @@ export function useNews() {
     [queryClient]
   );
 
-  const analyzeVideo = useCallback(
-    async (videoId: string, title: string) => {
+  const summarizeVideos = useCallback(
+    async (videos: YouTubeVideoSummaryRequest[]) => {
       setActionError(null);
-      await analyzeVideoMutation.mutateAsync({ videoId, title });
+      return summarizeVideosMutation.mutateAsync(videos);
     },
-    [analyzeVideoMutation]
+    [summarizeVideosMutation]
   );
 
   const addChannel = useCallback(
@@ -194,8 +206,8 @@ export function useNews() {
         ? getErrorMessage(channelsQuery.error)
         : latestVideosQuery.error
           ? getErrorMessage(latestVideosQuery.error)
-          : analyzeVideoMutation.error
-            ? getErrorMessage(analyzeVideoMutation.error)
+          : summarizeVideosMutation.error
+            ? getErrorMessage(summarizeVideosMutation.error)
             : addChannelMutation.error
               ? getErrorMessage(addChannelMutation.error)
               : null);
@@ -207,13 +219,13 @@ export function useNews() {
     loading:
       articlesQuery.isFetching ||
       latestVideosQuery.isFetching ||
-      analyzeVideoMutation.isPending ||
+      summarizeVideosMutation.isPending ||
       addChannelMutation.isPending,
     error: combinedError,
     fetchNews,
     fetchChannels,
     fetchLatestVideos,
-    analyzeVideo,
+    summarizeVideos,
     searchChannels,
     addChannel,
   };
