@@ -55,18 +55,26 @@ function dedupeTickers(results: TickerDetails[]) {
   return results.filter((ticker) => (seen.has(ticker.symbol) ? false : seen.add(ticker.symbol)));
 }
 
-async function fetchTickerDetails(symbol: string, range?: string) {
-  const url = range ? `/api/tickers/${encodeURIComponent(symbol)}/details?range=${range}` : `/api/tickers/${encodeURIComponent(symbol)}/details`;
-  return fetchJson<TickerLookupResponse>(url, undefined, "Failed to fetch ticker details");
+async function fetchTickerCompany(symbol: string) {
+  return fetchJson<TickerDetails>(`/api/tickers/company?symbol=${encodeURIComponent(symbol)}`, undefined, "Failed to fetch company data");
+}
+
+async function fetchTickerBars(symbol: string, hours: number = 24) {
+  return fetchJson<{ symbol: string; bars: { timestamp: string; price: number; volume: number }[] }>(
+    `/api/tickers/bars?symbol=${encodeURIComponent(symbol)}&hours=${hours}`,
+    undefined,
+    "Failed to fetch ticker bars"
+  );
 }
 
 async function fetchIntradayBars(symbol: string, range: string) {
-  const response = await fetchJson<IntradayData>(
-    `/api/tickers/${encodeURIComponent(symbol)}/details?range=${range}`,
-    undefined,
-    "Failed to fetch intraday data"
-  );
-  return response ?? { bars: [], change: 0, changePct: 0 };
+  const hours = range === "1d" ? 24 : range === "1w" ? 168 : 720;
+  const response = await fetchTickerBars(symbol, hours);
+  return {
+    bars: response.bars.map(b => ({ timestamp: b.timestamp, close: b.price, volume: b.volume })),
+    change: 0,
+    changePct: 0,
+  };
 }
 
 export type ChartRange = "1d" | "1w" | "1m";
@@ -79,9 +87,9 @@ export function useTickerLookup(initialSymbol?: string) {
   const [chartRange, setChartRange] = useState<ChartRange>("1d");
   const selectedSymbol = initialSymbol ?? manualSelectedSymbol;
 
-  const detailsQuery = useQuery({
-    queryKey: ["tickers", "details", selectedSymbol, chartRange],
-    queryFn: () => fetchTickerDetails(selectedSymbol!, chartRange),
+  const companyQuery = useQuery({
+    queryKey: ["tickers", "company", selectedSymbol],
+    queryFn: () => fetchTickerCompany(selectedSymbol!),
     enabled: Boolean(selectedSymbol),
   });
 
@@ -148,14 +156,13 @@ export function useTickerLookup(initialSymbol?: string) {
 
   return {
     searchResults,
-    selectedTicker: selectedSymbol ? detailsQuery.data ?? null : null,
-    intradayData: selectedSymbol ? (detailsQuery.data?.intraday ?? []) : [],
-    intradayChange: selectedSymbol ? (detailsQuery.data?.change ?? 0) : 0,
-    intradayChangePct: selectedSymbol ? (detailsQuery.data?.changePct ?? 0) : 0,
-    ratios: selectedSymbol ? detailsQuery.data?.ratios ?? [] : [],
-    loading: detailsQuery.isFetching,
+    selectedTicker: selectedSymbol ? companyQuery.data ?? null : null,
+    intradayData: selectedSymbol ? (intradayQuery.data?.bars ?? []) : [],
+    intradayChange: selectedSymbol ? (intradayQuery.data?.change ?? 0) : 0,
+    intradayChangePct: selectedSymbol ? (intradayQuery.data?.changePct ?? 0) : 0,
+    loading: companyQuery.isFetching || intradayQuery.isFetching,
     searchLoading,
-    error: detailsQuery.error ? getErrorMessage(detailsQuery.error) : null,
+    error: companyQuery.error ? getErrorMessage(companyQuery.error) : null,
     searchTickers,
     lookupTicker,
     clearSelection,

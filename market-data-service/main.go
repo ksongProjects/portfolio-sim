@@ -763,6 +763,16 @@ func (s *MarketDataService) handleIntradayBars(w http.ResponseWriter, r *http.Re
 		from = to.AddDate(0, 0, -1)
 	}
 
+	aggInterval := "1min"
+	switch rangeParam {
+	case "1w":
+		aggInterval = "15min"
+	case "1m":
+		aggInterval = "1h"
+	case "3m", "1y", "all":
+		aggInterval = "1d"
+	}
+
 	openPrice, closePrice, change, changePct, err := s.storage.GetIntradayBarsRange(r.Context(), symbol, interval, from, to)
 	if err != nil {
 		s.logClient.ErrorWithMeta(r.Context(), "get intraday bars failed", map[string]interface{}{"symbol": symbol, "error": err.Error()})
@@ -771,7 +781,10 @@ func (s *MarketDataService) handleIntradayBars(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	bars, _ := s.storage.GetIntradayBars(r.Context(), symbol, interval, from, to)
+	bars, _ := s.storage.GetIntradayBarsAggregated(r.Context(), symbol, interval, from, to, aggInterval)
+	if bars == nil {
+		bars, _ = s.storage.GetIntradayBars(r.Context(), symbol, interval, from, to)
+	}
 
 	if len(bars) == 0 {
 		s.logClient.InfoWithMeta(r.Context(), "no intraday data for ticker, triggering backfill", map[string]interface{}{"symbol": symbol})
@@ -780,7 +793,15 @@ func (s *MarketDataService) handleIntradayBars(w http.ResponseWriter, r *http.Re
 		bars = []storage.IntradayBarRecord{}
 	} else {
 		oldest := bars[0].Timestamp
-		if time.Since(oldest) > 5*time.Minute {
+		staleThreshold := 5 * time.Minute
+		if aggInterval == "15min" {
+			staleThreshold = 15 * time.Minute
+		} else if aggInterval == "1h" {
+			staleThreshold = 60 * time.Minute
+		} else if aggInterval == "1d" {
+			staleThreshold = 24 * time.Hour
+		}
+		if time.Since(oldest) > staleThreshold {
 			s.logClient.InfoWithMeta(r.Context(), "intraday data stale for ticker, triggering refresh", map[string]interface{}{"symbol": symbol})
 			s.triggerBackfill(symbol, "intraday_bars", interval)
 		}

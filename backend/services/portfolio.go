@@ -264,6 +264,77 @@ func (s *PortfolioService) GetLatestPriceSnapshots(ctx context.Context, db inter
 	return snapshots, nil
 }
 
+type TickerPriceBar struct {
+	Timestamp string  `json:"timestamp"`
+	Price     float64 `json:"price"`
+	Volume    int64   `json:"volume"`
+}
+
+func (s *PortfolioService) GetPriceBars(ctx context.Context, db interface {
+	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
+}, tickerID string, hours int) ([]TickerPriceBar, error) {
+	query := `
+		SELECT timestamp, price, volume
+		FROM normalized_prices
+		WHERE ticker_id = $1 AND timestamp >= NOW() - ($2 || ' hours')::INTERVAL
+		ORDER BY timestamp ASC
+	`
+	rows, err := db.Query(ctx, query, tickerID, hours)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var bars []TickerPriceBar
+	for rows.Next() {
+		var bar TickerPriceBar
+		var ts time.Time
+		if err := rows.Scan(&ts, &bar.Price, &bar.Volume); err != nil {
+			continue
+		}
+		bar.Timestamp = ts.UTC().Format(time.RFC3339)
+		bars = append(bars, bar)
+	}
+	return bars, nil
+}
+
+type IntradayBarData struct {
+	Timestamp string  `json:"timestamp"`
+	Open      float64 `json:"open"`
+	High      float64 `json:"high"`
+	Low       float64 `json:"low"`
+	Close     float64 `json:"close"`
+	Volume    int64   `json:"volume"`
+}
+
+func (s *PortfolioService) GetIntradayBarsFromDB(ctx context.Context, db interface {
+	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
+}, tickerID string, interval string, hours int) ([]IntradayBarData, error) {
+	query := `
+		SELECT timestamp, open, high, low, close, volume
+		FROM intraday_bars
+		WHERE ticker_id = $1 AND interval = $2 AND timestamp >= NOW() - ($3 || ' hours')::INTERVAL
+		ORDER BY timestamp ASC
+	`
+	rows, err := db.Query(ctx, query, tickerID, interval, hours)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var bars []IntradayBarData
+	for rows.Next() {
+		var bar IntradayBarData
+		var ts time.Time
+		if err := rows.Scan(&ts, &bar.Open, &bar.High, &bar.Low, &bar.Close, &bar.Volume); err != nil {
+			continue
+		}
+		bar.Timestamp = ts.UTC().Format(time.RFC3339)
+		bars = append(bars, bar)
+	}
+	return bars, nil
+}
+
 func (s *PortfolioService) GetPositions(ctx context.Context, db interface {
 	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
 	Exec(ctx context.Context, sql string, args ...interface{}) (int64, error)
@@ -380,6 +451,86 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, db interface
 		TotalGainPct:  totalGainPct,
 		CashBalance:   initialCash,
 	}, nil
+}
+
+type CompanyProfile struct {
+	Symbol        string
+	Name          string
+	Exchange      string
+	Sector        string
+	Industry      string
+	MarketCap     int64
+	PeRatio       float64
+	Eps           float64
+	DividendYield float64
+	Week52High    float64
+	Week52Low     float64
+	AvgVolume     int64
+}
+
+func (s *PortfolioService) GetCompanyProfile(ctx context.Context, db interface {
+	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
+}, tickerID string) (*CompanyProfile, error) {
+	query := `
+		SELECT json_data
+		FROM fundamental_data
+		WHERE ticker_id = $1 AND source_id = 'company_profile' AND data_type = 'profile'
+		ORDER BY timestamp DESC
+		LIMIT 1
+	`
+	rows, err := db.Query(ctx, query, tickerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	if rows.Next() {
+		var raw []byte
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		var profile CompanyProfile
+		if err := json.Unmarshal(raw, &profile); err != nil {
+			return nil, err
+		}
+		return &profile, nil
+	}
+	return nil, nil
+}
+
+func (s *PortfolioService) SaveCompanyProfile(ctx context.Context, db interface {
+	Exec(ctx context.Context, sql string, args ...interface{}) (int64, error)
+}, tickerID string, profile *CompanyProfile) error {
+	data, err := json.Marshal(profile)
+	if err != nil {
+		return err
+	}
+	query := `
+		INSERT INTO fundamental_data (ticker_id, source_id, data_type, json_data, timestamp)
+		VALUES ($1, 'company_profile', 'profile', $2, NOW())
+	`
+	_, err = db.Exec(ctx, query, tickerID, data)
+	return err
+}
+
+func (s *PortfolioService) GetTickerBySymbol(ctx context.Context, db interface {
+	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
+}, symbol string) (string, string, error) {
+	query := `SELECT id, company_name FROM tickers WHERE symbol = $1 AND is_active = true`
+	rows, err := db.Query(ctx, query, symbol)
+	if err != nil {
+		return "", "", err
+	}
+	defer rows.Close()
+
+	if rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return "", "", err
+		}
+		return id, name, nil
+	}
+	return "", "", nil
 }
 
 func (s *PortfolioService) GetMarketIndexSettings(ctx context.Context, db interface {

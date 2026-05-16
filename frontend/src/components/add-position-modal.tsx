@@ -96,10 +96,7 @@ function formatMarketTime(hour: number, minute: number): string {
   return date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "America/New_York" });
 }
 
-const PREMARKET_START = formatMarketTime(4, 0);
-const MARKET_CLOSE = formatMarketTime(16, 0);
-
-function IntradayChart({ data }: { data: IntradayBar[] }) {
+function IntradayChart({ data }: { data: { timestamp: string; close: number; volume?: number }[] }) {
   if (data.length === 0) return <div className="h-32 flex items-center justify-center text-on-surface-variant text-sm">No chart data</div>;
 
   const firstClose = data[0]?.close || 0;
@@ -107,15 +104,10 @@ function IntradayChart({ data }: { data: IntradayBar[] }) {
   const isUp = lastClose >= firstClose;
   const color = isUp ? "#3fe56c" : "#ff4d4d";
 
-const reversedData = [...data].reverse();
-  const chartData = reversedData.map((d) => ({
+  const chartData = data.map((d) => ({
     ...d,
     time: formatTime(d.timestamp),
   }));
-  const hourTimestamps = reversedData.filter(d => {
-    const date = new Date(d.timestamp);
-    return !isNaN(date.getTime()) && date.getMinutes() === 0;
-  }).map(d => formatTime(d.timestamp));
 
   return (
     <ResponsiveContainer width="100%" height={120}>
@@ -126,7 +118,6 @@ const reversedData = [...data].reverse();
           tick={{ fontSize: 9, fill: "#9ca3af" }}
           tickLine={true}
           axisLine={{ stroke: "var(--outline)" }}
-          ticks={hourTimestamps}
         />
         <YAxis
           domain={["auto", "auto"]}
@@ -136,10 +127,6 @@ const reversedData = [...data].reverse();
           tickFormatter={(v) => v.toFixed(0)}
           width={45}
         />
-        <>
-            <ReferenceLine x={PREMARKET_START} stroke="var(--outline)" strokeDasharray="2 2" label={{ value: "PreMkt", position: "insideBottom", fill: "#9ca3af", fontSize: 9 }} />
-            <ReferenceLine x={MARKET_CLOSE} stroke="var(--outline)" strokeDasharray="2 2" label={{ value: "Close", position: "insideBottom", fill: "#9ca3af", fontSize: 9 }} />
-          </>
         <Line
           type="monotone"
           dataKey="close"
@@ -150,16 +137,6 @@ const reversedData = [...data].reverse();
         />
       </LineChart>
     </ResponsiveContainer>
-  );
-}
-
-function RatioCard({ ratio }: { ratio: FinancialRatio }) {
-  return (
-    <div className="p-3 border border-outline-variant/30">
-      <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant">{ratio.label}</div>
-      <div className="text-base font-mono font-medium text-on-surface mt-0.5">{ratio.value}</div>
-      <div className="text-[10px] text-on-surface-variant/60 mt-0.5">{ratio.description}</div>
-    </div>
   );
 }
 
@@ -174,13 +151,20 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
     searchResults,
     selectedTicker,
     intradayData,
-    ratios,
     loading: tickerLoading,
     searchLoading,
     searchTickers,
     lookupTicker,
     clearSelection,
   } = useTickerLookup();
+
+  const [selectedPrice, setSelectedPrice] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (selectedTicker && selectedTicker.price > 0) {
+      setSelectedPrice(selectedTicker.price);
+    }
+  }, [selectedTicker]);
 
   useEffect(() => {
     if (open && searchRef.current) {
@@ -200,6 +184,7 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
   };
 
   const handleTickerSelect = (ticker: TickerDetails) => {
+    setSelectedPrice(ticker.price);
     setPrice(ticker.price.toFixed(2));
     void lookupTicker(ticker.symbol);
     setStep("details");
@@ -220,6 +205,7 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
     setQuery("");
     setShares("");
     setPrice("");
+    setSelectedPrice(null);
     clearSelection();
     onClose();
   };
@@ -278,7 +264,12 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
 
                 {searchResults.length > 0 && (
                   <ul className="border border-outline-variant/30 divide-y divide-outline-variant/30">
-                    {searchResults.map((ticker) => (
+                    {searchResults
+                      .filter((ticker) => {
+                        const isEquity = !ticker.symbol.includes("/") && !ticker.symbol.includes("^") && !ticker.exchange?.includes("Index");
+                        return isEquity;
+                      })
+                      .map((ticker) => (
                       <li key={ticker.symbol}>
                         <button
                           onClick={() => handleTickerSelect(ticker)}
@@ -360,17 +351,6 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
                     </div>
                   ))}
                 </div>
-
-                {ratios.length > 0 && (
-                  <div>
-                    <div className="text-xs font-semibold uppercase tracking-[0.08em] text-on-surface-variant mb-3">Financial Ratios</div>
-                    <div className="grid grid-cols-2 gap-2">
-                      {ratios.map((ratio) => (
-                        <RatioCard key={ratio.label} ratio={ratio} />
-                      ))}
-                    </div>
-                  </div>
-                )}
 
                 <Button variant="default" size="default" className="w-full" onClick={() => setStep("confirm")}>
                   Continue to Confirm

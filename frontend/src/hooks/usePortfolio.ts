@@ -70,6 +70,34 @@ async function fetchIndicesData() {
 	return fetchJson<MarketIndex[]>("/api/market/indices", undefined, "Failed to fetch indices");
 }
 
+export interface PortfolioPerformancePoint {
+	timestamp: string;
+	value: number;
+}
+
+export interface PortfolioPerformanceData {
+	data: PortfolioPerformancePoint[];
+	interval: string;
+	range: string;
+}
+
+async function fetchPerformanceData(portfolioId: string, range: string) {
+	return fetchJson<PortfolioPerformanceData>(
+		`/api/portfolio/performance?portfolio_id=${encodeURIComponent(portfolioId)}&range=${range}`,
+		undefined,
+		"Failed to fetch performance"
+	);
+}
+
+export function usePortfolioPerformance(portfolioId = "default", range = "1d") {
+	return useQuery({
+		queryKey: ["portfolio", "performance", portfolioId, range],
+		queryFn: () => fetchPerformanceData(portfolioId, range),
+		enabled: Boolean(portfolioId),
+		refetchInterval: range === "1d" ? 60000 : 300000,
+	});
+}
+
 interface UsePortfolioOptions {
 	includeIndices?: boolean;
 }

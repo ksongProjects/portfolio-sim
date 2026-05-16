@@ -5,8 +5,9 @@ import { PageGrid, PageCell, PageHeader, MetricLabel, MetricValue, MetricSubValu
 import { CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { usePortfolio } from "@/hooks/usePortfolio";
+import { usePortfolio, usePortfolioPerformance } from "@/hooks/usePortfolio";
 import { useLiveIndices } from "@/hooks/useLiveIndices";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 function fmtCurrency(v: number): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(v);
@@ -27,37 +28,99 @@ function NoDataMessage() {
   );
 }
 
-function MiniChart() {
+interface PortfolioLineChartProps {
+  data: { timestamp: string; value: number }[];
+  range: string;
+}
+
+function PortfolioLineChart({ data, range }: PortfolioLineChartProps) {
+  if (data.length === 0) {
+    return <NoDataMessage />;
+  }
+
+  const formatTimeLabel = (timestamp: string): string => {
+    const date = new Date(timestamp);
+    if (range === "1d") {
+      return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
+    } else if (range === "1w") {
+      return date.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", timeZone: "America/New_York" });
+    } else {
+      return date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" });
+    }
+  };
+
+  const chartData = data.map((d) => ({
+    time: formatTimeLabel(d.timestamp),
+    value: d.value,
+  }));
+
+  const minValue = Math.min(...data.map((d) => d.value));
+  const maxValue = Math.max(...data.map((d) => d.value));
+  const padding = (maxValue - minValue) * 0.1;
+
+  const formatValue = (v: number) => {
+    if (v >= 1000) return `$${(v / 1000).toFixed(0)}k`;
+    return `$${v.toFixed(0)}`;
+  };
+
+  const firstValue = data[0]?.value ?? 0;
+  const lastValue = data[data.length - 1]?.value ?? 0;
+  const isUp = lastValue >= firstValue;
+  const color = isUp ? "#3fe56c" : "#ff4d4d";
+
+  const intervalLabel = range === "1d" ? "Today" : range === "1w" ? "This Week" : range === "1m" ? "This Month" : range;
+
   return (
-    <svg viewBox="0 0 400 120" className="w-full h-full" preserveAspectRatio="none">
-      <defs>
-        <linearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#3fe56c" stopOpacity="0.15" />
-          <stop offset="100%" stopColor="#3fe56c" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <polyline
-        points="0,100 40,88 80,75 120,82 160,65 200,55 240,48 280,52 320,38 360,30 400,25"
-        fill="none"
-        stroke="#3fe56c"
-        strokeWidth="1.5"
-        vectorEffect="non-scaling-stroke"
-      />
-      <polygon
-        points="0,100 40,88 80,75 120,82 160,65 200,55 240,48 280,52 320,38 360,30 400,25 400,120 0,120"
-        fill="url(#chartFill)"
-        vectorEffect="none"
-      />
-    </svg>
+    <ResponsiveContainer width="100%" height="100%">
+      <LineChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--outline-variant)" />
+        <XAxis
+          dataKey="time"
+          tick={{ fontSize: 10, fill: "#9ca3af" }}
+          tickLine={true}
+          axisLine={{ stroke: "var(--outline)" }}
+        />
+        <YAxis
+          domain={[minValue - padding, maxValue + padding]}
+          tick={{ fontSize: 10, fill: "#9ca3af" }}
+          tickLine={true}
+          axisLine={false}
+          tickFormatter={formatValue}
+          width={60}
+        />
+        <Tooltip
+          formatter={(value: number) => [fmtCurrency(value), "Portfolio Value"]}
+          labelFormatter={(label) => `${intervalLabel} - ${label}`}
+          contentStyle={{
+            backgroundColor: "var(--surface-container-high)",
+            border: "1px solid var(--outline-variant)",
+            borderRadius: "8px",
+            fontSize: "12px",
+          }}
+        />
+        <Line
+          type="monotone"
+          dataKey="value"
+          stroke={color}
+          strokeWidth={2}
+          dot={false}
+          activeDot={{ r: 4, fill: color }}
+        />
+      </LineChart>
+    </ResponsiveContainer>
   );
 }
 
 export default function DashboardPage() {
-  const { positions, summary, indices: restIndices } = usePortfolio();
+  const { positions, summary, indices: restIndices, indicesLoading } = usePortfolio();
   const { indices: liveIndices, isLive } = useLiveIndices();
-  const [activePeriod, setActivePeriod] = useState("1M");
+  const [activePeriod, setActivePeriod] = useState("1d");
 
   const indices = isLive ? liveIndices : restIndices;
+
+  const { data: performance } = usePortfolioPerformance("default", activePeriod);
+
+  const defaultPeriod = performance?.range ?? "1d";
 
   const posValue = summary?.TotalValue ?? 0;
   const posDayChange = summary?.DayChange ?? 0;
@@ -93,7 +156,7 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between mb-4">
               <CardTitle>Portfolio Performance</CardTitle>
               <div className="flex gap-1">
-                {["1D", "1W", "1M", "3M", "1Y", "ALL"].map((period) => (
+                {["1d", "1w", "1m", "3m", "1y", "all"].map((period) => (
                   <button
                     key={period}
                     onClick={() => setActivePeriod(period)}
@@ -103,13 +166,17 @@ export default function DashboardPage() {
                         : "text-on-surface-variant hover:text-on-surface hover:bg-surface-container"
                     }`}
                   >
-                    {period}
+                    {period.toUpperCase()}
                   </button>
                 ))}
               </div>
             </div>
             <div className="h-[200px] border border-outline-variant/30">
-              {positions.length > 0 ? <MiniChart /> : <NoDataMessage />}
+              {performance?.data && performance.data.length > 0 ? (
+                <PortfolioLineChart data={performance.data} range={activePeriod.toLowerCase()} />
+              ) : (
+                <NoDataMessage />
+              )}
             </div>
           </PageCell>
 

@@ -272,6 +272,19 @@ func (s *TickerService) GetIntradayBars(ctx context.Context, symbol string, inte
 	return result.Bars, result.Change, result.ChangePct, nil
 }
 
+func (s *TickerService) GetIntradayBarsForSymbols(ctx context.Context, symbols []string, rangeParam string) (map[string][]IntradayBar, error) {
+	results := make(map[string][]IntradayBar)
+	for _, symbol := range symbols {
+		bars, _, _, err := s.GetIntradayBars(ctx, symbol, "", rangeParam)
+		if err != nil {
+			s.logger.Warn("failed to get intraday bars for symbol", "symbol", symbol, "error", err)
+			continue
+		}
+		results[symbol] = bars
+	}
+	return results, nil
+}
+
 func (s *TickerService) GetFinancialRatios(ctx context.Context, symbol string) ([]FinancialRatio, error) {
 	url := fmt.Sprintf("%s/api/tickers/%s/ratios", s.marketDataURL, symbol)
 	s.logger.Info("Fetching financial ratios", "url", url, "symbol", symbol)

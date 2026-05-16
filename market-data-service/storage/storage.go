@@ -423,6 +423,99 @@ func (s *Storage) GetIntradayBars(ctx context.Context, symbol string, interval s
 	return bars, nil
 }
 
+func (s *Storage) GetIntradayBarsAggregated(ctx context.Context, symbol string, interval string, from time.Time, to time.Time, aggInterval string) ([]IntradayBarRecord, error) {
+	if aggInterval == "" || aggInterval == "1min" {
+		return s.GetIntradayBars(ctx, symbol, interval, from, to)
+	}
+
+	bars, err := s.GetIntradayBars(ctx, symbol, interval, from, to)
+	if err != nil {
+		return nil, err
+	}
+	if len(bars) == 0 {
+		return nil, nil
+	}
+
+	intervalMinutes := 1
+	switch aggInterval {
+	case "5min":
+		intervalMinutes = 5
+	case "15min":
+		intervalMinutes = 15
+	case "30min":
+		intervalMinutes = 30
+	case "1h":
+		intervalMinutes = 60
+	case "1d":
+		intervalMinutes = 1440
+	}
+
+	var aggregated []IntradayBarRecord
+	var currentGroup []IntradayBarRecord
+	currentGroupStart := bars[0].Timestamp
+
+	for _, bar := range bars {
+		minutesDiff := int(bar.Timestamp.Sub(currentGroupStart).Minutes())
+		if minutesDiff < intervalMinutes {
+			currentGroup = append(currentGroup, bar)
+		} else {
+			if len(currentGroup) > 0 {
+				agg := aggregateBars(currentGroup)
+				aggregated = append(aggregated, agg)
+			}
+			currentGroup = []IntradayBarRecord{bar}
+			currentGroupStart = bar.Timestamp
+		}
+	}
+	if len(currentGroup) > 0 {
+		agg := aggregateBars(currentGroup)
+		aggregated = append(aggregated, agg)
+	}
+
+	return aggregated, nil
+}
+
+func aggregateBars(bars []IntradayBarRecord) IntradayBarRecord {
+	if len(bars) == 0 {
+		return IntradayBarRecord{}
+	}
+	if len(bars) == 1 {
+		return bars[0]
+	}
+
+	var open float64
+	var high float64
+	var low float64
+	var close float64
+	var volume int64
+	firstTs := bars[0].Timestamp
+
+	open = bars[0].Open
+	high = bars[0].High
+	low = bars[0].Low
+	volume = bars[0].Volume
+
+	for _, b := range bars[1:] {
+		if b.High > high {
+			high = b.High
+		}
+		if b.Low < low {
+			low = b.Low
+		}
+		volume += b.Volume
+	}
+	close = bars[len(bars)-1].Close
+
+	return IntradayBarRecord{
+		Timestamp: firstTs,
+		Open:     open,
+		High:    high,
+		Low:     low,
+		Close:   close,
+		Volume:  volume,
+	}
+}
+
 func (s *Storage) GetIntradayBarsRange(ctx context.Context, symbol string, interval string, from time.Time, to time.Time) (openPrice float64, closePrice float64, change float64, changePct float64, err error) {
 	bars, err := s.GetIntradayBars(ctx, symbol, interval, from, to)
 	if err != nil {

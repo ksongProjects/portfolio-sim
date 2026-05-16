@@ -2,7 +2,7 @@
 
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, TrendingUp, TrendingDown, Building, Briefcase, DollarSign, BarChart2, Percent, Calendar, Activity } from "lucide-react";
+import { ArrowLeft, TrendingUp, TrendingDown, Building, DollarSign, BarChart2, Percent, Calendar, Activity } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -66,37 +66,6 @@ function getHourIndices(data: { timestamp: string }[]): number[] {
   return indices;
 }
 
-function getDayBoundaryIndices(data: { timestamp: string }[]): { index: number; label: string }[] {
-  if (data.length === 0) return [];
-  const boundaries: { index: number; label: string }[] = [];
-  for (let i = 1; i < data.length; i++) {
-    const prevDate = new Date(data[i - 1].timestamp);
-    const currDate = new Date(data[i].timestamp);
-    if (!isNaN(prevDate.getTime()) && !isNaN(currDate.getTime())) {
-      const prevDay = prevDate.toDateString();
-      const currDay = currDate.toDateString();
-      if (prevDay !== currDay) {
-        boundaries.push({
-          index: i,
-          label: formatDayLabel(data[i].timestamp),
-        });
-      }
-    }
-  }
-  return boundaries;
-}
-
-function formatMarketTime(hour: number, minute: number): string {
-  const date = new Date();
-  date.setHours(hour, minute, 0, 0);
-  return date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "America/New_York" });
-}
-
-const PREMARKET_START = formatMarketTime(4, 0);
-const MARKET_OPEN = formatMarketTime(9, 30);
-const MARKET_CLOSE = formatMarketTime(16, 0);
-const AFTERHOURS_END = formatMarketTime(20, 0);
-
 function CustomTooltip({ active, payload }: { active?: boolean; payload?: Array<{ value: number; payload: { timestamp: string; open: number; high: number; low: number; close: number; volume: number } }> }) {
   if (!active || !payload || payload.length === 0) return null;
   const data = payload[0].payload;
@@ -114,7 +83,7 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: Array<
   );
 }
 
-function IntradayChart({ data, chartRange = "1d" }: { data: { timestamp: string; close: number }[]; chartRange?: string }) {
+function IntradayChart({ data }: { data: { timestamp: string; close: number }[] }) {
   if (data.length === 0) {
     return <div className="h-64 flex items-center justify-center text-on-surface-variant">No chart data available</div>;
   }
@@ -128,13 +97,6 @@ function IntradayChart({ data, chartRange = "1d" }: { data: { timestamp: string;
     ...d,
     time: formatDateTimeLabel(d.timestamp),
   }));
-  const hourTimestamps = data.filter(d => {
-    const date = new Date(d.timestamp);
-    return !isNaN(date.getTime()) && date.getMinutes() === 0;
-  }).map(d => formatDateTimeLabel(d.timestamp));
-
-  const showDayBoundaries = chartRange !== "1d";
-  const dayBoundaries = showDayBoundaries ? getDayBoundaryIndices(data) : [];
 
   return (
     <ResponsiveContainer width="100%" height={280}>
@@ -145,8 +107,6 @@ function IntradayChart({ data, chartRange = "1d" }: { data: { timestamp: string;
           tick={{ fontSize: 10, fill: "#9ca3af" }}
           tickLine={true}
           axisLine={{ stroke: "var(--outline)" }}
-          ticks={hourTimestamps}
-          interval={showDayBoundaries ? 0 : "preserveStartEnd"}
         />
         <YAxis
           domain={["auto", "auto"]}
@@ -157,23 +117,6 @@ function IntradayChart({ data, chartRange = "1d" }: { data: { timestamp: string;
           width={60}
           tickCount={5}
         />
-        {!showDayBoundaries && (
-          <>
-            <ReferenceLine x={PREMARKET_START} stroke="var(--outline)" strokeDasharray="2 2" label={{ value: "PreMkt", position: "insideBottom", fill: "#9ca3af", fontSize: 9 }} />
-            <ReferenceLine x={MARKET_CLOSE} stroke="var(--outline)" strokeDasharray="2 2" label={{ value: "Close", position: "insideBottom", fill: "#9ca3af", fontSize: 9 }} />
-          </>
-        )}
-{showDayBoundaries && dayBoundaries.map((boundary) => {
-          const boundaryTimestamp = reversedData[boundary.index]?.timestamp;
-          const boundaryTime = boundaryTimestamp ? formatTime(boundaryTimestamp) : "";
-          return (
-            <ReferenceLine
-              key={boundary.label}
-              x={boundaryTime}
-              stroke="var(--outline)"
-            />
-          );
-        })}
         <Tooltip content={<CustomTooltip />} />
         <Line
           type="monotone"
@@ -188,20 +131,10 @@ function IntradayChart({ data, chartRange = "1d" }: { data: { timestamp: string;
   );
 }
 
-function RatioCard({ ratio }: { ratio: { label: string; value: string; description: string } }) {
-  return (
-    <div className="p-3 border border-outline-variant/30">
-      <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant">{ratio.label}</div>
-      <div className="text-base font-mono font-medium text-on-surface mt-0.5">{ratio.value}</div>
-      <div className="text-[10px] text-on-surface-variant/60 mt-0.5">{ratio.description}</div>
-    </div>
-  );
-}
-
 export default function TickerPage() {
   const params = useParams();
   const symbol = params.symbol as string;
-  const { selectedTicker, intradayData, intradayChange, intradayChangePct, ratios, loading, chartRange, setChartRange } = useTickerLookup(symbol);
+  const { selectedTicker, intradayData, intradayChange, intradayChangePct, loading, chartRange, setChartRange } = useTickerLookup(symbol);
 
   if (loading) {
     return (
@@ -282,7 +215,7 @@ export default function TickerPage() {
               ))}
             </div>
           </div>
-          <IntradayChart data={intradayData} chartRange={chartRange} />
+          <IntradayChart data={intradayData} />
         </div>
 
         <div className="grid grid-cols-4 gap-3">
@@ -322,22 +255,6 @@ export default function TickerPage() {
                 </div>
               ))}
             </div>
-          </div>
-
-          <div className="bg-surface-container-low border border-outline-variant p-4">
-            <div className="flex items-center gap-1 mb-3">
-              <Briefcase className="h-4 w-4 text-on-surface-variant" />
-              <CardTitle>Financial Ratios</CardTitle>
-            </div>
-            {ratios.length > 0 ? (
-              <div className="grid grid-cols-2 gap-2">
-                {ratios.map((ratio) => (
-                  <RatioCard key={ratio.label} ratio={ratio} />
-                ))}
-              </div>
-            ) : (
-              <div className="text-sm text-on-surface-variant">No financial ratios available</div>
-            )}
           </div>
         </div>
       </div>
