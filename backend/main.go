@@ -196,6 +196,7 @@ func (s *Server) Start() error {
 	http.HandleFunc("GET /api/providers", lm(http.HandlerFunc(s.handleGetProviders)))
 	http.HandleFunc("PUT /api/providers", lm(http.HandlerFunc(s.handleUpdateProvider)))
 	http.HandleFunc("GET /internal/providers/", lm(http.HandlerFunc(s.handleGetInternalProviderKey)))
+	http.HandleFunc("GET /internal/providers/questrade/tokens", lm(http.HandlerFunc(s.handleGetInternalProviderTokens)))
 	http.HandleFunc("POST /api/providers/validate", lm(http.HandlerFunc(s.handleValidateProvider)))
 	http.HandleFunc("POST /api/providers/questrade/oauth", lm(http.HandlerFunc(s.handleSaveQuestradeOAuth)))
 	http.HandleFunc("GET /api/providers/questrade/oauth", lm(http.HandlerFunc(s.handleGetQuestradeOAuth)))
@@ -900,6 +901,36 @@ func (s *Server) handleGetInternalProviderKey(w http.ResponseWriter, r *http.Req
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"api_key": key})
+}
+
+func (s *Server) handleGetInternalProviderTokens(w http.ResponseWriter, r *http.Request) {
+	if !s.requireInternalAPI(w, r) {
+		return
+	}
+
+	providerID := strings.Trim(strings.TrimPrefix(r.URL.Path, "/internal/providers/"), "/")
+	if providerID != "questrade" {
+		http.Error(w, "only questrade tokens supported", http.StatusBadRequest)
+		return
+	}
+
+	accessToken, refreshToken, apiServer, err := s.providerSvc.GetQuestradeOAuth(r.Context(), s.db, providerID)
+	if err != nil {
+		s.logger.Error("get questrade tokens failed", "error", err)
+		http.Error(w, "failed to get tokens", http.StatusInternalServerError)
+		return
+	}
+	if accessToken == "" || refreshToken == "" {
+		http.Error(w, "tokens not configured", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"access_token":  accessToken,
+		"refresh_token": refreshToken,
+		"api_server":    apiServer,
+	})
 }
 
 func (s *Server) handleGetConnections(w http.ResponseWriter, r *http.Request) {

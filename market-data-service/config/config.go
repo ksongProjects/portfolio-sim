@@ -13,7 +13,13 @@ type Config struct {
 	Questrade        QuestradeConfig
 	Massive          MassiveConfig
 	FMP              FMPConfig
+	Backend          BackendConfig
 	AlwaysFetchTicks []string
+}
+
+type BackendConfig struct {
+	URL           string
+	InternalToken string
 }
 
 type ServerConfig struct {
@@ -71,6 +77,10 @@ func Load() *Config {
 		Questrade: QuestradeConfig{
 			APIURL:       "https://login.questrade.com/oauth2/token",
 			RateLimitMin: 1200,
+		},
+		Backend: BackendConfig{
+			URL:           getEnv("BACKEND_URL", "http://main-api:8080"),
+			InternalToken: getEnv("INTERNAL_API_TOKEN", ""),
 		},
 		Massive: MassiveConfig{
 			APIKey:       getEnv("MASSIVE_API_KEY", ""),

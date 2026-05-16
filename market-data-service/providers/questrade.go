@@ -27,27 +27,29 @@ type questradeTokenStore interface {
 }
 
 type QuestradeProvider struct {
-	cfg            config.QuestradeConfig
-	client         *http.Client
-	baseURL        string
-	token          string
+	cfg           config.QuestradeConfig
+	client        *http.Client
+	oauthURL      string
+	rateLimiter   *RateLimiter
+	logClient     *logging.Client
+	backendURL    string
+	internalToken string
+	token         string
+	baseURL       string
 	tokenExpiresAt time.Time
-	oauthURL       string
-	rateLimiter    *RateLimiter
-	storage        questradeTokenStore
-	logClient      *logging.Client
-	symbolIDMu     sync.RWMutex
-	symbolIDCache  map[string]int
+	symbolIDMu    sync.RWMutex
+	symbolIDCache map[string]int
 }
 
-func NewQuestradeProvider(cfg config.QuestradeConfig, storage *storage.Storage, logClient *logging.Client) *QuestradeProvider {
+func NewQuestradeProvider(cfg config.QuestradeConfig, backendURL, internalToken string, logClient *logging.Client) *QuestradeProvider {
 	return &QuestradeProvider{
 		cfg:           cfg,
 		client:        &http.Client{Timeout: 30 * time.Second},
 		oauthURL:      questradeOAuthURL,
 		rateLimiter:   NewRateLimiter(20, 15000),
-		storage:       storage,
 		logClient:     logClient,
+		backendURL:    backendURL,
+		internalToken: internalToken,
 		symbolIDCache: map[string]int{},
 	}
 }
@@ -162,16 +164,16 @@ func redactQuestradeBody(rawURL string, body []byte) []byte {
 }
 
 func (p *QuestradeProvider) refreshToken(force bool) error {
-	if p.storage == nil {
-		return fmt.Errorf("no storage configured")
+	if p.backendURL == "" || p.internalToken == "" {
+		return fmt.Errorf("backend not configured for token refresh")
 	}
 
 	questradeRefreshMu.Lock()
 	defer questradeRefreshMu.Unlock()
 
-	tokens, err := p.storage.GetQuestradeTokens(context.Background())
+	tokens, err := p.getTokensFromBackend()
 	if err != nil {
-		return fmt.Errorf("failed to get tokens from storage: %w", err)
+		return fmt.Errorf("failed to get tokens from backend: %w", err)
 	}
 
 	if !force && tokens.AccessToken != "" && tokens.APIServer != "" && time.Now().Before(tokens.ExpiresAt) {
@@ -182,7 +184,7 @@ func (p *QuestradeProvider) refreshToken(force bool) error {
 	}
 
 	if tokens.RefreshToken == "" {
-		return fmt.Errorf("no refresh token available")
+		return fmt.Errorf("no refresh token available from backend")
 	}
 
 	tokenURL := fmt.Sprintf("%s?grant_type=refresh_token&refresh_token=%s",
@@ -242,12 +244,54 @@ func (p *QuestradeProvider) refreshToken(force bool) error {
 	p.baseURL = result.APIServer
 	p.tokenExpiresAt = time.Now().Add(time.Duration(result.ExpiresIn) * time.Second)
 
-	if err := p.storage.UpdateQuestradeTokens(context.Background(), result.AccessToken, result.RefreshToken, result.APIServer, result.ExpiresIn); err != nil {
-		p.logError("GET", tokenURL, fmt.Errorf("persist refreshed questrade token: %w", err))
-		return fmt.Errorf("persist refreshed questrade token: %w", err)
+	return nil
+}
+
+type backendTokens struct {
+	AccessToken  string
+	RefreshToken string
+	APIServer    string
+	ExpiresAt    time.Time
+}
+
+func (p *QuestradeProvider) getTokensFromBackend() (*backendTokens, error) {
+	url := p.backendURL + "/internal/providers/questrade/tokens"
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-Internal-API-Token", p.internalToken)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("backend request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("questrade tokens not configured")
+	}
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("backend returned %d: %s", resp.StatusCode, string(body))
 	}
 
-	return nil
+	var result struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		APIServer    string `json:"api_server"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	return &backendTokens{
+		AccessToken:  result.AccessToken,
+		RefreshToken: result.RefreshToken,
+		APIServer:    result.APIServer,
+		ExpiresAt:    time.Now().Add(25 * time.Minute),
+	}, nil
 }
 
 func (p *QuestradeProvider) doRequest(endpoint string) ([]byte, error) {

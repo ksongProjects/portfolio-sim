@@ -199,17 +199,21 @@ func (s *Storage) GetQuestradeTokens(ctx context.Context) (*QuestradeTokens, err
 	if err != nil {
 		return nil, err
 	}
+	if encryptedAccessToken == "" || encryptedRefreshToken == "" || encryptedAPIServer == "" {
+		return nil, fmt.Errorf("questrade tokens not fully configured: access=%s refresh=%s api=%s",
+			encryptedAccessToken, encryptedRefreshToken, encryptedAPIServer)
+	}
 	accessToken, err := s.codec.DecryptString(encryptedAccessToken)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to decrypt access token: %w", err)
 	}
 	refreshToken, err := s.codec.DecryptString(encryptedRefreshToken)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to decrypt refresh token: %w", err)
 	}
 	apiServer, err := s.codec.DecryptString(encryptedAPIServer)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to decrypt api server: %w", err)
 	}
 	expAt := time.Now()
 	if expiresAt != nil {
@@ -237,7 +241,7 @@ func (s *Storage) UpdateQuestradeTokens(ctx context.Context, accessToken, refres
 		return err
 	}
 	expiresAt := time.Now().Add(time.Duration(expiresIn) * time.Second)
-	_, err = s.pool.Exec(ctx, `
+_, err = s.pool.Exec(ctx, `
 		INSERT INTO provider_configurations (id, provider_id, encrypted_key, access_token, refresh_token, api_server, token_expires_at, is_validated, validated_at, validation_error, created_at, updated_at)
 		VALUES (gen_random_uuid(), 'questrade', $1, $1, $2, $3, $4, true, NOW(), NULL, NOW(), NOW())
 		ON CONFLICT (provider_id) DO UPDATE SET

@@ -86,7 +86,7 @@ func (s *MarketDataService) providerDescriptors(ctx context.Context) []providerD
 		descriptors = append(descriptors, providerDescriptor{
 			name: "questrade",
 			build: func() providers.Provider {
-				return providers.NewQuestradeProvider(s.cfg.Questrade, s.storage, s.logClient)
+				return providers.NewQuestradeProvider(s.cfg.Questrade, s.cfg.Backend.URL, s.cfg.Backend.InternalToken, s.logClient)
 			},
 			supported: map[marketDataOperation]bool{
 				operationSearch:      true,
@@ -112,7 +112,6 @@ func (s *MarketDataService) providerDescriptors(ctx context.Context) []providerD
 				build: func() providers.Provider { return s.newMassiveProvider() },
 				supported: map[marketDataOperation]bool{
 					operationSearch:   true,
-					operationQuote:    true,
 					operationIntraday: true,
 					operationProfile:  true,
 					operationRatios:   true,
@@ -135,14 +134,12 @@ func (s *MarketDataService) providerDescriptors(ctx context.Context) []providerD
 				build: func() providers.Provider { return s.newFMPProvider() },
 				supported: map[marketDataOperation]bool{
 					operationSearch:   true,
-					operationQuote:    true,
 					operationIntraday: true,
 					operationProfile:  true,
 					operationRatios:   true,
 				},
 				priority: map[marketDataOperation]int{
 					operationSearch:   3,
-					operationQuote:    3,
 					operationIntraday: 3,
 					operationProfile:  1,
 					operationRatios:   1,
