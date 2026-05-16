@@ -347,13 +347,12 @@ func (p *QuestradeProvider) doRequest(endpoint string) ([]byte, error) {
 		})
 	}
 
-	resp, err := p.client.Do(req)
+resp, err := p.client.Do(req)
 	if err != nil {
 		p.logError("GET", reqURL, err)
 		return nil, err
 	}
 	defer resp.Body.Close()
-
 	body, _ := io.ReadAll(resp.Body)
 	p.logResponse("GET", reqURL, resp.StatusCode, resp.Header, body, nil)
 
@@ -379,6 +378,40 @@ func (p *QuestradeProvider) doRequest(endpoint string) ([]byte, error) {
 		defer resp.Body.Close()
 		body, _ = io.ReadAll(resp.Body)
 		p.logResponse("GET", reqURL, resp.StatusCode, resp.Header, body, nil)
+
+		if resp.StatusCode == http.StatusUnauthorized {
+			p.logError("GET", reqURL, fmt.Errorf("questrade token refresh succeeded but retry still unauthorized"))
+			return nil, fmt.Errorf("questrade token refresh failed: retry returned 401")
+		}
+
+		if resp.StatusCode == http.StatusTooManyRequests {
+			err := fmt.Errorf("questrade rate limit exceeded")
+			p.logResponse("GET", reqURL, resp.StatusCode, resp.Header, body, err)
+			return nil, err
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			bodyPreview := string(body)
+			if len(bodyPreview) > 200 {
+				bodyPreview = bodyPreview[:200] + "..."
+			}
+			if p.logClient != nil {
+				p.logClient.ErrorWithMeta(nil, "Questrade API Error Response", map[string]interface{}{
+					"method":           "GET",
+					"url":              redactQuestradeURL(reqURL),
+					"status":           resp.StatusCode,
+					"body":             logging.SanitizeBody(resp.Header.Get("Content-Type"), []byte(bodyPreview)),
+					"body_length":      len(body),
+					"provider":         "questrade",
+					"response_headers": logging.RedactHeaders(resp.Header),
+				})
+			}
+			err := fmt.Errorf("questrade request failed: %d, body: %s", resp.StatusCode, bodyPreview)
+			p.logResponse("GET", reqURL, resp.StatusCode, resp.Header, body, err)
+			return nil, err
+		}
+
+		return body, nil
 	}
 
 	if resp.StatusCode == http.StatusTooManyRequests {

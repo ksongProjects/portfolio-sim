@@ -185,6 +185,7 @@ func (s *Server) Start() error {
 	http.HandleFunc("GET /api/portfolio/positions", lm(http.HandlerFunc(s.handleGetPositions)))
 	http.HandleFunc("POST /api/portfolio/positions", lm(http.HandlerFunc(s.handleAddPosition)))
 	http.HandleFunc("GET /api/portfolio/summary", lm(http.HandlerFunc(s.handleGetPortfolioSummary)))
+	http.HandleFunc("GET /api/portfolio/performance", lm(http.HandlerFunc(s.handleGetPortfolioPerformance)))
 	http.HandleFunc("GET /api/market/indices", lm(http.HandlerFunc(s.handleGetMarketIndices)))
 	http.HandleFunc("GET /api/settings/market-indices", lm(http.HandlerFunc(s.handleGetMarketIndexSettings)))
 	http.HandleFunc("PUT /api/settings/market-indices", lm(http.HandlerFunc(s.handleUpdateMarketIndexSettings)))
@@ -727,6 +728,103 @@ func (s *Server) handleGetPortfolioSummary(w http.ResponseWriter, r *http.Reques
 	}
 }
 
+func (s *Server) handleGetPortfolioPerformance(w http.ResponseWriter, r *http.Request) {
+	portfolioID := r.URL.Query().Get("portfolio_id")
+	if portfolioID == "" || portfolioID == "default" {
+		portfolioID = "00000000-0000-0000-0000-000000000001"
+	}
+	rangeParam := r.URL.Query().Get("range")
+	intervalParam := r.URL.Query().Get("interval")
+
+	positions, err := s.portfolioSvc.GetPositions(r.Context(), s.db, portfolioID)
+	if err != nil {
+		positions = []services.Position{}
+	}
+
+	if len(positions) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"data": []interface{}{}, "interval": intervalParam, "range": rangeParam})
+		return
+	}
+
+	var symbols []string
+	for _, p := range positions {
+		symbols = append(symbols, p.Symbol)
+	}
+
+	interval := intervalParam
+	if interval == "" {
+		switch rangeParam {
+		case "1w":
+			interval = "15min"
+		case "1m":
+			interval = "1h"
+		case "3m", "1y", "all":
+			interval = "1d"
+		default:
+			interval = "1min"
+		}
+	}
+
+	intradayData, err := s.tickerSvc.GetIntradayBarsForSymbols(r.Context(), symbols, rangeParam)
+	if err != nil {
+		s.logger.Error("get portfolio intraday data failed", "error", err)
+	}
+
+	portfolioValues := s.calculatePortfolioValues(positions, intradayData, rangeParam, interval)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"data":     portfolioValues,
+		"interval": interval,
+		"range":    rangeParam,
+	})
+}
+
+func (s *Server) calculatePortfolioValues(positions []services.Position, intradayData map[string][]services.IntradayBar, rangeParam, interval string) []map[string]interface{} {
+	if len(positions) == 0 || len(intradayData) == 0 {
+		return []map[string]interface{}{}
+	}
+
+	minLen := 0
+	for _, bars := range intradayData {
+		if minLen == 0 || len(bars) < minLen {
+			minLen = len(bars)
+		}
+	}
+	if minLen == 0 {
+		return []map[string]interface{}{}
+	}
+
+	shares := make(map[string]float64)
+	for _, p := range positions {
+		shares[p.Symbol] = p.Quantity
+	}
+
+	var result []map[string]interface{}
+	for i := 0; i < minLen; i++ {
+		var totalValue float64
+		allZero := true
+		for symbol, bars := range intradayData {
+			if i < len(bars) {
+				price := bars[i].Close
+				if price > 0 {
+					allZero = false
+				}
+				totalValue += price * shares[symbol]
+			}
+		}
+		if !allZero {
+			result = append(result, map[string]interface{}{
+				"timestamp": intradayData[positions[0].Symbol][i].Timestamp,
+				"value":     totalValue,
+			})
+		}
+	}
+
+	return result
+}
+
 func (s *Server) handleGetMarketIndices(w http.ResponseWriter, r *http.Request) {
 	indices, _ := s.portfolioSvc.GetMarketIndices(r.Context(), s.db)
 	indices = s.hydrateMissingMarketIndices(r.Context(), indices)
@@ -908,8 +1006,9 @@ func (s *Server) handleGetInternalProviderTokens(w http.ResponseWriter, r *http.
 		return
 	}
 
-	providerID := strings.Trim(strings.TrimPrefix(r.URL.Path, "/internal/providers/"), "/")
-	if providerID != "questrade" {
+	providerID := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/internal/providers/"), "/")
+	providerID = strings.Split(providerID, "/")[0]
+	if !strings.HasPrefix(providerID, "questrade") {
 		http.Error(w, "only questrade tokens supported", http.StatusBadRequest)
 		return
 	}
