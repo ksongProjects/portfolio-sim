@@ -19,6 +19,8 @@ import (
 
 const questradeOAuthURL = "https://login.questrade.com/oauth2/token"
 
+var questradeRefreshMu sync.Mutex
+
 type questradeTokenStore interface {
 	GetQuestradeTokens(ctx context.Context) (*storage.QuestradeTokens, error)
 	UpdateQuestradeTokens(ctx context.Context, accessToken, refreshToken, apiServer string, expiresIn int) error
@@ -163,6 +165,9 @@ func (p *QuestradeProvider) refreshToken(force bool) error {
 	if p.storage == nil {
 		return fmt.Errorf("no storage configured")
 	}
+
+	questradeRefreshMu.Lock()
+	defer questradeRefreshMu.Unlock()
 
 	tokens, err := p.storage.GetQuestradeTokens(context.Background())
 	if err != nil {
