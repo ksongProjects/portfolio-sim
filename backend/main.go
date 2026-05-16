@@ -198,6 +198,7 @@ func (s *Server) Start() error {
 	http.HandleFunc("PUT /api/providers", lm(http.HandlerFunc(s.handleUpdateProvider)))
 	http.HandleFunc("GET /internal/providers/", lm(http.HandlerFunc(s.handleGetInternalProviderKey)))
 	http.HandleFunc("GET /internal/providers/questrade/tokens", lm(http.HandlerFunc(s.handleGetInternalProviderTokens)))
+	http.HandleFunc("POST /internal/providers/questrade/tokens", lm(http.HandlerFunc(s.handleUpdateInternalProviderTokens)))
 	http.HandleFunc("POST /api/providers/validate", lm(http.HandlerFunc(s.handleValidateProvider)))
 	http.HandleFunc("POST /api/providers/questrade/oauth", lm(http.HandlerFunc(s.handleSaveQuestradeOAuth)))
 	http.HandleFunc("GET /api/providers/questrade/oauth", lm(http.HandlerFunc(s.handleGetQuestradeOAuth)))
@@ -1034,6 +1035,46 @@ func (s *Server) handleGetInternalProviderTokens(w http.ResponseWriter, r *http.
 	})
 }
 
+func (s *Server) handleUpdateInternalProviderTokens(w http.ResponseWriter, r *http.Request) {
+	if !s.requireInternalAPI(w, r) {
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		APIServer    string `json:"api_server"`
+		ExpiresIn    int    `json:"expires_in"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	if req.RefreshToken == "" || req.AccessToken == "" || req.APIServer == "" {
+		http.Error(w, "access_token, refresh_token, and api_server are required", http.StatusBadRequest)
+		return
+	}
+
+	expiresIn := req.ExpiresIn
+	if expiresIn == 0 {
+		expiresIn = 3600
+	}
+
+	if err := s.providerSvc.SaveQuestradeOAuth(r.Context(), s.db, "questrade", req.AccessToken, req.RefreshToken, req.APIServer, expiresIn); err != nil {
+		s.logger.Error("failed to update questrade tokens", "error", err)
+		http.Error(w, "failed to update tokens", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
+}
+
 func (s *Server) handleGetConnections(w http.ResponseWriter, r *http.Request) {
 	statuses, _ := s.providerSvc.CheckConnection(r.Context(), s.db)
 	w.Header().Set("Content-Type", "application/json")
@@ -1337,9 +1378,77 @@ func (s *Server) handleGetTickerDetails(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	details, err := s.tickerSvc.GetTickerDetails(r.Context(), symbol)
-	if err != nil {
-		s.logger.Error("get ticker details failed", "symbol", symbol, "error", err)
+	var details *services.TickerDetails
+	var err error
+
+	quote, dbErr := s.portfolioSvc.GetTickerQuote(r.Context(), s.db, symbol)
+	if dbErr != nil {
+		s.logger.Warn("GetTickerQuote failed, falling back to provider", "error", dbErr, "symbol", symbol)
+	}
+
+	marketOpen := isMarketOpen()
+
+	if quote != nil && (!marketOpen || quote.Timestamp.After(time.Now().Add(-5*time.Minute))) {
+		s.logger.Info("returning ticker data from DB", "symbol", symbol, "market_open", marketOpen, "age_minutes", time.Since(quote.Timestamp).Minutes())
+		details = &services.TickerDetails{
+			Symbol:    quote.Symbol,
+			Name:      quote.Name,
+			Exchange:  quote.Exchange,
+			Price:     quote.Price,
+			Change:    quote.Change,
+			ChangePct: quote.ChangePct,
+			Volume:    quote.Volume,
+			MarketCap: quote.MarketCap,
+			Sector:    quote.Sector,
+			Industry:  quote.Industry,
+		}
+	} else if marketOpen {
+		s.logger.Info("market is open, fetching live data from provider", "symbol", symbol)
+		details, err = s.tickerSvc.GetTickerDetails(r.Context(), symbol)
+		if err != nil {
+			s.logger.Error("get ticker details from provider failed", "symbol", symbol, "error", err)
+			if quote != nil {
+				details = &services.TickerDetails{
+					Symbol:    quote.Symbol,
+					Name:      quote.Name,
+					Exchange:  quote.Exchange,
+					Price:     quote.Price,
+					Change:    quote.Change,
+					ChangePct: quote.ChangePct,
+					Volume:    quote.Volume,
+					MarketCap: quote.MarketCap,
+					Sector:    quote.Sector,
+					Industry:  quote.Industry,
+				}
+			}
+		}
+	} else if quote != nil {
+		s.logger.Info("market closed, returning stale DB data", "symbol", symbol, "age_minutes", time.Since(quote.Timestamp).Minutes())
+		details = &services.TickerDetails{
+			Symbol:    quote.Symbol,
+			Name:      quote.Name,
+			Exchange:  quote.Exchange,
+			Price:     quote.Price,
+			Change:    quote.Change,
+			ChangePct: quote.ChangePct,
+			Volume:    quote.Volume,
+			MarketCap: quote.MarketCap,
+			Sector:    quote.Sector,
+			Industry:  quote.Industry,
+		}
+	} else {
+		s.logger.Warn("no data in DB and market closed, attempting provider fetch", "symbol", symbol)
+		details, err = s.tickerSvc.GetTickerDetails(r.Context(), symbol)
+		if err != nil {
+			s.logger.Error("get ticker details failed", "symbol", symbol, "error", err)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": "ticker not found"})
+			return
+		}
+	}
+
+	if details == nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(map[string]string{"error": "ticker not found"})
@@ -1589,4 +1698,28 @@ func main() {
 	if err := srv.Start(); err != nil {
 		os.Exit(1)
 	}
+}
+
+func isMarketOpen() bool {
+	now := time.Now().In(time.Local)
+	hour, min := now.Hour(), now.Minute()
+	day := now.Weekday()
+
+	if day == time.Saturday || day == time.Sunday {
+		return false
+	}
+
+	timeInMinutes := hour*60 + min
+
+	preMarketOpen := 4 * 60
+	preMarketEnd := 9*60 + 30
+	marketOpen := 9*60 + 30
+	marketClose := 16 * 60
+	afterHoursEnd := 20 * 60
+
+	isPreMarket := timeInMinutes >= preMarketOpen && timeInMinutes < preMarketEnd
+	isRegular := timeInMinutes >= marketOpen && timeInMinutes < marketClose
+	isAfterHours := timeInMinutes >= marketClose && timeInMinutes < afterHoursEnd
+
+	return isPreMarket || isRegular || isAfterHours
 }

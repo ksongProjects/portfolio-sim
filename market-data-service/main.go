@@ -116,7 +116,6 @@ func (s *MarketDataService) startHTTPServer() {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
 	})
-	http.HandleFunc("/api/questrade/oauth/save", loggingMiddleware(s.logClient, s.handleSaveQuestradeOAuth))
 	http.HandleFunc("/api/tickers/search", loggingMiddleware(s.logClient, s.handleSearchTickers))
 	http.HandleFunc("/api/tickers/", loggingMiddleware(s.logClient, s.handleTickerRequest))
 
@@ -200,34 +199,7 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 }
 
 func (s *MarketDataService) handleSaveQuestradeOAuth(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req struct {
-		RefreshToken string `json:"refresh_token"`
-		APIServer    string `json:"api_server"`
-		AccessToken  string `json:"access_token"`
-		ExpiresIn    int    `json:"expires_in"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	if req.RefreshToken == "" {
-		http.Error(w, "refresh_token is required", http.StatusBadRequest)
-		return
-	}
-
-	if err := s.storage.UpdateQuestradeTokens(r.Context(), req.AccessToken, req.RefreshToken, req.APIServer, req.ExpiresIn); err != nil {
-		http.Error(w, "failed to save oauth tokens", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "saved"})
+	http.Error(w, "unsupported: market-data-service no longer stores tokens", http.StatusNotImplemented)
 }
 
 func (s *MarketDataService) setupProviders() {
@@ -693,7 +665,7 @@ func (s *MarketDataService) handleTickerDetails(w http.ResponseWriter, r *http.R
 		http.Error(w, "symbol required", http.StatusBadRequest)
 		return
 	}
-	details, err := s.storage.GetTickerDetails(r.Context(), symbol)
+details, err := s.storage.GetTickerDetails(r.Context(), symbol)
 	stale := true
 	if err == nil && details != nil && details.Price > 0 {
 		stale, _ = s.storage.IsTickerDataStale(r.Context(), symbol, 24*time.Hour)

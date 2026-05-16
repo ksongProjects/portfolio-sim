@@ -1,9 +1,12 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"time"
 
 	"github.com/google/uuid"
@@ -188,76 +191,6 @@ func (s *Storage) IsProviderValidated(ctx context.Context, providerID string) (b
 	return isValidated, nil
 }
 
-func (s *Storage) GetQuestradeTokens(ctx context.Context) (*QuestradeTokens, error) {
-	var encryptedAccessToken, encryptedRefreshToken, encryptedAPIServer string
-	var expiresAt *time.Time
-	err := s.pool.QueryRow(ctx, `
-		SELECT access_token, refresh_token, api_server, token_expires_at
-		FROM provider_configurations
-		WHERE provider_id = 'questrade'
-	`).Scan(&encryptedAccessToken, &encryptedRefreshToken, &encryptedAPIServer, &expiresAt)
-	if err != nil {
-		return nil, err
-	}
-	if encryptedAccessToken == "" || encryptedRefreshToken == "" || encryptedAPIServer == "" {
-		return nil, fmt.Errorf("questrade tokens not fully configured: access=%s refresh=%s api=%s",
-			encryptedAccessToken, encryptedRefreshToken, encryptedAPIServer)
-	}
-	accessToken, err := s.codec.DecryptString(encryptedAccessToken)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt access token: %w", err)
-	}
-	refreshToken, err := s.codec.DecryptString(encryptedRefreshToken)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt refresh token: %w", err)
-	}
-	apiServer, err := s.codec.DecryptString(encryptedAPIServer)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt api server: %w", err)
-	}
-	expAt := time.Now()
-	if expiresAt != nil {
-		expAt = *expiresAt
-	}
-	return &QuestradeTokens{
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
-		APIServer:    apiServer,
-		ExpiresAt:    expAt,
-	}, nil
-}
-
-func (s *Storage) UpdateQuestradeTokens(ctx context.Context, accessToken, refreshToken, apiServer string, expiresIn int) error {
-	encryptedAccessToken, err := s.codec.EncryptString(accessToken)
-	if err != nil {
-		return err
-	}
-	encryptedRefreshToken, err := s.codec.EncryptString(refreshToken)
-	if err != nil {
-		return err
-	}
-	encryptedAPIServer, err := s.codec.EncryptString(apiServer)
-	if err != nil {
-		return err
-	}
-	expiresAt := time.Now().Add(time.Duration(expiresIn) * time.Second)
-_, err = s.pool.Exec(ctx, `
-		INSERT INTO provider_configurations (id, provider_id, encrypted_key, access_token, refresh_token, api_server, token_expires_at, is_validated, validated_at, validation_error, created_at, updated_at)
-		VALUES (gen_random_uuid(), 'questrade', $1, $1, $2, $3, $4, true, NOW(), NULL, NOW(), NOW())
-		ON CONFLICT (provider_id) DO UPDATE SET
-			encrypted_key = EXCLUDED.encrypted_key,
-			access_token = EXCLUDED.access_token,
-			refresh_token = EXCLUDED.refresh_token,
-			api_server = EXCLUDED.api_server,
-			token_expires_at = EXCLUDED.token_expires_at,
-			is_validated = true,
-			validated_at = NOW(),
-			validation_error = NULL,
-			updated_at = NOW()
-	`, encryptedAccessToken, encryptedRefreshToken, encryptedAPIServer, expiresAt)
-	return err
-}
-
 func (s *Storage) SearchTickers(ctx context.Context, query string) ([]TickerSearchResult, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT t.symbol, t.company_name, t.exchange,
@@ -393,9 +326,16 @@ func (s *Storage) UpdateTickerPrice(ctx context.Context, symbol string, price, c
 }
 
 func (s *Storage) UpdateTickerProfile(ctx context.Context, symbol, sector, industry string) error {
-	_, err := s.pool.Exec(ctx, `
-		UPDATE tickers SET sector = $2, industry = $3 WHERE symbol = $1
-	`, symbol, sector, industry)
+	tickerID, err := s.GetTickerID(ctx, symbol)
+	if err != nil {
+		return err
+	}
+	_, err = s.pool.Exec(ctx, `
+		INSERT INTO fundamental_data (ticker_id, source_id, data_type, period, json_data, timestamp)
+		VALUES ($1, 'company_profile', 'profile', '', $2::jsonb, NOW())
+		ON CONFLICT (ticker_id, source_id, data_type, period, timestamp)
+		DO UPDATE SET json_data = $2::jsonb
+	`, tickerID, fmt.Sprintf(`{"sector": "%s", "industry": "%s"}`, sector, industry))
 	return err
 }
 
@@ -575,4 +515,37 @@ type FinancialRatioRecord struct {
 	Label       string `json:"label"`
 	Value       string `json:"value"`
 	Description string `json:"description"`
+}
+
+func NotifyBackendTokenUpdate(ctx context.Context, backendURL, internalToken string, accessToken, refreshToken, apiServer string, expiresIn int) error {
+	body := map[string]interface{}{
+		"access_token":  accessToken,
+		"refresh_token": refreshToken,
+		"api_server":    apiServer,
+		"expires_in":    expiresIn,
+	}
+	jsonBody, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, backendURL+"/internal/providers/questrade/tokens", bytes.NewReader(jsonBody))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Internal-API-Token", internalToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("backend returned %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+	return nil
 }

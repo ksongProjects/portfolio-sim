@@ -21,11 +21,6 @@ const questradeOAuthURL = "https://login.questrade.com/oauth2/token"
 
 var questradeRefreshMu sync.Mutex
 
-type questradeTokenStore interface {
-	GetQuestradeTokens(ctx context.Context) (*storage.QuestradeTokens, error)
-	UpdateQuestradeTokens(ctx context.Context, accessToken, refreshToken, apiServer string, expiresIn int) error
-}
-
 type QuestradeProvider struct {
 	cfg           config.QuestradeConfig
 	client        *http.Client
@@ -255,6 +250,12 @@ func (p *QuestradeProvider) refreshToken(force bool) error {
 	p.token = result.AccessToken
 	p.baseURL = result.APIServer
 	p.tokenExpiresAt = time.Now().Add(time.Duration(result.ExpiresIn) * time.Second)
+
+	if err := storage.NotifyBackendTokenUpdate(context.Background(), p.backendURL, p.internalToken, result.AccessToken, result.RefreshToken, result.APIServer, result.ExpiresIn); err != nil {
+		p.logError("refreshToken", "failed to notify backend of token update", err)
+	} else {
+		p.logClient.Info(nil, "Questrade token update notified to backend")
+	}
 
 	return nil
 }
