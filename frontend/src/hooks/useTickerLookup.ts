@@ -56,7 +56,7 @@ function dedupeTickers(results: TickerDetails[]) {
 }
 
 async function fetchTickerCompany(symbol: string) {
-  return fetchJson<TickerDetails>(`/api/tickers/company?symbol=${encodeURIComponent(symbol)}`, undefined, "Failed to fetch company data");
+  return fetchJson<TickerDetails>(`/api/tickers/${encodeURIComponent(symbol)}/details`, undefined, "Failed to fetch company data");
 }
 
 async function fetchTickerBars(symbol: string, hours: number = 24) {
