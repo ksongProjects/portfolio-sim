@@ -19,11 +19,13 @@ function fmtCurrency(v: number): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(v);
 }
 
-function fmtPct(v: number): string {
+function fmtPct(v: number | undefined): string {
+  if (v === undefined || isNaN(v)) return "N/A";
   return (v >= 0 ? "+" : "") + v.toFixed(2) + "%";
 }
 
-function fmtNumber(v: number): string {
+function fmtNumber(v: number | undefined): string {
+  if (v === undefined || isNaN(v)) return "N/A";
   if (v >= 1e12) return (v / 1e12).toFixed(2) + "T";
   if (v >= 1e9) return (v / 1e9).toFixed(2) + "B";
   if (v >= 1e6) return (v / 1e6).toFixed(2) + "M";
@@ -158,14 +160,6 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
     clearSelection,
   } = useTickerLookup();
 
-  const [selectedPrice, setSelectedPrice] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (selectedTicker && selectedTicker.price > 0) {
-      setSelectedPrice(selectedTicker.price);
-    }
-  }, [selectedTicker]);
-
   useEffect(() => {
     if (open && searchRef.current) {
       searchRef.current.focus();
@@ -184,8 +178,6 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
   };
 
   const handleTickerSelect = (ticker: TickerDetails) => {
-    setSelectedPrice(ticker.price);
-    setPrice(ticker.price.toFixed(2));
     void lookupTicker(ticker.symbol);
     setStep("details");
   };
@@ -205,7 +197,6 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
     setQuery("");
     setShares("");
     setPrice("");
-    setSelectedPrice(null);
     clearSelection();
     onClose();
   };
@@ -282,12 +273,6 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
                             </div>
                           </div>
                           <div className="flex items-center gap-4">
-                            <div className="text-right">
-                              <div className="text-sm font-mono">{fmtCurrency(ticker.price)}</div>
-                              <div className={cn("text-xs font-mono", ticker.changePct >= 0 ? "text-primary" : "text-error")}>
-                                {fmtPct(ticker.changePct)}
-                              </div>
-                            </div>
                             <ChevronRight className="h-4 w-4 text-on-surface-variant" />
                           </div>
                         </button>
