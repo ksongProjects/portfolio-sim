@@ -252,6 +252,9 @@ func getActionFromPath(path string) string {
 	if strings.HasPrefix(path, "/api/rss-feeds") {
 		return "news"
 	}
+	if strings.HasPrefix(path, "/api/channels") || strings.HasPrefix(path, "/api/videos") {
+		return "news"
+	}
 	if strings.HasPrefix(path, "/api/tickers/") {
 		return "portfolio"
 	}
@@ -308,12 +311,16 @@ func getOperationName(method, path string) string {
 		return "fetch ticker details"
 	case method == http.MethodGet && path == "/api/channels":
 		return "fetch youtube channels"
+	case method == http.MethodGet && path == "/api/channels/search":
+		return "search youtube channels"
 	case method == http.MethodGet && path == "/api/videos/latest":
 		return "fetch latest videos"
 	case method == http.MethodGet && path == "/api/videos":
 		return "fetch stored videos"
 	case method == http.MethodPost && path == "/api/videos/analyze":
 		return "analyze video"
+	case method == http.MethodPost && path == "/api/videos/summarize":
+		return "summarize videos"
 	default:
 		return fmt.Sprintf("%s %s", method, path)
 	}
@@ -351,7 +358,7 @@ func getRequestContext(r *http.Request, reqBody []byte) map[string]interface{} {
 		meta["provider"] = provider
 	}
 	if symbol := firstNonEmpty(query.Get("symbol"), query.Get("q"), extractTickerSymbol(r.URL.Path)); symbol != "" {
-		if strings.HasPrefix(r.URL.Path, "/api/tickers/search") {
+		if strings.HasPrefix(r.URL.Path, "/api/tickers/search") || strings.HasPrefix(r.URL.Path, "/api/channels/search") {
 			meta["query_term"] = symbol
 		} else {
 			meta["symbol"] = symbol
