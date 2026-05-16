@@ -194,13 +194,13 @@ const handleRefresh = async () => {
             {saving ? "Saving..." : saved ? "Saved!" : "Save"}
           </Button>
           {provider.provider_id === "questrade" && onRefresh && (
-            <Button variant="warning" size="sm" onClick={handleRefresh} disabled={refreshing}>
+            <Button variant="secondary" size="sm" onClick={handleRefresh} disabled={refreshing}>
               <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
               {refreshing ? "Refreshing..." : "Refresh Token"}
             </Button>
           )}
           {hasStoredKey && onDelete && (
-            <Button variant="warning" size="sm" onClick={handleDelete}>
+            <Button variant="destructive" size="sm" onClick={handleDelete}>
               <Trash2 className="h-4 w-4" />
               Remove
             </Button>
