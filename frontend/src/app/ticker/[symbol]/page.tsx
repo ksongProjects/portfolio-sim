@@ -144,7 +144,7 @@ function IntradayChart({ data }: { data: { timestamp: string; close: number }[] 
         {dayBoundaries.map((boundary) => (
           <ReferenceLine
             key={boundary.index}
-            x={boundary.index}
+            x={chartData[boundary.index]?.time || boundary.label}
             stroke="var(--outline)"
             label={{ value: boundary.label, position: "insideBottom", fill: "#9ca3af", fontSize: 9 }}
           />

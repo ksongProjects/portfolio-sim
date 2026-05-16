@@ -125,10 +125,10 @@ function IntradayChart({ data }: { data: IntradayBar[] }) {
           tickFormatter={(v) => v.toFixed(0)}
           width={45}
         />
-        {dayBoundaries.map((boundary) => (
+{dayBoundaries.map((boundary) => (
           <ReferenceLine
             key={boundary.index}
-            x={boundary.index}
+            x={chartData[boundary.index]?.time || boundary.label}
             stroke="var(--outline)"
             label={{ value: boundary.label, position: "insideBottom", fill: "#9ca3af", fontSize: 9 }}
           />
