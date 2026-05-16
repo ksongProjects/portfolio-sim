@@ -348,9 +348,9 @@ function MarketIndicesCard({
       </div>
 
       <div className="space-y-3">
-        {draft.map((index, indexPosition) => (
+{draft.map((index, indexPosition) => (
           <div
-            key={`${index.symbol || "new"}-${indexPosition}`}
+            key={`index-${indexPosition}`}
             className="grid grid-cols-1 gap-2 border border-outline-variant/30 p-3 md:grid-cols-[140px_minmax(0,1fr)_auto]"
           >
             <Input
