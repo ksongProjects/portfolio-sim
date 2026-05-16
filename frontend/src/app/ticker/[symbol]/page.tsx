@@ -108,7 +108,7 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: Array<
   );
 }
 
-function IntradayChart({ data }: { data: { timestamp: string; close: number }[] }) {
+function IntradayChart({ data, chartRange = "1d" }: { data: { timestamp: string; close: number }[]; chartRange?: string }) {
   if (data.length === 0) {
     return <div className="h-64 flex items-center justify-center text-on-surface-variant">No chart data available</div>;
   }
@@ -128,6 +128,9 @@ function IntradayChart({ data }: { data: { timestamp: string; close: number }[] 
     return !isNaN(date.getTime()) && date.getMinutes() === 0;
   }).map(d => formatTime(d.timestamp));
 
+  const showDayBoundaries = chartRange !== "1d";
+  const dayBoundaries = showDayBoundaries ? getDayBoundaryIndices(reversedData) : [];
+
   return (
     <ResponsiveContainer width="100%" height={280}>
       <LineChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
@@ -138,6 +141,7 @@ function IntradayChart({ data }: { data: { timestamp: string; close: number }[] 
           tickLine={true}
           axisLine={{ stroke: "var(--outline)" }}
           ticks={hourTimestamps}
+          interval={showDayBoundaries ? 0 : "preserveStartEnd"}
         />
         <YAxis
           domain={["auto", "auto"]}
@@ -148,10 +152,24 @@ function IntradayChart({ data }: { data: { timestamp: string; close: number }[] 
           width={60}
           tickCount={5}
         />
-        <>
+        {!showDayBoundaries && (
+          <>
             <ReferenceLine x={PREMARKET_START} stroke="var(--outline)" strokeDasharray="2 2" label={{ value: "PreMkt", position: "insideBottom", fill: "#9ca3af", fontSize: 9 }} />
             <ReferenceLine x={MARKET_CLOSE} stroke="var(--outline)" strokeDasharray="2 2" label={{ value: "Close", position: "insideBottom", fill: "#9ca3af", fontSize: 9 }} />
           </>
+        )}
+        {showDayBoundaries && dayBoundaries.map((boundary) => {
+          const boundaryTimestamp = reversedData[boundary.index]?.timestamp;
+          const boundaryTime = boundaryTimestamp ? formatTime(boundaryTimestamp) : "";
+          return (
+            <ReferenceLine
+              key={boundary.label}
+              x={boundaryTime}
+              stroke="var(--outline)"
+              label={{ value: boundary.label, position: "insideBottom", fill: "#9ca3af", fontSize: 9 }}
+            />
+          );
+        })}
         <Tooltip content={<CustomTooltip />} />
         <Line
           type="monotone"
@@ -260,7 +278,7 @@ export default function TickerPage() {
               ))}
             </div>
           </div>
-          <IntradayChart data={intradayData} />
+          <IntradayChart data={intradayData} chartRange={chartRange} />
         </div>
 
         <div className="grid grid-cols-4 gap-3">
