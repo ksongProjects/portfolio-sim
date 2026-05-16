@@ -33,13 +33,13 @@ function formatTime(timestamp: string): string {
     const parts = timestamp.split(" ");
     return parts.length > 1 ? parts[1].substring(0, 5) : timestamp;
   }
-  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "America/New_York" });
 }
 
 function formatHourLabel(timestamp: string): string {
   const date = new Date(timestamp);
   if (isNaN(date.getTime())) return "";
-  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
 }
 
 function formatDayLabel(timestamp: string): string {
@@ -83,7 +83,7 @@ function getDayBoundaryIndices(data: { timestamp: string }[]): { index: number; 
 function formatMarketTime(hour: number, minute: number): string {
   const date = new Date();
   date.setHours(hour, minute, 0, 0);
-  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "America/New_York" });
 }
 
 const PREMARKET_START = formatMarketTime(4, 0);
