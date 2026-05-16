@@ -37,6 +37,7 @@ const columns: ColumnDef<Position>[] = [
   {
     accessorKey: "Symbol",
     header: "Symbol",
+    size: 80,
     cell: ({ row }) => (
       <Link href={`/ticker/${row.original.Symbol}`} className="font-mono font-semibold text-primary hover:underline">
         {row.original.Symbol}
@@ -46,6 +47,7 @@ const columns: ColumnDef<Position>[] = [
   {
     accessorKey: "CompanyName",
     header: "Name",
+    size: 180,
     cell: ({ row }) => (
       <div className="text-sm">
         <div>{row.original.CompanyName}</div>
@@ -60,7 +62,8 @@ const columns: ColumnDef<Position>[] = [
         Shares
       </button>
     ),
-    cell: ({ row }) => <span className="font-mono">{row.original.Quantity}</span>,
+    size: 80,
+    cell: ({ row }) => <span className="font-mono text-right block">{row.original.Quantity}</span>,
   },
   {
     accessorKey: "AvgCost",
@@ -69,7 +72,8 @@ const columns: ColumnDef<Position>[] = [
         Avg Cost
       </button>
     ),
-    cell: ({ row }) => <span className="font-mono">{fmtCurrency(row.original.AvgCost)}</span>,
+    size: 90,
+    cell: ({ row }) => <span className="font-mono text-right block">{fmtCurrency(row.original.AvgCost)}</span>,
   },
   {
     accessorKey: "CurrentPrice",
@@ -78,7 +82,8 @@ const columns: ColumnDef<Position>[] = [
         Price
       </button>
     ),
-    cell: ({ row }) => <span className="font-mono">{fmtCurrency(row.original.CurrentPrice)}</span>,
+    size: 90,
+    cell: ({ row }) => <span className="font-mono text-right block">{fmtCurrency(row.original.CurrentPrice)}</span>,
   },
   {
     accessorKey: "CurrentValue",
@@ -87,7 +92,8 @@ const columns: ColumnDef<Position>[] = [
         Value
       </button>
     ),
-    cell: ({ row }) => <span className="font-mono font-medium">{fmtCurrency(row.original.CurrentValue)}</span>,
+    size: 100,
+    cell: ({ row }) => <span className="font-mono text-right block font-medium">{fmtCurrency(row.original.CurrentValue)}</span>,
   },
   {
     accessorKey: "DayChangePct",
@@ -96,8 +102,9 @@ const columns: ColumnDef<Position>[] = [
         Day
       </button>
     ),
+    size: 70,
     cell: ({ row }) => (
-      <span className={`font-mono ${row.original.DayChangePct >= 0 ? "text-primary" : "text-error"}`}>
+      <span className={`font-mono text-right block ${row.original.DayChangePct >= 0 ? "text-primary" : "text-error"}`}>
         {fmtPct(row.original.DayChangePct)}
       </span>
     ),
@@ -109,8 +116,9 @@ const columns: ColumnDef<Position>[] = [
         Total
       </button>
     ),
+    size: 70,
     cell: ({ row }) => (
-      <span className={`font-mono ${row.original.TotalGainPct >= 0 ? "text-primary" : "text-error"}`}>
+      <span className={`font-mono text-right block ${row.original.TotalGainPct >= 0 ? "text-primary" : "text-error"}`}>
         {fmtPct(row.original.TotalGainPct)}
       </span>
     ),
@@ -118,6 +126,7 @@ const columns: ColumnDef<Position>[] = [
   {
     id: "status",
     header: "Status",
+    size: 100,
     cell: () => (
       <div className="flex items-center justify-center gap-1.5">
         <StatusIndicator active={true} />
