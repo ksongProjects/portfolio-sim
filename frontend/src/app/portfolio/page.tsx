@@ -18,6 +18,7 @@ interface Position {
   ID: string;
   Symbol: string;
   CompanyName: string;
+  Sector: string;
   Quantity: number;
   AvgCost: number;
   CurrentPrice: number;
@@ -25,6 +26,24 @@ interface Position {
   DayChangePct: number;
   TotalGainPct: number;
 }
+
+const colorMap: Record<string, string> = {
+  Technology: "#3b82f6",
+  Healthcare: "#10b981",
+  Financials: "#f59e0b",
+  Consumer: "#ec4899",
+  Energy: "#ef4444",
+  Industrials: "#6366f1",
+  Materials: "#8b5cf6",
+  Utilities: "#14b8a6",
+  RealEstate: "#f97316",
+  "Consumer Discretionary": "#f43f5e",
+  "Consumer Staples": "#a855f7",
+  Telecommunication: "#06b6d4",
+  "Basic Materials": "#84cc16",
+  "Comm Services": "#22d3ee",
+  Unknown: "#6b7280",
+};
 
 function fmtCurrency(v: number): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(v);
@@ -51,7 +70,7 @@ const columns: ColumnDef<Position>[] = [
     cell: ({ row }) => (
       <div className="text-sm">
         <div>{row.original.CompanyName}</div>
-        <div className="text-[11px] text-on-surface-variant">Sector</div>
+        <div className="text-[11px] text-on-surface-variant">{row.original.Sector || "N/A"}</div>
       </div>
     ),
   },
@@ -152,7 +171,7 @@ export default function PortfolioPage() {
 
   const sectors = Array.from(
     positions.reduce((acc, pos) => {
-      const sector = "Sector";
+      const sector = pos.Sector || "Unknown";
       const val = pos.CurrentValue;
       acc.set(sector, (acc.get(sector) || 0) + val);
       return acc;
@@ -161,7 +180,7 @@ export default function PortfolioPage() {
     sector,
     value,
     percent: positions.reduce((s, p) => s + p.CurrentValue, 0) > 0 ? ((value / positions.reduce((s, p) => s + p.CurrentValue, 0)) * 100).toFixed(1) + "%" : "0%",
-    color: "#3fe56c",
+    color: colorMap[sector] || "#3fe56c",
   }));
 
   return (

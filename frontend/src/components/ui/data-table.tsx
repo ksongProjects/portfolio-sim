@@ -2,6 +2,7 @@ import * as React from "react";
 import {
   ColumnDef,
   ColumnFiltersState,
+  ColumnSizingState,
   PaginationState,
   SortingState,
   VisibilityState,
@@ -27,6 +28,7 @@ interface DataTableProps<TData, TValue> {
   pageSizes?: number[];
   enablePagination?: boolean;
   maxHeight?: string;
+  enableColumnResizing?: boolean;
 }
 
 function SortIcon({ column }: { column: { getIsSorted: () => string | false } }) {
@@ -46,10 +48,12 @@ export function DataTable<TData, TValue>({
   pageSizes = [10, 25, 50, 100],
   enablePagination = true,
   maxHeight,
+  enableColumnResizing = false,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
+  const [columnSizing, setColumnSizing] = React.useState<ColumnSizingState>({});
   const [globalFilter, setGlobalFilter] = React.useState("");
   const [pagination, setPagination] = React.useState<PaginationState>({
     pageIndex: 0,
@@ -69,19 +73,21 @@ export function DataTable<TData, TValue>({
       columnVisibility,
       globalFilter,
       pagination,
+      columnSizing,
     },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
     onGlobalFilterChange: setGlobalFilter,
     onPaginationChange: setPagination,
+    onColumnSizingChange: setColumnSizing,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getPaginationRowModel: enablePagination ? getPaginationRowModel() : undefined,
+    enableColumnResizing,
   });
 
-  const cols = table.getAllColumns().filter((col) => col.getCanSort());
   const pageCount = table.getPageCount();
   const currentPage = pagination.pageIndex + 1;
   const totalRows = table.getFilteredRowModel().rows.length;
@@ -102,13 +108,14 @@ export function DataTable<TData, TValue>({
 
       <div className="border border-outline-variant/30 rounded-md overflow-hidden">
         <div className="overflow-auto" style={maxHeight ? { maxHeight } : undefined}>
-          <table className="w-full caption-bottom text-sm table-fixed">
+          <table className={cn("w-full caption-bottom text-sm", !enableColumnResizing && "table-fixed")}>
             <thead className="bg-surface-container-low sticky top-0 z-10">
               {table.getHeaderGroups().map((headerGroup) => (
                 <tr key={headerGroup.id}>
                   {headerGroup.headers.map((header) => {
                     const canSort = header.column.getCanSort();
-                    const size = header.column.columnDef.size;
+                    const canResize = enableColumnResizing && header.column.getCanResize();
+                    const size = !enableColumnResizing ? header.column.columnDef.size : undefined;
                     const widthStyle = size
                       ? typeof size === "number"
                         ? { width: `${size}%` }
@@ -119,8 +126,9 @@ export function DataTable<TData, TValue>({
                         key={header.id}
                         style={widthStyle}
                         className={cn(
-                          "h-9 px-4 text-left align-middle text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant",
-                          canSort && "cursor-pointer select-none hover:text-on-surface"
+                          "h-9 px-4 text-left align-middle text-[11px] font-semibold uppercase tracking-[0.08em] text-on-surface-variant relative",
+                          canSort && "cursor-pointer select-none hover:text-on-surface",
+                          enableColumnResizing && header.column.columnDef.enableResizing !== false && "select-none"
                         )}
                         onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
                       >
@@ -130,6 +138,16 @@ export function DataTable<TData, TValue>({
                             : flexRender(header.column.columnDef.header, header.getContext())}
                           {canSort && <SortIcon column={header.column} />}
                         </div>
+                        {canResize && (
+                          <div
+                            onMouseDown={header.getResizeHandler()}
+                            onTouchStart={header.getResizeHandler()}
+                            className={cn(
+                              "absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary active:bg-primary",
+                              header.column.columnDef.enableResizing === false && "hidden"
+                            )}
+                          />
+                        )}
                       </th>
                     );
                   })}
@@ -158,12 +176,14 @@ export function DataTable<TData, TValue>({
                     onClick={() => onRowClick?.(row.original)}
                   >
                     {row.getVisibleCells().map((cell) => {
-                      const size = cell.column.columnDef.size;
-                      const widthStyle = size
-                        ? typeof size === "number"
-                          ? { width: `${size}%` }
-                          : { width: size }
-                        : undefined;
+                      const size = !enableColumnResizing ? cell.column.columnDef.size : undefined;
+                      const widthStyle = enableColumnResizing
+                        ? { width: cell.column.getSize() }
+                        : size
+                          ? typeof size === "number"
+                            ? { width: `${size}%` }
+                            : { width: size }
+                          : undefined;
                       return (
                         <td
                           key={cell.id}
