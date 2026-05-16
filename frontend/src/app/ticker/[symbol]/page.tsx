@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/page-layout";
 import { useTickerLookup } from "@/hooks/useTickerLookup";
 import { cn } from "@/lib/utils";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from "recharts";
 
 function fmtCurrency(v: number): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(v);
@@ -42,6 +42,12 @@ function formatHourLabel(timestamp: string): string {
   return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
+function formatDayLabel(timestamp: string): string {
+  const date = new Date(timestamp);
+  if (isNaN(date.getTime())) return "";
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
 function getHourIndices(data: { timestamp: string }[]): number[] {
   if (data.length === 0) return [];
   const indices: number[] = [];
@@ -52,6 +58,26 @@ function getHourIndices(data: { timestamp: string }[]): number[] {
     }
   }
   return indices;
+}
+
+function getDayBoundaryIndices(data: { timestamp: string }[]): { index: number; label: string }[] {
+  if (data.length === 0) return [];
+  const boundaries: { index: number; label: string }[] = [];
+  for (let i = 1; i < data.length; i++) {
+    const prevDate = new Date(data[i - 1].timestamp);
+    const currDate = new Date(data[i].timestamp);
+    if (!isNaN(prevDate.getTime()) && !isNaN(currDate.getTime())) {
+      const prevDay = prevDate.toDateString();
+      const currDay = currDate.toDateString();
+      if (prevDay !== currDay) {
+        boundaries.push({
+          index: i,
+          label: formatDayLabel(data[i].timestamp),
+        });
+      }
+    }
+  }
+  return boundaries;
 }
 
 function CustomTooltip({ active, payload }: { active?: boolean; payload?: Array<{ value: number; payload: { timestamp: string; open: number; high: number; low: number; close: number; volume: number } }> }) {
@@ -87,6 +113,7 @@ function IntradayChart({ data }: { data: { timestamp: string; close: number }[] 
     time: formatTime(d.timestamp),
   }));
   const hourIndices = getHourIndices(reversedData);
+  const dayBoundaries = getDayBoundaryIndices(reversedData);
 
   return (
     <ResponsiveContainer width="100%" height={280}>
@@ -114,6 +141,15 @@ function IntradayChart({ data }: { data: { timestamp: string; close: number }[] 
           width={60}
           tickCount={5}
         />
+        {dayBoundaries.map((boundary) => (
+          <ReferenceLine
+            key={boundary.index}
+            x={boundary.index}
+            stroke="var(--outline-variant)"
+            strokeDasharray="4 4"
+            label={{ value: boundary.label, position: "top", fill: "#9ca3af", fontSize: 9 }}
+          />
+        ))}
         <Tooltip content={<CustomTooltip />} />
         <Line
           type="monotone"

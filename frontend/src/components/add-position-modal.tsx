@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { X, Search, TrendingUp, TrendingDown, BarChart2, DollarSign, Percent, Clock, ChevronRight } from "lucide-react";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -46,6 +46,12 @@ function formatHourLabel(timestamp: string): string {
   return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
+function formatDayLabel(timestamp: string): string {
+  const date = new Date(timestamp);
+  if (isNaN(date.getTime())) return "";
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
 function getHourIndices(data: { timestamp: string }[]): number[] {
   if (data.length === 0) return [];
   const indices: number[] = [];
@@ -56,6 +62,26 @@ function getHourIndices(data: { timestamp: string }[]): number[] {
     }
   }
   return indices;
+}
+
+function getDayBoundaryIndices(data: { timestamp: string }[]): { index: number; label: string }[] {
+  if (data.length === 0) return [];
+  const boundaries: { index: number; label: string }[] = [];
+  for (let i = 1; i < data.length; i++) {
+    const prevDate = new Date(data[i - 1].timestamp);
+    const currDate = new Date(data[i].timestamp);
+    if (!isNaN(prevDate.getTime()) && !isNaN(currDate.getTime())) {
+      const prevDay = prevDate.toDateString();
+      const currDay = currDate.toDateString();
+      if (prevDay !== currDay) {
+        boundaries.push({
+          index: i,
+          label: formatDayLabel(data[i].timestamp),
+        });
+      }
+    }
+  }
+  return boundaries;
 }
 
 function IntradayChart({ data }: { data: IntradayBar[] }) {
@@ -72,6 +98,7 @@ function IntradayChart({ data }: { data: IntradayBar[] }) {
     time: formatTime(d.timestamp),
   }));
   const hourIndices = getHourIndices(reversedData);
+  const dayBoundaries = getDayBoundaryIndices(reversedData);
 
   return (
     <ResponsiveContainer width="100%" height={120}>
@@ -98,6 +125,15 @@ function IntradayChart({ data }: { data: IntradayBar[] }) {
           tickFormatter={(v) => v.toFixed(0)}
           width={45}
         />
+        {dayBoundaries.map((boundary) => (
+          <ReferenceLine
+            key={boundary.index}
+            x={boundary.index}
+            stroke="var(--outline-variant)"
+            strokeDasharray="4 4"
+            label={{ value: boundary.label, position: "top", fill: "#9ca3af", fontSize: 9 }}
+          />
+        ))}
         <Line
           type="monotone"
           dataKey="close"
