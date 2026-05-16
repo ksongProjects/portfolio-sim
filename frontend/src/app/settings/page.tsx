@@ -200,7 +200,7 @@ const handleRefresh = async () => {
             </Button>
           )}
           {hasStoredKey && onDelete && (
-            <Button variant="destructive" size="sm" onClick={handleDelete}>
+            <Button variant="warning" size="sm" onClick={handleDelete}>
               <Trash2 className="h-4 w-4" />
               Remove
             </Button>
@@ -509,10 +509,10 @@ const {
                 <CardTitle className="mb-4">AI / Video Providers</CardTitle>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {youtubeProvider && (
-                    <ProviderCard provider={youtubeProvider} onSave={saveProviderKey} onValidate={validateProviderKey} />
+                    <ProviderCard provider={youtubeProvider} onSave={saveProviderKey} onValidate={validateProviderKey} onDelete={deleteProviderKey} />
                   )}
                   {geminiProvider && (
-                    <ProviderCard provider={geminiProvider} onSave={saveProviderKey} onValidate={validateProviderKey} />
+                    <ProviderCard provider={geminiProvider} onSave={saveProviderKey} onValidate={validateProviderKey} onDelete={deleteProviderKey} />
                   )}
                 </div>
               </div>
