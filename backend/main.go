@@ -647,6 +647,37 @@ func (s *Server) handleGetPositions(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		positions = []services.Position{}
 	}
+	safePercent := func(numerator, denominator float64) float64 {
+		if denominator == 0 {
+			return 0
+		}
+		return (numerator / denominator) * 100
+	}
+	if len(positions) > 0 {
+		var tickerIDs []string
+		for _, p := range positions {
+			tickerIDs = append(tickerIDs, p.TickerID)
+		}
+		prices, _ := s.portfolioSvc.GetLatestPrices(r.Context(), s.db, tickerIDs)
+		for i := range positions {
+			if price, ok := prices[positions[i].TickerID]; ok {
+				positions[i].CurrentPrice = price.Price
+				if price.ChangePct != 0 {
+					positions[i].DayChange = positions[i].CurrentPrice * (price.ChangePct / 100)
+					positions[i].DayChangePct = price.ChangePct
+				} else {
+					positions[i].DayChange = price.Change
+					positions[i].DayChangePct = safePercent(price.Change, price.Price-price.Change)
+				}
+			}
+			if positions[i].CurrentPrice == 0 {
+				positions[i].CurrentPrice = positions[i].AvgCost
+			}
+			positions[i].CurrentValue = positions[i].Quantity * positions[i].CurrentPrice
+			positions[i].TotalGain = positions[i].CurrentValue - (positions[i].Quantity * positions[i].AvgCost)
+			positions[i].TotalGainPct = safePercent(positions[i].TotalGain, positions[i].Quantity*positions[i].AvgCost)
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(positions)
 }
