@@ -209,6 +209,8 @@ func (s *Server) Start() error {
 	http.HandleFunc("DELETE /api/rss-feeds", lm(http.HandlerFunc(s.handleDeleteRSSFeed)))
 	http.HandleFunc("POST /api/rss-feeds/scrape", lm(http.HandlerFunc(s.handleScrapeRSSFeeds)))
 	http.HandleFunc("GET /api/tickers/search", lm(http.HandlerFunc(s.handleSearchTickers)))
+	http.HandleFunc("GET /api/tickers/bars", lm(http.HandlerFunc(s.handleGetTickerBars)))
+	http.HandleFunc("GET /api/tickers/company", lm(http.HandlerFunc(s.handleGetTickerCompanyData)))
 	http.HandleFunc("GET /api/tickers/", lm(http.HandlerFunc(s.handleGetTickerDetails)))
 	http.HandleFunc("GET /api/channels/search", lm(http.HandlerFunc(s.handleSearchChannels)))
 	http.HandleFunc("GET /api/channels", lm(http.HandlerFunc(s.handleGetChannels)))
@@ -1376,6 +1378,93 @@ func (s *Server) handleGetTickerDetails(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+func (s *Server) handleGetTickerCompanyData(w http.ResponseWriter, r *http.Request) {
+	symbol := r.URL.Query().Get("symbol")
+	if symbol == "" {
+		http.Error(w, "symbol required", http.StatusBadRequest)
+		return
+	}
+
+	tickerID, companyName, err := s.portfolioSvc.GetTickerBySymbol(r.Context(), s.db, symbol)
+	if err != nil || tickerID == "" {
+		http.Error(w, "ticker not found", http.StatusNotFound)
+		return
+	}
+
+	profile, err := s.portfolioSvc.GetCompanyProfile(r.Context(), s.db, tickerID)
+	if err != nil {
+		s.logger.Error("get company profile failed", "error", err)
+	}
+
+	if profile == nil {
+		details, err := s.tickerSvc.GetTickerDetails(r.Context(), symbol)
+		if err == nil {
+			profile = &services.CompanyProfile{
+				Symbol:        details.Symbol,
+				Name:          details.Name,
+				Exchange:      details.Exchange,
+				Sector:        details.Sector,
+				Industry:      details.Industry,
+				MarketCap:     int64(details.MarketCap),
+				PeRatio:       details.PeRatio,
+				Eps:           details.Eps,
+				DividendYield: details.DividendYield,
+				Week52High:    details.Week52High,
+				Week52Low:     details.Week52Low,
+				AvgVolume:     details.AvgVolume,
+			}
+			s.portfolioSvc.SaveCompanyProfile(r.Context(), s.db, tickerID, profile)
+		}
+	}
+
+	if profile == nil {
+		profile = &services.CompanyProfile{Symbol: symbol, Name: companyName}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(profile)
+}
+
+func (s *Server) handleGetTickerBars(w http.ResponseWriter, r *http.Request) {
+	symbol := r.URL.Query().Get("symbol")
+	if symbol == "" {
+		http.Error(w, "symbol required", http.StatusBadRequest)
+		return
+	}
+	hoursStr := r.URL.Query().Get("hours")
+	hours := 24
+	if hoursStr != "" {
+		if h, err := strconv.Atoi(hoursStr); err == nil {
+			hours = h
+		}
+	}
+
+	var tickerID string
+	rows, err := s.db.Query(r.Context(), `SELECT id FROM tickers WHERE symbol = $1 AND is_active = true`, symbol)
+	if err == nil {
+		defer rows.Close()
+		if rows.Next() {
+			rows.Scan(&tickerID)
+		}
+	}
+
+	if tickerID == "" {
+		http.Error(w, "ticker not found", http.StatusNotFound)
+		return
+	}
+
+	bars, err := s.portfolioSvc.GetPriceBars(r.Context(), s.db, tickerID, hours)
+	if err != nil {
+		s.logger.Error("get ticker bars failed", "error", err)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"symbol": symbol,
+		"bars":   bars,
+	})
 }
 
 func (s *Server) handleGetChannels(w http.ResponseWriter, r *http.Request) {
