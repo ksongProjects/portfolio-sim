@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/portfolio-sim/backend/logging"
@@ -16,6 +17,11 @@ type NewsFeedService struct {
 	newsFeedURL string
 	client      *http.Client
 	logger      *logging.Client
+}
+
+type VideoSummaryRequest struct {
+	VideoID string `json:"video_id"`
+	Title   string `json:"title,omitempty"`
 }
 
 func NewNewsFeedService(newsFeedURL string, logClient *logging.Client) *NewsFeedService {
@@ -56,23 +62,37 @@ func (s *NewsFeedService) doRequest(ctx context.Context, method, url string, bod
 }
 
 func (s *NewsFeedService) GetChannels(ctx context.Context) ([]byte, error) {
-	url := fmt.Sprintf("%s/api/channels", s.newsFeedURL)
-	return s.doRequest(ctx, http.MethodGet, url, nil, "", http.StatusOK)
+	requestURL := fmt.Sprintf("%s/api/channels", s.newsFeedURL)
+	return s.doRequest(ctx, http.MethodGet, requestURL, nil, "", http.StatusOK)
 }
 
-func (s *NewsFeedService) GetLatestVideos(ctx context.Context, channelID string) ([]byte, error) {
-	url := fmt.Sprintf("%s/api/videos/latest?channel_id=%s", s.newsFeedURL, channelID)
-	return s.doRequest(ctx, http.MethodGet, url, nil, "", http.StatusOK)
+func (s *NewsFeedService) SearchChannels(ctx context.Context, query string) ([]byte, error) {
+	requestURL := fmt.Sprintf("%s/api/channels/search?q=%s", s.newsFeedURL, url.QueryEscape(query))
+	return s.doRequest(ctx, http.MethodGet, requestURL, nil, "", http.StatusOK)
+}
+
+func (s *NewsFeedService) GetLatestVideos(ctx context.Context, channelID string, limit int) ([]byte, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	requestURL := fmt.Sprintf("%s/api/videos/latest?channel_id=%s&limit=%d", s.newsFeedURL, url.QueryEscape(channelID), limit)
+	return s.doRequest(ctx, http.MethodGet, requestURL, nil, "", http.StatusOK)
 }
 
 func (s *NewsFeedService) GetStoredVideos(ctx context.Context) ([]byte, error) {
-	url := fmt.Sprintf("%s/api/videos", s.newsFeedURL)
-	return s.doRequest(ctx, http.MethodGet, url, nil, "", http.StatusOK)
+	requestURL := fmt.Sprintf("%s/api/videos", s.newsFeedURL)
+	return s.doRequest(ctx, http.MethodGet, requestURL, nil, "", http.StatusOK)
 }
 
 func (s *NewsFeedService) AnalyzeVideo(ctx context.Context, videoID, title string) error {
-	url := fmt.Sprintf("%s/api/videos/analyze", s.newsFeedURL)
+	requestURL := fmt.Sprintf("%s/api/videos/analyze", s.newsFeedURL)
 	body, _ := json.Marshal(map[string]string{"video_id": videoID, "title": title})
-	_, err := s.doRequest(ctx, http.MethodPost, url, bytes.NewBuffer(body), "application/json", http.StatusNoContent)
+	_, err := s.doRequest(ctx, http.MethodPost, requestURL, bytes.NewBuffer(body), "application/json", http.StatusNoContent)
 	return err
+}
+
+func (s *NewsFeedService) SummarizeVideos(ctx context.Context, videos []VideoSummaryRequest) ([]byte, error) {
+	requestURL := fmt.Sprintf("%s/api/videos/summarize", s.newsFeedURL)
+	body, _ := json.Marshal(map[string][]VideoSummaryRequest{"videos": videos})
+	return s.doRequest(ctx, http.MethodPost, requestURL, bytes.NewBuffer(body), "application/json", http.StatusOK)
 }
