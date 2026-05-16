@@ -102,13 +102,14 @@ function IntradayChart({ data }: { data: IntradayBar[] }) {
   const color = isUp ? "#3fe56c" : "#ff4d4d";
 
 const reversedData = [...data].reverse();
-  const chartData = reversedData.map((d, idx) => ({
+  const chartData = reversedData.map((d) => ({
     ...d,
     time: formatTime(d.timestamp),
-    origTimestamp: d.timestamp,
   }));
-  const hourIndices = getHourIndices(reversedData);
-  const dayBoundaries = getDayBoundaryIndices(reversedData);
+  const hourTimestamps = reversedData.filter(d => {
+    const date = new Date(d.timestamp);
+    return !isNaN(date.getTime()) && date.getMinutes() === 0;
+  }).map(d => formatTime(d.timestamp));
 
   return (
     <ResponsiveContainer width="100%" height={120}>
@@ -119,13 +120,7 @@ const reversedData = [...data].reverse();
           tick={{ fontSize: 9, fill: "#9ca3af" }}
           tickLine={true}
           axisLine={{ stroke: "var(--outline)" }}
-          interval="preserveStartEnd"
-          tickFormatter={(val, index) => {
-            const item = chartData[index];
-            if (!item) return "";
-            const date = new Date(item.origTimestamp || item.timestamp);
-            return date.getMinutes() === 0 ? val : "";
-          }}
+          ticks={hourTimestamps}
         />
         <YAxis
           domain={["auto", "auto"]}
@@ -135,24 +130,10 @@ const reversedData = [...data].reverse();
           tickFormatter={(v) => v.toFixed(0)}
           width={45}
         />
-        {dayBoundaries.length === 0 && (
-          <>
+        <>
             <ReferenceLine x={PREMARKET_START} stroke="var(--outline)" strokeDasharray="2 2" label={{ value: "PreMkt", position: "insideBottom", fill: "#9ca3af", fontSize: 9 }} />
             <ReferenceLine x={MARKET_CLOSE} stroke="var(--outline)" strokeDasharray="2 2" label={{ value: "Close", position: "insideBottom", fill: "#9ca3af", fontSize: 9 }} />
           </>
-        )}
-        {dayBoundaries.length > 0 && dayBoundaries.map((boundary) => {
-          const boundaryTimestamp = reversedData[boundary.index]?.timestamp;
-          const boundaryTime = boundaryTimestamp ? formatTime(boundaryTimestamp) : "";
-          return (
-            <ReferenceLine
-              key={boundary.label}
-              x={boundaryTime}
-              stroke="var(--outline)"
-              label={{ value: boundary.label, position: "insideBottom", fill: "#9ca3af", fontSize: 9 }}
-            />
-          );
-        })}
         <Line
           type="monotone"
           dataKey="close"
