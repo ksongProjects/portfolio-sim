@@ -23,6 +23,7 @@ import (
 	"github.com/portfolio-sim/market-data-service/sse"
 	"github.com/portfolio-sim/market-data-service/storage"
 	"github.com/portfolio-sim/shared/secrets"
+	"github.com/google/uuid"
 )
 
 type MarketDataService struct {
@@ -329,34 +330,8 @@ func (s *MarketDataService) stopFetcher(ticker string, provider providers.Provid
 }
 
 func (s *MarketDataService) runPriceFetchers() {
-	s.logClient.Info(context.Background(), "starting price fetchers")
+	s.logClient.Info(context.Background(), "starting market hours monitor")
 	go s.runMarketHoursMonitor()
-
-	tickerSymbols := s.storage.GetActiveTickers(context.Background())
-
-	for _, sym := range s.cfg.AlwaysFetchTicks {
-		found := false
-		for _, t := range tickerSymbols {
-			if t == sym {
-				found = true
-				break
-			}
-		}
-		if !found {
-			tickerSymbols = append(tickerSymbols, sym)
-		}
-	}
-
-	if len(tickerSymbols) == 0 {
-		s.logClient.Info(context.Background(), "no tickers to fetch")
-		return
-	}
-	for _, ticker := range tickerSymbols {
-		provider := s.providerForOperation(context.Background(), operationQuote, "")
-		if s.startFetcher(ticker, provider, true) {
-			s.logClient.InfoWithMeta(context.Background(), "started permanent price fetcher", map[string]interface{}{"ticker": ticker, "provider": provider.Name()})
-		}
-	}
 }
 
 func (s *MarketDataService) fetchPriceLoop(ctx context.Context, ticker string, provider providers.Provider) {
@@ -380,17 +355,14 @@ func (s *MarketDataService) fetchPriceLoop(ctx context.Context, ticker string, p
 		}
 
 		if !isMarketOpen() {
-			s.logClient.InfoWithMeta(context.Background(), "market closed, waiting", map[string]interface{}{"ticker": ticker})
-			if !sleepWithContext(ctx, 5*time.Minute) {
-				return
-			}
-			continue
+			s.logClient.InfoWithMeta(context.Background(), "market closed, stopping fetcher", map[string]interface{}{"ticker": ticker})
+			return
 		}
 
 		price, err := provider.FetchPrice(ticker)
 		if err != nil {
 			s.logClient.ErrorWithMeta(context.Background(), "failed to fetch price", map[string]interface{}{"ticker": ticker, "provider": provider.Name(), "error": err.Error()})
-			if !sleepWithContext(ctx, 5*time.Second) {
+			if !sleepWithContext(ctx, 5*time.Minute) {
 				return
 			}
 			continue
@@ -457,12 +429,28 @@ func (s *MarketDataService) runMarketHoursMonitor() {
 			"timestamp": time.Now().Format(time.RFC3339),
 		})
 
-		if !open {
-			s.logClient.Info(context.Background(), "market closed, pausing price fetchers")
-			time.Sleep(5 * time.Minute)
-		} else {
-			time.Sleep(1 * time.Minute)
+		if open {
+			tickerSymbols := s.storage.GetActiveTickers(context.Background())
+			for _, sym := range s.cfg.AlwaysFetchTicks {
+				found := false
+				for _, t := range tickerSymbols {
+					if t == sym {
+						found = true
+						break
+					}
+				}
+				if !found {
+					tickerSymbols = append(tickerSymbols, sym)
+				}
+			}
+			for _, ticker := range tickerSymbols {
+				provider := s.providerForOperation(context.Background(), operationQuote, "")
+				if s.startFetcher(ticker, provider, true) {
+					s.logClient.InfoWithMeta(context.Background(), "started permanent price fetcher", map[string]interface{}{"ticker": ticker, "provider": provider.Name()})
+				}
+			}
 		}
+		time.Sleep(1 * time.Minute)
 	}
 }
 
@@ -676,8 +664,24 @@ func (s *MarketDataService) handleTickerDetails(w http.ResponseWriter, r *http.R
 	if quoteSource != "" {
 		if err := s.storage.EnsureTickerExists(r.Context(), symbol); err != nil {
 			s.logClient.WarnWithMeta(r.Context(), "ensure ticker failed before price update", map[string]interface{}{"symbol": symbol, "error": err.Error()})
-		} else if err := s.storage.UpdateTickerPrice(r.Context(), symbol, newDetails.Price, newDetails.Change, newDetails.ChangePct, newDetails.Volume, newDetails.MarketCap, quoteSource); err != nil {
-			s.logClient.WarnWithMeta(r.Context(), "update ticker price failed", map[string]interface{}{"symbol": symbol, "provider": quoteSource, "error": err.Error()})
+		} else {
+			if err := s.storage.UpdateTickerPrice(r.Context(), symbol, newDetails.Price, newDetails.Change, newDetails.ChangePct, newDetails.Volume, newDetails.MarketCap, quoteSource); err != nil {
+				s.logClient.WarnWithMeta(r.Context(), "update ticker price failed", map[string]interface{}{"symbol": symbol, "provider": quoteSource, "error": err.Error()})
+			}
+		}
+	}
+	if newDetails.Sector != "" || newDetails.Industry != "" {
+		tickerID, tickerErr := s.storage.GetTickerID(r.Context(), symbol)
+		if tickerErr != nil {
+			s.logClient.WarnWithMeta(r.Context(), "get ticker id failed for profile store", map[string]interface{}{"symbol": symbol, "error": tickerErr.Error()})
+		} else if tickerID != uuid.Nil {
+			profileData := map[string]string{
+				"sector":   newDetails.Sector,
+				"industry": newDetails.Industry,
+			}
+			if err := s.storage.InsertFundamentalData(r.Context(), tickerID, quoteSource, "profile", "latest", profileData, time.Now()); err != nil {
+				s.logClient.WarnWithMeta(r.Context(), "failed to store profile data", map[string]interface{}{"symbol": symbol, "error": err.Error()})
+			}
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")

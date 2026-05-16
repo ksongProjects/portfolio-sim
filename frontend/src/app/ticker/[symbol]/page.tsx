@@ -36,6 +36,29 @@ function formatTime(timestamp: string): string {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+function formatHourLabel(timestamp: string): string {
+  const date = new Date(timestamp);
+  if (isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function getHourTicks(data: { timestamp: string }[]): string[] {
+  if (data.length === 0) return [];
+  const seen = new Set<string>();
+  const ticks: string[] = [];
+  for (const d of data) {
+    const date = new Date(d.timestamp);
+    if (!isNaN(date.getTime())) {
+      const hourKey = `${date.getHours()}`;
+      if (!seen.has(hourKey)) {
+        seen.add(hourKey);
+        ticks.push(d.timestamp);
+      }
+    }
+  }
+  return ticks;
+}
+
 function CustomTooltip({ active, payload }: { active?: boolean; payload?: Array<{ value: number; payload: { timestamp: string; open: number; high: number; low: number; close: number; volume: number } }> }) {
   if (!active || !payload || payload.length === 0) return null;
   const data = payload[0].payload;

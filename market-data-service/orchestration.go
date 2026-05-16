@@ -238,7 +238,11 @@ func mergeSearchResult(existing providers.TickerSearchResult, incoming providers
 	}
 	if existing.Price == 0 && incoming.Price != 0 {
 		existing.Price = incoming.Price
+	}
+	if incoming.Change != 0 {
 		existing.Change = incoming.Change
+	}
+	if incoming.ChangePct != 0 {
 		existing.ChangePct = incoming.ChangePct
 	}
 
