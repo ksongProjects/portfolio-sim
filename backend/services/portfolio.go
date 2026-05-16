@@ -342,25 +342,20 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, db interface
 	}
 
 	prices, _ := s.GetLatestPrices(ctx, db, tickerIDs)
+	snapshots, _ := s.GetLatestPriceSnapshots(ctx, db, tickerIDs)
 
 	var totalValue, totalInvested, totalDayChange float64
 	for i := range positions {
 		if price, ok := prices[positions[i].TickerID]; ok {
 			positions[i].CurrentPrice = price.Price
-			if price.ChangePct != 0 {
-				positions[i].DayChange = positions[i].CurrentPrice * (price.ChangePct / 100)
-				positions[i].DayChangePct = price.ChangePct
-			} else {
-				positions[i].DayChange = price.Change
-				positions[i].DayChangePct = safePercent(price.Change, price.Price-price.Change)
-			}
 		}
 		if positions[i].CurrentPrice == 0 {
 			positions[i].CurrentPrice = positions[i].AvgCost
 		}
-		if positions[i].DayChange == 0 {
-			positions[i].DayChange = 0
-			positions[i].DayChangePct = 0
+		if snap, ok := snapshots[positions[i].TickerID]; ok && snap[1] > 0 {
+			dayChange := snap[0] - snap[1]
+			positions[i].DayChange = dayChange
+			positions[i].DayChangePct = safePercent(dayChange, snap[1])
 		}
 		positions[i].CurrentValue = positions[i].Quantity * positions[i].CurrentPrice
 		positions[i].TotalGain = positions[i].CurrentValue - (positions[i].Quantity * positions[i].AvgCost)

@@ -661,19 +661,18 @@ func (s *Server) handleGetPositions(w http.ResponseWriter, r *http.Request) {
 			tickerIDs = append(tickerIDs, p.TickerID)
 		}
 		prices, _ := s.portfolioSvc.GetLatestPrices(r.Context(), s.db, tickerIDs)
+		snapshots, _ := s.portfolioSvc.GetLatestPriceSnapshots(r.Context(), s.db, tickerIDs)
 		for i := range positions {
 			if price, ok := prices[positions[i].TickerID]; ok {
 				positions[i].CurrentPrice = price.Price
-				if price.ChangePct != 0 {
-					positions[i].DayChange = positions[i].CurrentPrice * (price.ChangePct / 100)
-					positions[i].DayChangePct = price.ChangePct
-				} else {
-					positions[i].DayChange = price.Change
-					positions[i].DayChangePct = safePercent(price.Change, price.Price-price.Change)
-				}
 			}
 			if positions[i].CurrentPrice == 0 {
 				positions[i].CurrentPrice = positions[i].AvgCost
+			}
+			if snap, ok := snapshots[positions[i].TickerID]; ok && snap[1] > 0 {
+				dayChange := snap[0] - snap[1]
+				positions[i].DayChange = dayChange
+				positions[i].DayChangePct = safePercent(dayChange, snap[1])
 			}
 			positions[i].CurrentValue = positions[i].Quantity * positions[i].CurrentPrice
 			positions[i].TotalGain = positions[i].CurrentValue - (positions[i].Quantity * positions[i].AvgCost)
