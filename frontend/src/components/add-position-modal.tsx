@@ -130,7 +130,7 @@ function IntradayChart({ data }: { data: IntradayBar[] }) {
             key={boundary.index}
             x={boundary.index}
             stroke="var(--outline)"
-            label={{ value: boundary.label, position: "top", fill: "#9ca3af", fontSize: 9 }}
+            label={{ value: boundary.label, position: "insideBottom", fill: "#9ca3af", fontSize: 9 }}
           />
         ))}
         <Line
