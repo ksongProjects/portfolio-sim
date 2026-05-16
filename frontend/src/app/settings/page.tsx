@@ -33,11 +33,13 @@ function ProviderCard({
   onSave,
   onValidate,
   onRefresh,
+  onDelete,
 }: {
   provider: ProviderConfig;
   onSave: (providerId: string, apiKey: string, payload?: ProviderSavePayload) => Promise<boolean>;
   onValidate: (providerId: string, apiKey: string) => Promise<ProviderValidationResult>;
   onRefresh?: () => Promise<{ success: boolean; error?: string }>;
+  onDelete?: (providerId: string) => Promise<boolean>;
 }) {
   const [apiKey, setApiKey] = useState("");
   const [showSecret, setShowSecret] = useState(false);
@@ -83,7 +85,7 @@ function ProviderCard({
     setSaving(false);
   };
 
-  const handleRefresh = async () => {
+const handleRefresh = async () => {
     if (!onRefresh) return;
     setRefreshing(true);
     setRefreshError(null);
@@ -92,6 +94,12 @@ function ProviderCard({
       setRefreshError(result.error || "Failed to refresh");
     }
     setRefreshing(false);
+  };
+
+  const handleDelete = async () => {
+    if (!onDelete) return;
+    if (!confirm(`Remove ${provider.name} configuration?`)) return;
+    await onDelete(provider.provider_id);
   };
 
   const status: ProviderStatus = provider.token_expired
@@ -174,7 +182,7 @@ function ProviderCard({
             <span>{provider.validation_error}</span>
           </div>
         )}
-        {refreshError && (
+{refreshError && (
           <div className="flex items-center gap-2 text-sm text-error">
             <XCircle className="h-4 w-4" />
             <span>{refreshError}</span>
@@ -189,6 +197,12 @@ function ProviderCard({
             <Button variant="warning" size="sm" onClick={handleRefresh} disabled={refreshing}>
               <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
               {refreshing ? "Refreshing..." : "Refresh Token"}
+            </Button>
+          )}
+          {(provider.validation_error || provider.token_expired) && hasStoredKey && onDelete && (
+            <Button variant="destructive" size="sm" onClick={handleDelete}>
+              <Trash2 className="h-4 w-4" />
+              Remove
             </Button>
           )}
         </div>
@@ -388,7 +402,7 @@ function MarketIndicesCard({
 }
 
 export default function SettingsPage() {
-  const {
+const {
     providers,
     connections,
     rssFeeds,
@@ -401,6 +415,7 @@ export default function SettingsPage() {
     deleteRSSFeed,
     refreshQuestradeToken,
     saveMarketIndexSettings,
+    deleteProviderKey,
   } = useProviders();
 
   const [notificationSettings, setNotificationSettings] = useState({
@@ -485,7 +500,7 @@ export default function SettingsPage() {
                 <CardTitle className="mb-4">Market Data Providers</CardTitle>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {marketDataProviders.map((p) => (
-                    <ProviderCard key={p.provider_id} provider={p} onSave={saveProviderKey} onValidate={validateProviderKey} onRefresh={p.provider_id === "questrade" ? refreshQuestradeToken : undefined} />
+                    <ProviderCard key={p.provider_id} provider={p} onSave={saveProviderKey} onValidate={validateProviderKey} onRefresh={p.provider_id === "questrade" ? refreshQuestradeToken : undefined} onDelete={deleteProviderKey} />
                   ))}
                 </div>
               </div>

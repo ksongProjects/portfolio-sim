@@ -298,6 +298,33 @@ export function useProviders() {
     ]);
   }, [connectionsQuery, marketIndexSettingsQuery, providersQuery, rssFeedsQuery]);
 
+  const deleteProviderConfigMutation = useMutation({
+    mutationFn: async (providerId: string) => {
+      const res = await apiFetch(`/api/providers?id=${encodeURIComponent(providerId)}`, {
+        method: "DELETE",
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to delete provider");
+      }
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["providers"] });
+    },
+  });
+
+  const deleteProviderKey = useCallback(
+    async (providerId: string): Promise<boolean> => {
+      try {
+        await deleteProviderConfigMutation.mutateAsync(providerId);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [deleteProviderConfigMutation]
+  );
+
   const refreshQuestradeToken = useCallback(async (): Promise<{ success: boolean; error?: string }> => {
     try {
       await refreshQuestradeTokenMutation.mutateAsync();
@@ -352,5 +379,6 @@ export function useProviders() {
     refresh,
     refreshQuestradeToken,
     saveMarketIndexSettings,
+    deleteProviderKey,
   };
 }

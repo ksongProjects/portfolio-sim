@@ -200,6 +200,7 @@ func (s *Server) Start() error {
 	http.HandleFunc("POST /api/providers/questrade/oauth", lm(http.HandlerFunc(s.handleSaveQuestradeOAuth)))
 	http.HandleFunc("GET /api/providers/questrade/oauth", lm(http.HandlerFunc(s.handleGetQuestradeOAuth)))
 	http.HandleFunc("POST /api/providers/questrade/refresh", lm(http.HandlerFunc(s.handleRefreshQuestradeToken)))
+	http.HandleFunc("DELETE /api/providers", lm(http.HandlerFunc(s.handleDeleteProvider)))
 	http.HandleFunc("GET /api/connections", lm(http.HandlerFunc(s.handleGetConnections)))
 	http.HandleFunc("GET /api/rss-feeds", lm(http.HandlerFunc(s.handleGetRSSFeeds)))
 	http.HandleFunc("POST /api/rss-feeds", lm(http.HandlerFunc(s.handleAddRSSFeed)))
@@ -1120,6 +1121,28 @@ func (s *Server) handleRefreshQuestradeToken(w http.ResponseWriter, r *http.Requ
 	json.NewEncoder(w).Encode(map[string]string{"status": "refreshed"})
 }
 
+func (s *Server) handleDeleteProvider(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	providerID := r.URL.Query().Get("id")
+	if providerID == "" {
+		http.Error(w, "provider id required", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.providerSvc.DeleteProviderConfig(r.Context(), s.db, providerID); err != nil {
+		s.logger.Error("failed to delete provider config", "provider_id", providerID, "error", err)
+		http.Error(w, "failed to delete provider", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+}
+
 func (s *Server) handleSearchTickers(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("q")
 	if query == "" {
@@ -1159,7 +1182,8 @@ func (s *Server) handleGetTickerDetails(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	intraday, _ := s.tickerSvc.GetIntradayBars(r.Context(), symbol, "")
+	intradayRange := r.URL.Query().Get("range")
+	intraday, _ := s.tickerSvc.GetIntradayBars(r.Context(), symbol, "", intradayRange)
 	ratios, _ := s.tickerSvc.GetFinancialRatios(r.Context(), symbol)
 
 	response := map[string]interface{}{

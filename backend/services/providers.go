@@ -189,6 +189,14 @@ func (s *ProviderService) UpdateProviderValidationState(ctx context.Context, db 
 	return err
 }
 
+func (s *ProviderService) DeleteProviderConfig(ctx context.Context, db interface {
+	Exec(ctx context.Context, sql string, args ...interface{}) (int64, error)
+}, providerID string) error {
+	query := `DELETE FROM provider_configurations WHERE provider_id = $1`
+	_, err := db.Exec(ctx, query, providerID)
+	return err
+}
+
 func (s *ProviderService) StoredProviderKeyMatches(ctx context.Context, db interface {
 	QueryRow(ctx context.Context, sql string, args ...interface{}) (pgx.Row, error)
 }, providerID, apiKey string) (bool, error) {
