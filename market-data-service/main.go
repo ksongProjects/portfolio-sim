@@ -647,8 +647,18 @@ func (s *MarketDataService) handleIntradayBars(w http.ResponseWriter, r *http.Re
 	if interval == "" {
 		interval = "1min"
 	}
-	limit := 100
-	bars, err := s.storage.GetIntradayBars(r.Context(), symbol, interval, limit)
+	rangeParam := r.URL.Query().Get("range")
+	var from, to time.Time
+	to = time.Now()
+	switch rangeParam {
+	case "1w":
+		from = to.AddDate(0, 0, -7)
+	case "1m":
+		from = to.AddDate(0, -1, 0)
+	default:
+		from = to.AddDate(0, 0, -1)
+	}
+	bars, err := s.storage.GetIntradayBars(r.Context(), symbol, interval, from, to)
 	if err != nil {
 		s.logClient.ErrorWithMeta(r.Context(), "get intraday bars failed", map[string]interface{}{"symbol": symbol, "error": err.Error()})
 		w.Header().Set("Content-Type", "application/json")

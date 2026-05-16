@@ -232,13 +232,20 @@ func (s *TickerService) GetTickerQuote(ctx context.Context, symbol string) (*Tic
 	return s.getTickerDetails(ctx, symbol, false)
 }
 
-func (s *TickerService) GetIntradayBars(ctx context.Context, symbol string, interval string) ([]IntradayBar, error) {
+func (s *TickerService) GetIntradayBars(ctx context.Context, symbol string, interval string, rangeParam string) ([]IntradayBar, error) {
 	param := ""
 	if interval != "" && interval != "1min" {
 		param = "?interval=" + interval
 	}
+	if rangeParam != "" {
+		if param == "" {
+			param = "?range=" + rangeParam
+		} else {
+			param += "&range=" + rangeParam
+		}
+	}
 	url := fmt.Sprintf("%s/api/tickers/%s/intraday%s", s.marketDataURL, symbol, param)
-	s.logger.Info("Fetching intraday bars", "url", url, "symbol", symbol, "interval", interval)
+	s.logger.Info("Fetching intraday bars", "url", url, "symbol", symbol, "interval", interval, "range", rangeParam)
 
 	body, status, _, err := s.doGet(ctx, url, map[string]interface{}{"symbol": symbol, "operation": "get_intraday_bars"})
 	if err != nil {

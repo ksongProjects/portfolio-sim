@@ -208,10 +208,12 @@ func (s *Server) Start() error {
 	http.HandleFunc("POST /api/rss-feeds/scrape", lm(http.HandlerFunc(s.handleScrapeRSSFeeds)))
 	http.HandleFunc("GET /api/tickers/search", lm(http.HandlerFunc(s.handleSearchTickers)))
 	http.HandleFunc("GET /api/tickers/", lm(http.HandlerFunc(s.handleGetTickerDetails)))
+	http.HandleFunc("GET /api/channels/search", lm(http.HandlerFunc(s.handleSearchChannels)))
 	http.HandleFunc("GET /api/channels", lm(http.HandlerFunc(s.handleGetChannels)))
 	http.HandleFunc("GET /api/videos/latest", lm(http.HandlerFunc(s.handleGetLatestVideos)))
 	http.HandleFunc("GET /api/videos", lm(http.HandlerFunc(s.handleGetStoredVideos)))
 	http.HandleFunc("POST /api/videos/analyze", lm(http.HandlerFunc(s.handleAnalyzeVideo)))
+	http.HandleFunc("POST /api/videos/summarize", lm(http.HandlerFunc(s.handleSummarizeVideos)))
 	http.HandleFunc("GET /api/stream/market", s.handleMarketStream)
 
 	s.logger.Info("main api server starting", "port", s.cfg.Server.HTTPPort)
@@ -1258,13 +1260,41 @@ func (s *Server) handleGetChannels(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
+func (s *Server) handleSearchChannels(w http.ResponseWriter, r *http.Request) {
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	if query == "" {
+		http.Error(w, "q parameter required", http.StatusBadRequest)
+		return
+	}
+	data, err := s.newsFeedSvc.SearchChannels(r.Context(), query)
+	if err != nil {
+		s.logger.Error("search channels failed", "error", err)
+		http.Error(w, "failed to search channels", http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(data)
+}
+
 func (s *Server) handleGetLatestVideos(w http.ResponseWriter, r *http.Request) {
-	channelID := r.URL.Query().Get("channel_id")
+	channelID := strings.TrimSpace(r.URL.Query().Get("channel_id"))
 	if channelID == "" {
 		http.Error(w, "channel_id required", http.StatusBadRequest)
 		return
 	}
-	data, err := s.newsFeedSvc.GetLatestVideos(r.Context(), channelID)
+	limit := 10
+	if rawLimit := r.URL.Query().Get("limit"); rawLimit != "" {
+		parsed, err := strconv.Atoi(rawLimit)
+		if err != nil || parsed <= 0 {
+			http.Error(w, "limit must be a positive integer", http.StatusBadRequest)
+			return
+		}
+		if parsed > 50 {
+			parsed = 50
+		}
+		limit = parsed
+	}
+	data, err := s.newsFeedSvc.GetLatestVideos(r.Context(), channelID, limit)
 	if err != nil {
 		s.logger.Error("get latest videos failed", "error", err)
 		http.Error(w, "failed to get videos", http.StatusBadGateway)
@@ -1304,6 +1334,32 @@ func (s *Server) handleAnalyzeVideo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleSummarizeVideos(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Videos []services.VideoSummaryRequest `json:"videos"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	if len(req.Videos) == 0 {
+		http.Error(w, "videos required", http.StatusBadRequest)
+		return
+	}
+	data, err := s.newsFeedSvc.SummarizeVideos(r.Context(), req.Videos)
+	if err != nil {
+		s.logger.Error("summarize videos failed", "error", err)
+		http.Error(w, "failed to summarize videos", http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(data)
 }
 
 func main() {

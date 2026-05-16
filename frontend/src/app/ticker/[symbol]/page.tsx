@@ -28,8 +28,12 @@ function fmtNumber(v: number): string {
 }
 
 function formatTime(timestamp: string): string {
-  const parts = timestamp.split(" ");
-  return parts.length > 1 ? parts[1] : timestamp;
+  const date = new Date(timestamp);
+  if (isNaN(date.getTime())) {
+    const parts = timestamp.split(" ");
+    return parts.length > 1 ? parts[1].substring(0, 5) : timestamp;
+  }
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 function CustomTooltip({ active, payload }: { active?: boolean; payload?: Array<{ value: number; payload: { timestamp: string; open: number; high: number; low: number; close: number; volume: number } }> }) {
@@ -59,7 +63,7 @@ function IntradayChart({ data }: { data: { timestamp: string; close: number }[] 
   const isUp = lastClose >= firstClose;
   const color = isUp ? "#3fe56c" : "#ff4d4d";
 
-  const chartData = data.map(d => ({
+  const chartData = [...data].reverse().map(d => ({
     ...d,
     time: formatTime(d.timestamp),
   }));
@@ -68,26 +72,28 @@ function IntradayChart({ data }: { data: { timestamp: string; close: number }[] 
     <ResponsiveContainer width="100%" height={280}>
       <LineChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="var(--outline-variant)" />
-        <XAxis 
-          dataKey="time" 
-          tick={{ fontSize: 10, fill: "var(--on-surface-variant)" }}
-          tickLine={false}
+        <XAxis
+          dataKey="time"
+          tick={{ fontSize: 10, fill: "#9ca3af" }}
+          tickLine={true}
           axisLine={{ stroke: "var(--outline)" }}
-          interval="preserveStartEnd"
+          interval={Math.floor(chartData.length / 6)}
+          tickCount={6}
         />
-        <YAxis 
+        <YAxis
           domain={["auto", "auto"]}
-          tick={{ fontSize: 10, fill: "var(--on-surface-variant)" }}
-          tickLine={false}
+          tick={{ fontSize: 10, fill: "#9ca3af" }}
+          tickLine={true}
           axisLine={false}
           tickFormatter={(v) => v.toFixed(0)}
           width={60}
+          tickCount={5}
         />
         <Tooltip content={<CustomTooltip />} />
-        <Line 
-          type="monotone" 
-          dataKey="close" 
-          stroke={color} 
+        <Line
+          type="monotone"
+          dataKey="close"
+          stroke={color}
           strokeWidth={2}
           dot={false}
           activeDot={{ r: 4, fill: color }}
@@ -110,7 +116,7 @@ function RatioCard({ ratio }: { ratio: { label: string; value: string; descripti
 export default function TickerPage() {
   const params = useParams();
   const symbol = params.symbol as string;
-  const { selectedTicker, intradayData, ratios, loading } = useTickerLookup(symbol);
+  const { selectedTicker, intradayData, ratios, loading, chartRange, setChartRange } = useTickerLookup(symbol);
 
   if (loading) {
     return (
@@ -171,9 +177,25 @@ export default function TickerPage() {
         </div>
 
         <div className="bg-surface-container-low border border-outline-variant p-4">
-          <div className="flex items-center gap-1 mb-3">
-            <Activity className="h-4 w-4 text-on-surface-variant" />
-            <span className="text-xs font-semibold uppercase tracking-[0.08em] text-on-surface-variant">Intraday Chart</span>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-1">
+              <Activity className="h-4 w-4 text-on-surface-variant" />
+              <span className="text-xs font-semibold uppercase tracking-[0.08em] text-on-surface-variant">Intraday Chart</span>
+            </div>
+            <div className="flex gap-1">
+              {(["1d", "1w", "1m"] as const).map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setChartRange(r)}
+                  className={cn(
+                    "px-2 py-1 text-xs rounded",
+                    chartRange === r ? "bg-primary text-on-primary" : "text-on-surface-variant hover:bg-surface-container-high"
+                  )}
+                >
+                  {r.toUpperCase()}
+                </button>
+              ))}
+            </div>
           </div>
           <IntradayChart data={intradayData} />
         </div>
