@@ -270,13 +270,77 @@ type TickerPriceBar struct {
 	Volume    int64   `json:"volume"`
 }
 
+type TickerQuote struct {
+	Symbol      string
+	Name        string
+	Exchange    string
+	Price       float64
+	Change      float64
+	ChangePct   float64
+	Volume      int64
+	AvgVolume   int64
+	MarketCap   float64
+	Sector      string
+	Industry    string
+	Timestamp   time.Time
+}
+
+func (s *PortfolioService) GetTickerQuote(ctx context.Context, db interface {
+	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
+}, symbol string) (*TickerQuote, error) {
+	query := `
+		SELECT t.symbol, t.company_name, t.exchange,
+		       np.price, np.change, np.change_pct, np.volume, np.timestamp
+		FROM tickers t
+		LEFT JOIN normalized_prices np ON np.ticker_id = t.id
+		WHERE t.symbol = $1 AND t.is_active = true
+		  AND (np.timestamp IS NULL OR np.timestamp = (
+			SELECT MAX(timestamp) FROM normalized_prices WHERE ticker_id = t.id
+		))
+		ORDER BY np.timestamp DESC NULLS LAST
+		LIMIT 1
+	`
+	rows, err := db.Query(ctx, query, symbol)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	if rows.Next() {
+		var q TickerQuote
+		var price, change, changePct *float64
+		var volume *int64
+		var ts *time.Time
+		if err := rows.Scan(&q.Symbol, &q.Name, &q.Exchange, &price, &change, &changePct, &volume, &ts); err != nil {
+			return nil, err
+		}
+		if price != nil {
+			q.Price = *price
+		}
+		if change != nil {
+			q.Change = *change
+		}
+		if changePct != nil {
+			q.ChangePct = *changePct
+		}
+		if volume != nil {
+			q.Volume = *volume
+		}
+		if ts != nil {
+			q.Timestamp = *ts
+		}
+		return &q, nil
+	}
+	return nil, nil
+}
+
 func (s *PortfolioService) GetPriceBars(ctx context.Context, db interface {
 	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
 }, tickerID string, hours int) ([]TickerPriceBar, error) {
 	query := `
 		SELECT timestamp, price, volume
 		FROM normalized_prices
-		WHERE ticker_id = $1 AND timestamp >= NOW() - ($2 || ' hours')::INTERVAL
+		WHERE ticker_id = $1 AND timestamp >= NOW() - make_interval(hours => $2)
 		ORDER BY timestamp ASC
 	`
 	rows, err := db.Query(ctx, query, tickerID, hours)
@@ -341,10 +405,11 @@ func (s *PortfolioService) GetPositions(ctx context.Context, db interface {
 }, portfolioID string) ([]Position, error) {
 	query := `
 		SELECT p.id, p.portfolio_id, p.ticker_id, t.symbol, t.company_name,
-			   p.quantity, p.avg_cost, p.opened_at,
-			   COALESCE(t.sector, '') as sector
+			   COALESCE(fd.json_data->>'sector', '') as sector,
+			   p.quantity, p.avg_cost, p.opened_at
 		FROM positions p
 		JOIN tickers t ON t.id = p.ticker_id
+		LEFT JOIN fundamental_data fd ON fd.ticker_id = t.id AND fd.data_type = 'company_profile'
 		WHERE p.portfolio_id = $1
 		ORDER BY p.quantity * p.avg_cost DESC
 	`
@@ -358,7 +423,7 @@ func (s *PortfolioService) GetPositions(ctx context.Context, db interface {
 	for rows.Next() {
 		var pos Position
 		if err := rows.Scan(&pos.ID, &pos.PortfolioID, &pos.TickerID, &pos.Symbol,
-			&pos.CompanyName, &pos.Quantity, &pos.AvgCost, &pos.OpenedAt, &pos.Sector); err != nil {
+			&pos.CompanyName, &pos.Sector, &pos.Quantity, &pos.AvgCost, &pos.OpenedAt); err != nil {
 			continue
 		}
 		positions = append(positions, pos)
@@ -506,8 +571,8 @@ func (s *PortfolioService) SaveCompanyProfile(ctx context.Context, db interface 
 		return err
 	}
 	query := `
-		INSERT INTO fundamental_data (ticker_id, source_id, data_type, json_data, timestamp)
-		VALUES ($1, 'company_profile', 'profile', $2, NOW())
+		INSERT INTO fundamental_data (ticker_id, source_id, data_type, period, json_data, timestamp)
+		VALUES ($1, 'company_profile', 'profile', '', $2, NOW())
 	`
 	_, err = db.Exec(ctx, query, tickerID, data)
 	return err

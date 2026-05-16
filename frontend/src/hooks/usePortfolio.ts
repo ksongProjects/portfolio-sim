@@ -181,7 +181,6 @@ export function usePortfolio(portfolioId = "default", options: UsePortfolioOptio
 				TickerID: "",
 				Symbol: symbol,
 				CompanyName: symbol,
-				Sector: "",
 				Quantity: variables.shares,
 				AvgCost: variables.price,
 				CurrentPrice: variables.price,
