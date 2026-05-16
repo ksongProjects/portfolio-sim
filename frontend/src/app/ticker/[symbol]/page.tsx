@@ -136,8 +136,13 @@ function IntradayChart({ data }: { data: { timestamp: string; close: number }[] 
           tick={{ fontSize: 10, fill: "#9ca3af" }}
           tickLine={true}
           axisLine={{ stroke: "var(--outline)" }}
-          interval={Math.floor(chartData.length / 8)}
-          tickFormatter={(val) => val}
+          interval="preserveStartEnd"
+          tickFormatter={(val, index) => {
+            const item = chartData[index];
+            if (!item) return "";
+            const date = new Date(item.origTimestamp || item.timestamp);
+            return date.getMinutes() === 0 ? val : "";
+          }}
         />
         <YAxis
           domain={["auto", "auto"]}

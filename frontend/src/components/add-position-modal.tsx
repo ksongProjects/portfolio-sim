@@ -119,8 +119,13 @@ const reversedData = [...data].reverse();
           tick={{ fontSize: 9, fill: "#9ca3af" }}
           tickLine={true}
           axisLine={{ stroke: "var(--outline)" }}
-          interval={Math.floor(chartData.length / 6)}
-          tickFormatter={(val) => val}
+          interval="preserveStartEnd"
+          tickFormatter={(val, index) => {
+            const item = chartData[index];
+            if (!item) return "";
+            const date = new Date(item.origTimestamp || item.timestamp);
+            return date.getMinutes() === 0 ? val : "";
+          }}
         />
         <YAxis
           domain={["auto", "auto"]}
