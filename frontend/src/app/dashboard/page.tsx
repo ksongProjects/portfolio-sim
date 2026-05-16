@@ -166,7 +166,7 @@ export default function DashboardPage() {
                     <TableCell className="font-mono font-semibold">{pos.Symbol}</TableCell>
                     <TableCell className="font-mono">{pos.Quantity}</TableCell>
                     <TableCell className="font-mono">{fmtCurrency(pos.AvgCost)}</TableCell>
-                    <TableCell className="font-mono">{fmtCurrency(pos.CurrentValue)}</TableCell>
+                    <TableCell className="font-mono">{fmtCurrency(pos.Quantity * pos.AvgCost)}</TableCell>
                     <TableCell className="text-on-surface-variant">Today</TableCell>
                   </TableRow>
                 ))}
