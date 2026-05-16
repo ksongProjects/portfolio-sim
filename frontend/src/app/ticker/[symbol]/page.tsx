@@ -42,21 +42,16 @@ function formatHourLabel(timestamp: string): string {
   return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-function getHourTicks(data: { timestamp: string }[]): string[] {
+function getHourIndices(data: { timestamp: string }[]): number[] {
   if (data.length === 0) return [];
-  const seen = new Set<string>();
-  const ticks: string[] = [];
-  for (const d of data) {
-    const date = new Date(d.timestamp);
-    if (!isNaN(date.getTime())) {
-      const hourKey = `${date.getHours()}`;
-      if (!seen.has(hourKey)) {
-        seen.add(hourKey);
-        ticks.push(d.timestamp);
-      }
+  const indices: number[] = [];
+  for (let i = 0; i < data.length; i++) {
+    const date = new Date(data[i].timestamp);
+    if (!isNaN(date.getTime()) && date.getMinutes() === 0) {
+      indices.push(i);
     }
   }
-  return ticks;
+  return indices;
 }
 
 function CustomTooltip({ active, payload }: { active?: boolean; payload?: Array<{ value: number; payload: { timestamp: string; open: number; high: number; low: number; close: number; volume: number } }> }) {
@@ -86,10 +81,12 @@ function IntradayChart({ data }: { data: { timestamp: string; close: number }[] 
   const isUp = lastClose >= firstClose;
   const color = isUp ? "#3fe56c" : "#ff4d4d";
 
-  const chartData = [...data].reverse().map(d => ({
+  const reversedData = [...data].reverse();
+  const chartData = reversedData.map(d => ({
     ...d,
     time: formatTime(d.timestamp),
   }));
+  const hourIndices = getHourIndices(reversedData);
 
   return (
     <ResponsiveContainer width="100%" height={280}>
@@ -100,8 +97,13 @@ function IntradayChart({ data }: { data: { timestamp: string; close: number }[] 
           tick={{ fontSize: 10, fill: "#9ca3af" }}
           tickLine={true}
           axisLine={{ stroke: "var(--outline)" }}
-          interval={Math.floor(chartData.length / 6)}
-          tickCount={6}
+          interval="preserveStartEnd"
+          tickFormatter={(val, index) => {
+            if (hourIndices.includes(reversedData.length - 1 - index)) {
+              return formatHourLabel(reversedData[reversedData.length - 1 - index].timestamp);
+            }
+            return "";
+          }}
         />
         <YAxis
           domain={["auto", "auto"]}

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { X, Search, TrendingUp, TrendingDown, BarChart2, DollarSign, Percent, Clock, ChevronRight } from "lucide-react";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -30,42 +31,83 @@ function fmtNumber(v: number): string {
   return v.toFixed(2);
 }
 
+function formatTime(timestamp: string): string {
+  const date = new Date(timestamp);
+  if (isNaN(date.getTime())) {
+    const parts = timestamp.split(" ");
+    return parts.length > 1 ? parts[1].substring(0, 5) : timestamp;
+  }
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatHourLabel(timestamp: string): string {
+  const date = new Date(timestamp);
+  if (isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function getHourIndices(data: { timestamp: string }[]): number[] {
+  if (data.length === 0) return [];
+  const indices: number[] = [];
+  for (let i = 0; i < data.length; i++) {
+    const date = new Date(data[i].timestamp);
+    if (!isNaN(date.getTime()) && date.getMinutes() === 0) {
+      indices.push(i);
+    }
+  }
+  return indices;
+}
+
 function IntradayChart({ data }: { data: IntradayBar[] }) {
   if (data.length === 0) return <div className="h-32 flex items-center justify-center text-on-surface-variant text-sm">No chart data</div>;
 
-  const sorted = [...data].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-  const prices = sorted.map((d) => d.close);
-  const min = Math.min(...prices);
-  const max = Math.max(...prices);
-  const range = max - min || 1;
-  const height = 120;
-
-  const firstClose = sorted[0]?.close || 0;
-  const lastClose = sorted[sorted.length - 1]?.close || 0;
+  const firstClose = data[0]?.close || 0;
+  const lastClose = data[data.length - 1]?.close || 0;
   const isUp = lastClose >= firstClose;
+  const color = isUp ? "#3fe56c" : "#ff4d4d";
 
-  const points = sorted.map((bar, i) => {
-    const x = (i / (sorted.length - 1)) * 100;
-    const y = height - ((bar.close - min) / range) * height;
-    return `${x},${y}`;
-  }).join(" ");
+  const reversedData = [...data].reverse();
+  const chartData = reversedData.map(d => ({
+    ...d,
+    time: formatTime(d.timestamp),
+  }));
+  const hourIndices = getHourIndices(reversedData);
 
   return (
-    <div className="relative h-32">
-      <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full" style={{ width: "100%", height: height }}>
-        <polyline
-          points={points}
-          fill="none"
-          stroke={isUp ? "#3fe56c" : "#ff4d4d"}
-          strokeWidth="1.5"
-          vectorEffect="non-scaling-stroke"
+    <ResponsiveContainer width="100%" height={120}>
+      <LineChart data={chartData} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--outline-variant)" />
+        <XAxis
+          dataKey="time"
+          tick={{ fontSize: 9, fill: "#9ca3af" }}
+          tickLine={true}
+          axisLine={{ stroke: "var(--outline)" }}
+          interval="preserveStartEnd"
+          tickFormatter={(val, index) => {
+            if (hourIndices.includes(reversedData.length - 1 - index)) {
+              return formatHourLabel(reversedData[reversedData.length - 1 - index].timestamp);
+            }
+            return "";
+          }}
         />
-      </svg>
-      <div className="absolute bottom-0 left-0 right-0 flex justify-between text-[10px] text-on-surface-variant/50 pt-1">
-        <span>{sorted[0]?.timestamp?.split(" ")[1] || ""}</span>
-        <span>{sorted[sorted.length - 1]?.timestamp?.split(" ")[1] || ""}</span>
-      </div>
-    </div>
+        <YAxis
+          domain={["auto", "auto"]}
+          tick={{ fontSize: 9, fill: "#9ca3af" }}
+          tickLine={false}
+          axisLine={false}
+          tickFormatter={(v) => v.toFixed(0)}
+          width={45}
+        />
+        <Line
+          type="monotone"
+          dataKey="close"
+          stroke={color}
+          strokeWidth={1.5}
+          dot={false}
+          activeDot={{ r: 3, fill: color }}
+        />
+      </LineChart>
+    </ResponsiveContainer>
   );
 }
 

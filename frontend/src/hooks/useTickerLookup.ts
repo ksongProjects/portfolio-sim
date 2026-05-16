@@ -126,21 +126,10 @@ export function useTickerLookup(initialSymbol?: string) {
     async (symbol: string, interval = "1min") => {
       setManualSelectedSymbol(symbol);
 
-      try {
-        if (symbol === selectedSymbol && interval === "1min") {
-          await detailsQuery.refetch();
-          return;
-        }
-
-        await queryClient.fetchQuery({
-          queryKey: ["tickers", "details", symbol],
-          queryFn: () => fetchTickerDetails(symbol),
-        });
-      } catch {
-        // detailsQuery exposes failure state for callers that render errors
-      }
+      await queryClient.invalidateQueries({ queryKey: ["tickers", "details", symbol] });
+      await queryClient.invalidateQueries({ queryKey: ["tickers", "intraday", symbol] });
     },
-    [detailsQuery, queryClient, selectedSymbol]
+    [queryClient]
   );
 
   const clearSelection = useCallback(() => {

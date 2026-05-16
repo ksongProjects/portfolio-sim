@@ -209,6 +209,7 @@ func (p *MassiveProvider) FetchPrice(ticker string) (*Price, error) {
 		Price:     price,
 		Change:    change,
 		ChangePct: changePct,
+		DayOpen:   0,
 		Bid:       bid,
 		Ask:       ask,
 		Volume:    volume,

@@ -358,6 +358,7 @@ type TickerDetails struct {
 	Price     float64 `json:"price"`
 	Change    float64 `json:"change"`
 	ChangePct float64 `json:"changePct"`
+	DayOpen   float64 `json:"dayOpen"`
 	Volume    int64   `json:"volume"`
 	MarketCap float64 `json:"marketCap"`
 }
@@ -388,6 +389,13 @@ func (s *Storage) UpdateTickerPrice(ctx context.Context, symbol string, price, c
 		INSERT INTO normalized_prices (ticker_id, price, change, change_pct, volume, market_cap, source_id, timestamp)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
 	`, tickerID, price, change, changePct, volume, marketCap, sourceID)
+	return err
+}
+
+func (s *Storage) UpdateTickerProfile(ctx context.Context, symbol, sector, industry string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE tickers SET sector = $2, industry = $3 WHERE symbol = $1
+	`, symbol, sector, industry)
 	return err
 }
 

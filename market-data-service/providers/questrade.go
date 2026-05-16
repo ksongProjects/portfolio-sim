@@ -719,6 +719,7 @@ func (p *QuestradeProvider) FetchPrice(ticker string) (*Price, error) {
 		Price:     price,
 		Change:    quote.Change,
 		ChangePct: quote.ChangePct,
+		DayOpen:   quote.OpenPrice,
 		Bid:       quote.BidPrice,
 		Ask:       quote.AskPrice,
 		Volume:    quote.Volume,

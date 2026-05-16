@@ -271,14 +271,9 @@ func (s *PortfolioService) GetPositions(ctx context.Context, db interface {
 	query := `
 		SELECT p.id, p.portfolio_id, p.ticker_id, t.symbol, t.company_name,
 			   p.quantity, p.avg_cost, p.opened_at,
-			   COALESCE(fd.json_data->>'sector', '') as sector
+			   COALESCE(t.sector, '') as sector
 		FROM positions p
 		JOIN tickers t ON t.id = p.ticker_id
-		LEFT JOIN LATERAL (
-			SELECT json_data FROM fundamental_data
-			WHERE ticker_id = t.id AND data_type = 'profile'
-			ORDER BY timestamp DESC LIMIT 1
-		) fd ON true
 		WHERE p.portfolio_id = $1
 		ORDER BY p.quantity * p.avg_cost DESC
 	`

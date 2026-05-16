@@ -23,7 +23,6 @@ import (
 	"github.com/portfolio-sim/market-data-service/sse"
 	"github.com/portfolio-sim/market-data-service/storage"
 	"github.com/portfolio-sim/shared/secrets"
-	"github.com/google/uuid"
 )
 
 type MarketDataService struct {
@@ -410,6 +409,31 @@ func isMarketOpen() bool {
 	return isPreMarket || isRegular || isAfterHours
 }
 
+func minutesUntilNextMarketOpen() time.Duration {
+	loc := time.Local
+	now := time.Now().In(loc)
+	day := now.Weekday()
+	hour, min := now.Hour(), now.Minute()
+	currentMinutes := hour*60 + min
+
+	if day == time.Saturday {
+		return time.Date(now.Year(), now.Month(), now.Day()+2, 4, 0, 0, 0, loc).Sub(now)
+	}
+	if day == time.Sunday {
+		return time.Date(now.Year(), now.Month(), now.Day()+1, 4, 0, 0, 0, loc).Sub(now)
+	}
+
+	if currentMinutes < 4*60 {
+		return time.Duration(4*60-currentMinutes) * time.Minute
+	}
+	if currentMinutes >= 20*60 {
+		tomorrow := now.AddDate(0, 0, 1)
+		return time.Date(tomorrow.Year(), tomorrow.Month(), tomorrow.Day(), 4, 0, 0, 0, loc).Sub(now)
+	}
+
+	return 0
+}
+
 func sleepWithContext(ctx context.Context, d time.Duration) bool {
 	timer := time.NewTimer(d)
 	defer timer.Stop()
@@ -424,12 +448,10 @@ func sleepWithContext(ctx context.Context, d time.Duration) bool {
 func (s *MarketDataService) runMarketHoursMonitor() {
 	for {
 		open := isMarketOpen()
-		s.logClient.InfoWithMeta(context.Background(), "market hours check", map[string]interface{}{
-			"is_open":   open,
-			"timestamp": time.Now().Format(time.RFC3339),
-		})
-
 		if open {
+			s.logClient.InfoWithMeta(context.Background(), "market open, starting fetchers", map[string]interface{}{
+				"timestamp": time.Now().Format(time.RFC3339),
+			})
 			tickerSymbols := s.storage.GetActiveTickers(context.Background())
 			for _, sym := range s.cfg.AlwaysFetchTicks {
 				found := false
@@ -449,8 +471,19 @@ func (s *MarketDataService) runMarketHoursMonitor() {
 					s.logClient.InfoWithMeta(context.Background(), "started permanent price fetcher", map[string]interface{}{"ticker": ticker, "provider": provider.Name()})
 				}
 			}
+			time.Sleep(1 * time.Minute)
+		} else {
+			sleepDuration := minutesUntilNextMarketOpen()
+			if sleepDuration > 0 {
+				s.logClient.InfoWithMeta(context.Background(), "market closed, sleeping until next open", map[string]interface{}{
+					"minutes": int(sleepDuration.Minutes()),
+					"timestamp": time.Now().Format(time.RFC3339),
+				})
+				time.Sleep(sleepDuration)
+			} else {
+				time.Sleep(1 * time.Minute)
+			}
 		}
-		time.Sleep(1 * time.Minute)
 	}
 }
 
@@ -671,17 +704,8 @@ func (s *MarketDataService) handleTickerDetails(w http.ResponseWriter, r *http.R
 		}
 	}
 	if newDetails.Sector != "" || newDetails.Industry != "" {
-		tickerID, tickerErr := s.storage.GetTickerID(r.Context(), symbol)
-		if tickerErr != nil {
-			s.logClient.WarnWithMeta(r.Context(), "get ticker id failed for profile store", map[string]interface{}{"symbol": symbol, "error": tickerErr.Error()})
-		} else if tickerID != uuid.Nil {
-			profileData := map[string]string{
-				"sector":   newDetails.Sector,
-				"industry": newDetails.Industry,
-			}
-			if err := s.storage.InsertFundamentalData(r.Context(), tickerID, quoteSource, "profile", "latest", profileData, time.Now()); err != nil {
-				s.logClient.WarnWithMeta(r.Context(), "failed to store profile data", map[string]interface{}{"symbol": symbol, "error": err.Error()})
-			}
+		if err := s.storage.UpdateTickerProfile(r.Context(), symbol, newDetails.Sector, newDetails.Industry); err != nil {
+			s.logClient.WarnWithMeta(r.Context(), "failed to update ticker profile", map[string]interface{}{"symbol": symbol, "error": err.Error()})
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")

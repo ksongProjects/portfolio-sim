@@ -42,6 +42,7 @@ type tickerDetailsResponse struct {
 	Price         float64 `json:"price"`
 	Change        float64 `json:"change"`
 	ChangePct     float64 `json:"changePct"`
+	DayOpen       float64 `json:"dayOpen"`
 	Volume        int64   `json:"volume"`
 	AvgVolume     int64   `json:"avgVolume"`
 	MarketCap     float64 `json:"marketCap"`
@@ -406,11 +407,17 @@ func mergePriceIntoTickerDetails(target *tickerDetailsResponse, price *providers
 	}
 
 	target.Price = price.Price
-	target.Change = price.Change
-	target.ChangePct = price.ChangePct
 	target.Volume = price.Volume
 	if target.Symbol == "" {
 		target.Symbol = price.Ticker
+	}
+	if price.DayOpen > 0 {
+		target.DayOpen = price.DayOpen
+		target.Change = price.Price - price.DayOpen
+		target.ChangePct = (target.Change / price.DayOpen) * 100
+	} else {
+		target.Change = price.Change
+		target.ChangePct = price.ChangePct
 	}
 }
 
