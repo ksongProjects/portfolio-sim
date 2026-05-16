@@ -129,8 +129,7 @@ function IntradayChart({ data }: { data: IntradayBar[] }) {
           <ReferenceLine
             key={boundary.index}
             x={boundary.index}
-            stroke="var(--outline-variant)"
-            strokeDasharray="4 4"
+            stroke="var(--outline)"
             label={{ value: boundary.label, position: "top", fill: "#9ca3af", fontSize: 9 }}
           />
         ))}
