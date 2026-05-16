@@ -424,10 +424,18 @@ func isMarketOpen() bool {
 	}
 
 	timeInMinutes := hour*60 + min
+
+	preMarketOpen := 4 * 60
+	preMarketEnd := 9*60 + 30
 	marketOpen := 9*60 + 30
 	marketClose := 16 * 60
+	afterHoursEnd := 20 * 60
 
-	return timeInMinutes >= marketOpen && timeInMinutes < marketClose
+	isPreMarket := timeInMinutes >= preMarketOpen && timeInMinutes < preMarketEnd
+	isRegular := timeInMinutes >= marketOpen && timeInMinutes < marketClose
+	isAfterHours := timeInMinutes >= marketClose && timeInMinutes < afterHoursEnd
+
+	return isPreMarket || isRegular || isAfterHours
 }
 
 func sleepWithContext(ctx context.Context, d time.Duration) bool {
