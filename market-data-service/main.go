@@ -470,6 +470,7 @@ func (s *MarketDataService) runMarketHoursMonitor() {
 				if s.startFetcher(ticker, provider, true) {
 					s.logClient.InfoWithMeta(context.Background(), "started permanent price fetcher", map[string]interface{}{"ticker": ticker, "provider": provider.Name()})
 				}
+				s.fetchIntradayBarsForTicker(ticker)
 			}
 			time.Sleep(1 * time.Minute)
 		} else {
@@ -484,6 +485,29 @@ func (s *MarketDataService) runMarketHoursMonitor() {
 				time.Sleep(1 * time.Minute)
 			}
 		}
+	}
+}
+
+func (s *MarketDataService) fetchIntradayBarsForTicker(ticker string) {
+	tickerID, err := s.storage.GetTickerID(context.Background(), ticker)
+	if err != nil {
+		return
+	}
+	operation := backfillOperation("intraday_bars")
+	provider := s.providerForOperation(context.Background(), operation, "")
+	if provider == nil {
+		return
+	}
+	bars, err := provider.FetchIntradayBars(ticker, "1min")
+	if err != nil {
+		return
+	}
+	for _, bar := range bars {
+		normBar, err := s.normalizer.NormalizeIntradayBar(bar, tickerID)
+		if err != nil {
+			continue
+		}
+		s.storage.InsertIntradayBar(context.Background(), normBar.TickerID, normBar.Interval, normBar.Open, normBar.High, normBar.Low, normBar.Close, normBar.Volume, normBar.Timestamp)
 	}
 }
 

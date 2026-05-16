@@ -84,6 +84,15 @@ function getDayBoundaryIndices(data: { timestamp: string }[]): { index: number; 
   return boundaries;
 }
 
+function formatMarketTime(hour: number, minute: number): string {
+  const date = new Date();
+  date.setHours(hour, minute, 0, 0);
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+const PREMARKET_START = formatMarketTime(4, 0);
+const MARKET_CLOSE = formatMarketTime(16, 0);
+
 function IntradayChart({ data }: { data: IntradayBar[] }) {
   if (data.length === 0) return <div className="h-32 flex items-center justify-center text-on-surface-variant text-sm">No chart data</div>;
 
@@ -92,10 +101,11 @@ function IntradayChart({ data }: { data: IntradayBar[] }) {
   const isUp = lastClose >= firstClose;
   const color = isUp ? "#3fe56c" : "#ff4d4d";
 
-  const reversedData = [...data].reverse();
-  const chartData = reversedData.map(d => ({
+const reversedData = [...data].reverse();
+  const chartData = reversedData.map((d, idx) => ({
     ...d,
     time: formatTime(d.timestamp),
+    origTimestamp: d.timestamp,
   }));
   const hourIndices = getHourIndices(reversedData);
   const dayBoundaries = getDayBoundaryIndices(reversedData);
@@ -109,13 +119,8 @@ function IntradayChart({ data }: { data: IntradayBar[] }) {
           tick={{ fontSize: 9, fill: "#9ca3af" }}
           tickLine={true}
           axisLine={{ stroke: "var(--outline)" }}
-          interval="preserveStartEnd"
-          tickFormatter={(val, index) => {
-            if (hourIndices.includes(reversedData.length - 1 - index)) {
-              return formatHourLabel(reversedData[reversedData.length - 1 - index].timestamp);
-            }
-            return "";
-          }}
+          interval={Math.floor(chartData.length / 6)}
+          tickFormatter={(val) => val}
         />
         <YAxis
           domain={["auto", "auto"]}
@@ -125,14 +130,24 @@ function IntradayChart({ data }: { data: IntradayBar[] }) {
           tickFormatter={(v) => v.toFixed(0)}
           width={45}
         />
-{dayBoundaries.map((boundary) => (
-          <ReferenceLine
-            key={boundary.index}
-            x={chartData[boundary.index]?.time || boundary.label}
-            stroke="var(--outline)"
-            label={{ value: boundary.label, position: "insideBottom", fill: "#9ca3af", fontSize: 9 }}
-          />
-        ))}
+        {dayBoundaries.length === 0 && (
+          <>
+            <ReferenceLine x={PREMARKET_START} stroke="var(--outline)" strokeDasharray="2 2" label={{ value: "PreMkt", position: "insideBottom", fill: "#9ca3af", fontSize: 9 }} />
+            <ReferenceLine x={MARKET_CLOSE} stroke="var(--outline)" strokeDasharray="2 2" label={{ value: "Close", position: "insideBottom", fill: "#9ca3af", fontSize: 9 }} />
+          </>
+        )}
+        {dayBoundaries.length > 0 && dayBoundaries.map((boundary) => {
+          const boundaryTimestamp = reversedData[boundary.index]?.timestamp;
+          const boundaryTime = boundaryTimestamp ? formatTime(boundaryTimestamp) : "";
+          return (
+            <ReferenceLine
+              key={boundary.label}
+              x={boundaryTime}
+              stroke="var(--outline)"
+              label={{ value: boundary.label, position: "insideBottom", fill: "#9ca3af", fontSize: 9 }}
+            />
+          );
+        })}
         <Line
           type="monotone"
           dataKey="close"

@@ -80,6 +80,17 @@ function getDayBoundaryIndices(data: { timestamp: string }[]): { index: number; 
   return boundaries;
 }
 
+function formatMarketTime(hour: number, minute: number): string {
+  const date = new Date();
+  date.setHours(hour, minute, 0, 0);
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+const PREMARKET_START = formatMarketTime(4, 0);
+const MARKET_OPEN = formatMarketTime(9, 30);
+const MARKET_CLOSE = formatMarketTime(16, 0);
+const AFTERHOURS_END = formatMarketTime(20, 0);
+
 function CustomTooltip({ active, payload }: { active?: boolean; payload?: Array<{ value: number; payload: { timestamp: string; open: number; high: number; low: number; close: number; volume: number } }> }) {
   if (!active || !payload || payload.length === 0) return null;
   const data = payload[0].payload;
@@ -108,9 +119,10 @@ function IntradayChart({ data }: { data: { timestamp: string; close: number }[] 
   const color = isUp ? "#3fe56c" : "#ff4d4d";
 
   const reversedData = [...data].reverse();
-  const chartData = reversedData.map(d => ({
+  const chartData = reversedData.map((d, idx) => ({
     ...d,
     time: formatTime(d.timestamp),
+    origTimestamp: d.timestamp,
   }));
   const hourIndices = getHourIndices(reversedData);
   const dayBoundaries = getDayBoundaryIndices(reversedData);
@@ -124,13 +136,8 @@ function IntradayChart({ data }: { data: { timestamp: string; close: number }[] 
           tick={{ fontSize: 10, fill: "#9ca3af" }}
           tickLine={true}
           axisLine={{ stroke: "var(--outline)" }}
-          interval="preserveStartEnd"
-          tickFormatter={(val, index) => {
-            if (hourIndices.includes(reversedData.length - 1 - index)) {
-              return formatHourLabel(reversedData[reversedData.length - 1 - index].timestamp);
-            }
-            return "";
-          }}
+          interval={Math.floor(chartData.length / 8)}
+          tickFormatter={(val) => val}
         />
         <YAxis
           domain={["auto", "auto"]}
@@ -141,14 +148,24 @@ function IntradayChart({ data }: { data: { timestamp: string; close: number }[] 
           width={60}
           tickCount={5}
         />
-        {dayBoundaries.map((boundary) => (
-          <ReferenceLine
-            key={boundary.index}
-            x={chartData[boundary.index]?.time || boundary.label}
-            stroke="var(--outline)"
-            label={{ value: boundary.label, position: "insideBottom", fill: "#9ca3af", fontSize: 9 }}
-          />
-        ))}
+        {dayBoundaries.length === 0 && (
+          <>
+            <ReferenceLine x={PREMARKET_START} stroke="var(--outline)" strokeDasharray="2 2" label={{ value: "PreMkt", position: "insideBottom", fill: "#9ca3af", fontSize: 9 }} />
+            <ReferenceLine x={MARKET_CLOSE} stroke="var(--outline)" strokeDasharray="2 2" label={{ value: "Close", position: "insideBottom", fill: "#9ca3af", fontSize: 9 }} />
+          </>
+        )}
+        {dayBoundaries.length > 0 && dayBoundaries.map((boundary) => {
+          const boundaryTimestamp = reversedData[boundary.index]?.timestamp;
+          const boundaryTime = boundaryTimestamp ? formatTime(boundaryTimestamp) : "";
+          return (
+            <ReferenceLine
+              key={boundary.label}
+              x={boundaryTime}
+              stroke="var(--outline)"
+              label={{ value: boundary.label, position: "insideBottom", fill: "#9ca3af", fontSize: 9 }}
+            />
+          );
+        })}
         <Tooltip content={<CustomTooltip />} />
         <Line
           type="monotone"
