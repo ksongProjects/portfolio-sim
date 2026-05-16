@@ -329,6 +329,9 @@ func (s *MarketDataService) stopFetcher(ticker string, provider providers.Provid
 }
 
 func (s *MarketDataService) runPriceFetchers() {
+	s.logClient.Info(context.Background(), "starting price fetchers")
+	go s.runMarketHoursMonitor()
+
 	tickerSymbols := s.storage.GetActiveTickers(context.Background())
 
 	for _, sym := range s.cfg.AlwaysFetchTicks {
@@ -376,6 +379,14 @@ func (s *MarketDataService) fetchPriceLoop(ctx context.Context, ticker string, p
 		default:
 		}
 
+		if !isMarketOpen() {
+			s.logClient.InfoWithMeta(context.Background(), "market closed, waiting", map[string]interface{}{"ticker": ticker})
+			if !sleepWithContext(ctx, 5*time.Minute) {
+				return
+			}
+			continue
+		}
+
 		price, err := provider.FetchPrice(ticker)
 		if err != nil {
 			s.logClient.ErrorWithMeta(context.Background(), "failed to fetch price", map[string]interface{}{"ticker": ticker, "provider": provider.Name(), "error": err.Error()})
@@ -403,6 +414,22 @@ func (s *MarketDataService) fetchPriceLoop(ctx context.Context, ticker string, p
 	}
 }
 
+func isMarketOpen() bool {
+	now := time.Now().In(time.Local)
+	hour, min := now.Hour(), now.Minute()
+	day := now.Weekday()
+
+	if day == time.Saturday || day == time.Sunday {
+		return false
+	}
+
+	timeInMinutes := hour*60 + min
+	marketOpen := 9*60 + 30
+	marketClose := 16 * 60
+
+	return timeInMinutes >= marketOpen && timeInMinutes < marketClose
+}
+
 func sleepWithContext(ctx context.Context, d time.Duration) bool {
 	timer := time.NewTimer(d)
 	defer timer.Stop()
@@ -411,6 +438,23 @@ func sleepWithContext(ctx context.Context, d time.Duration) bool {
 		return false
 	case <-timer.C:
 		return true
+	}
+}
+
+func (s *MarketDataService) runMarketHoursMonitor() {
+	for {
+		open := isMarketOpen()
+		s.logClient.InfoWithMeta(context.Background(), "market hours check", map[string]interface{}{
+			"is_open":   open,
+			"timestamp": time.Now().Format(time.RFC3339),
+		})
+
+		if !open {
+			s.logClient.Info(context.Background(), "market closed, pausing price fetchers")
+			time.Sleep(5 * time.Minute)
+		} else {
+			time.Sleep(1 * time.Minute)
+		}
 	}
 }
 
