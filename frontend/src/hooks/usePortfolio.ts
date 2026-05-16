@@ -10,6 +10,7 @@ export interface Position {
 	TickerID: string;
 	Symbol: string;
 	CompanyName: string;
+	Sector: string;
 	Quantity: number;
 	AvgCost: number;
 	CurrentPrice: number;
