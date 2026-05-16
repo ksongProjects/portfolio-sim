@@ -165,7 +165,19 @@ func redactQuestradeBody(rawURL string, body []byte) []byte {
 
 func (p *QuestradeProvider) refreshToken(force bool) error {
 	if p.backendURL == "" || p.internalToken == "" {
-		return fmt.Errorf("backend not configured for token refresh")
+		p.logClient.ErrorWithMeta(nil, "Questrade token refresh skipped: backend not configured", map[string]interface{}{
+			"backend_url_empty":     p.backendURL == "",
+			"internal_token_empty": p.internalToken == "",
+			"provider":              "questrade",
+		})
+		errMsg := "questrade: backend not configured for token refresh"
+		if p.backendURL == "" {
+			errMsg += " (BACKEND_URL is empty)"
+		}
+		if p.internalToken == "" {
+			errMsg += " (INTERNAL_API_TOKEN not set)"
+		}
+		return fmt.Errorf("%s", errMsg)
 	}
 
 	questradeRefreshMu.Lock()
@@ -173,7 +185,7 @@ func (p *QuestradeProvider) refreshToken(force bool) error {
 
 	tokens, err := p.getTokensFromBackend()
 	if err != nil {
-		return fmt.Errorf("failed to get tokens from backend: %w", err)
+		return fmt.Errorf("questrade: failed to get tokens from backend: %w", err)
 	}
 
 	if !force && tokens.AccessToken != "" && tokens.APIServer != "" && time.Now().Before(tokens.ExpiresAt) {
@@ -270,7 +282,7 @@ func (p *QuestradeProvider) getTokensFromBackend() (*backendTokens, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("questrade tokens not configured")
+		return nil, fmt.Errorf("questrade tokens not configured in backend")
 	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)

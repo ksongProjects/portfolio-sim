@@ -71,6 +71,11 @@ func (s *MarketDataService) hasQuestradeProvider(ctx context.Context) bool {
 		return false
 	}
 
+	if s.cfg.Backend.URL == "" || s.cfg.Backend.InternalToken == "" {
+		s.logClient.Info(context.Background(), "questrade provider skipped: backend not configured")
+		return false
+	}
+
 	tokens, err := s.storage.GetQuestradeTokens(ctx)
 	if err != nil || tokens == nil {
 		return false
