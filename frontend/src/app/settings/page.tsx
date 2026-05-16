@@ -199,7 +199,7 @@ const handleRefresh = async () => {
               {refreshing ? "Refreshing..." : "Refresh Token"}
             </Button>
           )}
-          {(provider.validation_error || provider.token_expired) && hasStoredKey && onDelete && (
+          {hasStoredKey && onDelete && (
             <Button variant="destructive" size="sm" onClick={handleDelete}>
               <Trash2 className="h-4 w-4" />
               Remove
