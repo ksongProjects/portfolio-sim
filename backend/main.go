@@ -1246,7 +1246,7 @@ func (s *Server) handleGetTickerDetails(w http.ResponseWriter, r *http.Request) 
 	}
 
 	intradayRange := r.URL.Query().Get("range")
-	intraday, _ := s.tickerSvc.GetIntradayBars(r.Context(), symbol, "", intradayRange)
+	intraday, change, changePct, _ := s.tickerSvc.GetIntradayBars(r.Context(), symbol, "", intradayRange)
 	ratios, _ := s.tickerSvc.GetFinancialRatios(r.Context(), symbol)
 
 	response := map[string]interface{}{
@@ -1256,8 +1256,8 @@ func (s *Server) handleGetTickerDetails(w http.ResponseWriter, r *http.Request) 
 		"sector":        details.Sector,
 		"industry":      details.Industry,
 		"price":         details.Price,
-		"change":        details.Change,
-		"changePct":     details.ChangePct,
+		"change":        change,
+		"changePct":     changePct,
 		"volume":        details.Volume,
 		"avgVolume":     details.AvgVolume,
 		"marketCap":     details.MarketCap,

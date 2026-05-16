@@ -232,7 +232,7 @@ func (s *TickerService) GetTickerQuote(ctx context.Context, symbol string) (*Tic
 	return s.getTickerDetails(ctx, symbol, false)
 }
 
-func (s *TickerService) GetIntradayBars(ctx context.Context, symbol string, interval string, rangeParam string) ([]IntradayBar, error) {
+func (s *TickerService) GetIntradayBars(ctx context.Context, symbol string, interval string, rangeParam string) ([]IntradayBar, float64, float64, error) {
 	param := ""
 	if interval != "" && interval != "1min" {
 		param = "?interval=" + interval
@@ -250,22 +250,26 @@ func (s *TickerService) GetIntradayBars(ctx context.Context, symbol string, inte
 	body, status, _, err := s.doGet(ctx, url, map[string]interface{}{"symbol": symbol, "operation": "get_intraday_bars"})
 	if err != nil {
 		s.logger.Error("GetIntradayBars request failed", "error", err, "symbol", symbol)
-		return nil, err
+		return nil, 0, 0, err
 	}
 
 	s.logger.Info("GetIntradayBars response", "status", status, "body_size", len(body), "symbol", symbol)
 
 	if status != http.StatusOK {
 		s.logger.Error("GetIntradayBars failed", "status", status, "body", string(body), "symbol", symbol)
-		return nil, fmt.Errorf("intraday bars failed: %d - %s", status, string(body))
+		return nil, 0, 0, fmt.Errorf("intraday bars failed: %d - %s", status, string(body))
 	}
 
-	var bars []IntradayBar
-	if err := json.Unmarshal(body, &bars); err != nil {
-		s.logger.Error("GetIntradayBars failed to unmarshal", "error", err, "body", string(body))
-		return nil, err
+	var result struct {
+		Bars      []IntradayBar `json:"bars"`
+		Change    float64       `json:"change"`
+		ChangePct float64       `json:"changePct"`
 	}
-	return bars, nil
+	if err := json.Unmarshal(body, &result); err != nil {
+		s.logger.Error("GetIntradayBars failed to unmarshal", "error", err, "body", string(body))
+		return nil, 0, 0, err
+	}
+	return result.Bars, result.Change, result.ChangePct, nil
 }
 
 func (s *TickerService) GetFinancialRatios(ctx context.Context, symbol string) ([]FinancialRatio, error) {

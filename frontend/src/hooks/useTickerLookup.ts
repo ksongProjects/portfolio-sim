@@ -55,12 +55,9 @@ function dedupeTickers(results: TickerDetails[]) {
   return results.filter((ticker) => (seen.has(ticker.symbol) ? false : seen.add(ticker.symbol)));
 }
 
-async function fetchTickerDetails(symbol: string) {
-  return fetchJson<TickerLookupResponse>(
-    `/api/tickers/${encodeURIComponent(symbol)}/details`,
-    undefined,
-    "Failed to fetch ticker details"
-  );
+async function fetchTickerDetails(symbol: string, range?: string) {
+  const url = range ? `/api/tickers/${encodeURIComponent(symbol)}/details?range=${range}` : `/api/tickers/${encodeURIComponent(symbol)}/details`;
+  return fetchJson<TickerLookupResponse>(url, undefined, "Failed to fetch ticker details");
 }
 
 async function fetchIntradayBars(symbol: string, range: string) {
@@ -83,8 +80,8 @@ export function useTickerLookup(initialSymbol?: string) {
   const selectedSymbol = initialSymbol ?? manualSelectedSymbol;
 
   const detailsQuery = useQuery({
-    queryKey: ["tickers", "details", selectedSymbol],
-    queryFn: () => fetchTickerDetails(selectedSymbol!),
+    queryKey: ["tickers", "details", selectedSymbol, chartRange],
+    queryFn: () => fetchTickerDetails(selectedSymbol!, chartRange),
     enabled: Boolean(selectedSymbol),
   });
 
@@ -152,7 +149,9 @@ export function useTickerLookup(initialSymbol?: string) {
   return {
     searchResults,
     selectedTicker: selectedSymbol ? detailsQuery.data ?? null : null,
-    intradayData: selectedSymbol ? intradayQuery.data ?? [] : [],
+    intradayData: selectedSymbol ? (detailsQuery.data?.intraday ?? []) : [],
+    intradayChange: selectedSymbol ? (detailsQuery.data?.change ?? 0) : 0,
+    intradayChangePct: selectedSymbol ? (detailsQuery.data?.changePct ?? 0) : 0,
     ratios: selectedSymbol ? detailsQuery.data?.ratios ?? [] : [],
     loading: detailsQuery.isFetching,
     searchLoading,

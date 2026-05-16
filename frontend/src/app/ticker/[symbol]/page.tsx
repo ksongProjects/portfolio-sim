@@ -124,18 +124,17 @@ function IntradayChart({ data, chartRange = "1d" }: { data: { timestamp: string;
   const isUp = lastClose >= firstClose;
   const color = isUp ? "#3fe56c" : "#ff4d4d";
 
-  const reversedData = [...data].reverse();
-  const chartData = reversedData.map((d) => ({
+  const chartData = data.map((d) => ({
     ...d,
     time: formatDateTimeLabel(d.timestamp),
   }));
-  const hourTimestamps = reversedData.filter(d => {
+  const hourTimestamps = data.filter(d => {
     const date = new Date(d.timestamp);
     return !isNaN(date.getTime()) && date.getMinutes() === 0;
   }).map(d => formatDateTimeLabel(d.timestamp));
 
   const showDayBoundaries = chartRange !== "1d";
-  const dayBoundaries = showDayBoundaries ? getDayBoundaryIndices(reversedData) : [];
+  const dayBoundaries = showDayBoundaries ? getDayBoundaryIndices(data) : [];
 
   return (
     <ResponsiveContainer width="100%" height={280}>
@@ -164,15 +163,14 @@ function IntradayChart({ data, chartRange = "1d" }: { data: { timestamp: string;
             <ReferenceLine x={MARKET_CLOSE} stroke="var(--outline)" strokeDasharray="2 2" label={{ value: "Close", position: "insideBottom", fill: "#9ca3af", fontSize: 9 }} />
           </>
         )}
-        {showDayBoundaries && dayBoundaries.map((boundary) => {
+{showDayBoundaries && dayBoundaries.map((boundary) => {
           const boundaryTimestamp = reversedData[boundary.index]?.timestamp;
-          const boundaryTime = boundaryTimestamp ? formatDateTimeLabel(boundaryTimestamp) : "";
+          const boundaryTime = boundaryTimestamp ? formatTime(boundaryTimestamp) : "";
           return (
             <ReferenceLine
               key={boundary.label}
               x={boundaryTime}
               stroke="var(--outline)"
-              label={{ value: boundary.label, position: "insideBottom", fill: "#9ca3af", fontSize: 9 }}
             />
           );
         })}
@@ -203,7 +201,7 @@ function RatioCard({ ratio }: { ratio: { label: string; value: string; descripti
 export default function TickerPage() {
   const params = useParams();
   const symbol = params.symbol as string;
-  const { selectedTicker, intradayData, ratios, loading, chartRange, setChartRange } = useTickerLookup(symbol);
+  const { selectedTicker, intradayData, intradayChange, intradayChangePct, ratios, loading, chartRange, setChartRange } = useTickerLookup(symbol);
 
   if (loading) {
     return (
@@ -256,9 +254,9 @@ export default function TickerPage() {
           </div>
           <div className="text-right">
             <div className="text-2xl font-mono font-semibold text-on-surface">{fmtCurrency(selectedTicker.price)}</div>
-            <div className={cn("text-sm font-mono flex items-center gap-1", selectedTicker.changePct >= 0 ? "text-primary" : "text-error")}>
-              {selectedTicker.changePct >= 0 ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
-              {fmtCurrency(Math.abs(selectedTicker.change))} ({fmtPct(selectedTicker.changePct)})
+            <div className={cn("text-sm font-mono flex items-center gap-1", intradayChangePct >= 0 ? "text-primary" : "text-error")}>
+              {intradayChangePct >= 0 ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+              {fmtCurrency(Math.abs(intradayChange))} ({fmtPct(intradayChangePct)})
             </div>
           </div>
         </div>
