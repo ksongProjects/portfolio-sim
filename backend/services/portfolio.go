@@ -359,8 +359,8 @@ func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, db interface
 			positions[i].CurrentPrice = positions[i].AvgCost
 		}
 		if positions[i].DayChange == 0 {
-			positions[i].DayChange = positions[i].CurrentPrice * 0.01
-			positions[i].DayChangePct = 1.0
+			positions[i].DayChange = 0
+			positions[i].DayChangePct = 0
 		}
 		positions[i].CurrentValue = positions[i].Quantity * positions[i].CurrentPrice
 		positions[i].TotalGain = positions[i].CurrentValue - (positions[i].Quantity * positions[i].AvgCost)
