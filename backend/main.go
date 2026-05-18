@@ -486,12 +486,10 @@ func (s *Server) handleDismissNotification(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	_, err := s.db.Exec(r.Context(),
-		`INSERT INTO notification_dismissals (log_id) VALUES ($1) ON CONFLICT (log_id) DO NOTHING`,
-		req.ID)
+	_, err := s.db.Exec(r.Context(), `DELETE FROM logs WHERE id = $1`, req.ID)
 	if err != nil {
-		s.logger.Error("handleDismissNotification: insert failed", "error", err)
-		http.Error(w, "failed to dismiss notification", http.StatusInternalServerError)
+		s.logger.Error("handleDismissNotification: delete failed", "error", err)
+		http.Error(w, "failed to delete notification", http.StatusInternalServerError)
 		return
 	}
 
