@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"os"
 	"strings"
 	"time"
 
@@ -115,10 +117,14 @@ type Signal struct {
 	Timestamp time.Time
 }
 
-type PortfolioService struct{}
+type PortfolioService struct {
+	logger *slog.Logger
+}
 
 func NewPortfolioService() *PortfolioService {
-	return &PortfolioService{}
+	return &PortfolioService{
+		logger: slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})),
+	}
 }
 
 func safePercent(numerator, denominator float64) float64 {
@@ -453,6 +459,13 @@ func (s *PortfolioService) AddPosition(ctx context.Context, db interface {
 	return err
 }
 
+func (s *PortfolioService) RemovePosition(ctx context.Context, db interface {
+	Exec(ctx context.Context, sql string, args ...interface{}) (int64, error)
+}, portfolioID, positionID string) error {
+	_, err := db.Exec(ctx, `DELETE FROM positions WHERE id = $1 AND portfolio_id = $2`, positionID, portfolioID)
+	return err
+}
+
 func (s *PortfolioService) GetPortfolioSummary(ctx context.Context, db interface {
 	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
 	Exec(ctx context.Context, sql string, args ...interface{}) (int64, error)
@@ -576,6 +589,35 @@ func (s *PortfolioService) SaveCompanyProfile(ctx context.Context, db interface 
 	`
 	_, err = db.Exec(ctx, query, tickerID, data)
 	return err
+}
+
+func (s *PortfolioService) SaveIntradayBars(ctx context.Context, db interface {
+	Exec(ctx context.Context, sql string, args ...interface{}) (int64, error)
+}, tickerID string, bars []IntradayBarData) error {
+	if len(bars) == 0 {
+		return nil
+	}
+	for _, bar := range bars {
+		timestamp, err := time.Parse(time.RFC3339, bar.Timestamp)
+		if err != nil {
+			continue
+		}
+		query := `
+			INSERT INTO intraday_bars (ticker_id, interval, open, high, low, close, volume, timestamp)
+			VALUES ($1, '1min', $2, $3, $4, $5, $6, $7)
+			ON CONFLICT (ticker_id, interval, timestamp) DO UPDATE SET
+				open = EXCLUDED.open,
+				high = EXCLUDED.high,
+				low = EXCLUDED.low,
+				close = EXCLUDED.close,
+				volume = EXCLUDED.volume
+		`
+		_, err = db.Exec(ctx, query, tickerID, bar.Open, bar.High, bar.Low, bar.Close, bar.Volume, timestamp)
+		if err != nil {
+			s.logger.Warn("failed to save intraday bar", "ticker_id", tickerID, "error", err)
+		}
+	}
+	return nil
 }
 
 func (s *PortfolioService) GetTickerBySymbol(ctx context.Context, db interface {

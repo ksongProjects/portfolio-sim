@@ -10,7 +10,7 @@ export interface Position {
 	TickerID: string;
 	Symbol: string;
 	CompanyName: string;
-	Sector: string;
+	Sector?: string;
 	Quantity: number;
 	AvgCost: number;
 	CurrentPrice: number;
@@ -114,6 +114,11 @@ interface AddPositionContext {
 	previousSummary?: PortfolioSummary | null;
 }
 
+interface RemovePositionContext {
+	previousPositions?: Position[];
+	previousSummary?: PortfolioSummary | null;
+}
+
 export function usePortfolio(portfolioId = "default", options: UsePortfolioOptions = {}) {
 	const queryClient = useQueryClient();
 	const includeIndices = options.includeIndices ?? true;
@@ -148,7 +153,8 @@ export function usePortfolio(portfolioId = "default", options: UsePortfolioOptio
 			});
 
 			if (!res.ok) {
-				throw new Error("Failed to add position");
+				const errText = await res.text();
+				throw new Error(errText || "Failed to add position");
 			}
 		},
 		onMutate: async (variables): Promise<AddPositionContext> => {
@@ -324,6 +330,56 @@ export function usePortfolio(portfolioId = "default", options: UsePortfolioOptio
 		[addPositionMutation, portfolioId]
 	);
 
+	const removePositionMutation = useMutation({
+		mutationFn: async ({ targetPortfolioId, positionId }: { targetPortfolioId: string; positionId: string }) => {
+			const res = await apiFetch(`/api/portfolio/positions?portfolio_id=${encodeURIComponent(targetPortfolioId)}&position_id=${encodeURIComponent(positionId)}`, {
+				method: "DELETE",
+			});
+			if (!res.ok) {
+				const errText = await res.text();
+				throw new Error(errText || "Failed to remove position");
+			}
+		},
+		onMutate: async (variables): Promise<RemovePositionContext> => {
+			await Promise.all([
+				queryClient.cancelQueries({
+					queryKey: ["portfolio", "positions", variables.targetPortfolioId],
+				}),
+				queryClient.cancelQueries({
+					queryKey: ["portfolio", "summary", variables.targetPortfolioId],
+				}),
+			]);
+			const previousPositions = queryClient.getQueryData<Position[]>(["portfolio", "positions", variables.targetPortfolioId]);
+			const previousSummary = queryClient.getQueryData<PortfolioSummary | null>(["portfolio", "summary", variables.targetPortfolioId]);
+			queryClient.setQueryData<Position[]>(
+				["portfolio", "positions", variables.targetPortfolioId],
+				(current = []) => current.filter(p => p.ID !== variables.positionId)
+			);
+			return { previousPositions, previousSummary };
+		},
+		onError: (_error, variables, context) => {
+			if (context?.previousPositions) {
+				queryClient.setQueryData(["portfolio", "positions", variables.targetPortfolioId], context.previousPositions);
+			}
+			if (context?.previousSummary) {
+				queryClient.setQueryData(["portfolio", "summary", variables.targetPortfolioId], context.previousSummary);
+			}
+		},
+		onSuccess: async (_, variables) => {
+			await Promise.all([
+				queryClient.invalidateQueries({ queryKey: ["portfolio", "positions", variables.targetPortfolioId] }),
+				queryClient.invalidateQueries({ queryKey: ["portfolio", "summary", variables.targetPortfolioId] }),
+			]);
+		},
+	});
+
+	const removePosition = useCallback(
+		async (targetPortfolioId = portfolioId, positionId: string) => {
+			await removePositionMutation.mutateAsync({ targetPortfolioId, positionId });
+		},
+		[removePositionMutation, portfolioId]
+	);
+
 	const combinedError =
 		positionsQuery.error ??
 		summaryQuery.error ??
@@ -343,11 +399,13 @@ export function usePortfolio(portfolioId = "default", options: UsePortfolioOptio
 		summaryLoading,
 		indicesLoading,
 		isAddingPosition: addPositionMutation.isPending,
+		isRemovingPosition: removePositionMutation.isPending,
 		error: combinedError ? getErrorMessage(combinedError) : null,
 		fetchPositions,
 		fetchSummary,
 		fetchIndices,
 		refresh,
 		addPosition,
+		removePosition,
 	};
 }

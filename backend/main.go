@@ -184,6 +184,7 @@ func (s *Server) Start() error {
 	http.HandleFunc("GET /api/observability/logs", lm(http.HandlerFunc(s.handleGetLogs)))
 	http.HandleFunc("GET /api/portfolio/positions", lm(http.HandlerFunc(s.handleGetPositions)))
 	http.HandleFunc("POST /api/portfolio/positions", lm(http.HandlerFunc(s.handleAddPosition)))
+	http.HandleFunc("DELETE /api/portfolio/positions", lm(http.HandlerFunc(s.handleRemovePosition)))
 	http.HandleFunc("GET /api/portfolio/summary", lm(http.HandlerFunc(s.handleGetPortfolioSummary)))
 	http.HandleFunc("GET /api/portfolio/performance", lm(http.HandlerFunc(s.handleGetPortfolioPerformance)))
 	http.HandleFunc("GET /api/market/indices", lm(http.HandlerFunc(s.handleGetMarketIndices)))
@@ -713,6 +714,32 @@ func (s *Server) handleAddPosition(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "added"})
+}
+
+func (s *Server) handleRemovePosition(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	portfolioID := r.URL.Query().Get("portfolio_id")
+	if portfolioID == "" || portfolioID == "default" {
+		portfolioID = "00000000-0000-0000-0000-000000000001"
+	}
+	positionID := r.URL.Query().Get("position_id")
+	if positionID == "" {
+		http.Error(w, "position_id required", http.StatusBadRequest)
+		return
+	}
+	err := s.portfolioSvc.RemovePosition(r.Context(), s.db, portfolioID, positionID)
+	if err != nil {
+		s.logger.Error("remove position failed", "position_id", positionID, "error", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "removed"})
 }
 
 func (s *Server) handleGetPortfolioSummary(w http.ResponseWriter, r *http.Request) {
@@ -1456,7 +1483,54 @@ func (s *Server) handleGetTickerDetails(w http.ResponseWriter, r *http.Request) 
 	}
 
 	intradayRange := r.URL.Query().Get("range")
-	intraday, change, changePct, _ := s.tickerSvc.GetIntradayBars(r.Context(), symbol, "", intradayRange)
+	rangeHours := 24
+	if intradayRange == "1w" {
+		rangeHours = 168
+	} else if intradayRange == "1m" {
+		rangeHours = 720
+	}
+
+	tickerID, _, _ := s.portfolioSvc.GetTickerBySymbol(r.Context(), s.db, symbol)
+	var intraday []services.IntradayBarData
+	var change, changePct float64
+
+	if tickerID != "" {
+		intraday, _ = s.portfolioSvc.GetIntradayBarsFromDB(r.Context(), s.db, tickerID, "1min", rangeHours)
+		if len(intraday) > 0 {
+			firstOpen := intraday[0].Open
+			lastClose := intraday[len(intraday)-1].Close
+			if firstOpen > 0 {
+				change = lastClose - firstOpen
+				changePct = (change / firstOpen) * 100
+			}
+			s.logger.Info("using intraday bars from DB", "symbol", symbol, "bars_count", len(intraday))
+		}
+	}
+
+	if len(intraday) == 0 {
+		s.logger.Info("no intraday bars in DB, fetching from provider", "symbol", symbol)
+		providerBars, providerChange, providerChangePct, _ := s.tickerSvc.GetIntradayBars(r.Context(), symbol, "", intradayRange)
+		if len(providerBars) > 0 {
+			intraday = make([]services.IntradayBarData, len(providerBars))
+			for i, b := range providerBars {
+				intraday[i] = services.IntradayBarData{
+					Timestamp: b.Timestamp,
+					Open:      b.Open,
+					High:      b.High,
+					Low:       b.Low,
+					Close:     b.Close,
+					Volume:    b.Volume,
+				}
+			}
+			change = providerChange
+			changePct = providerChangePct
+			if tickerID != "" {
+				s.portfolioSvc.SaveIntradayBars(r.Context(), s.db, tickerID, intraday)
+				s.logger.Info("saved intraday bars to DB", "symbol", symbol, "bars_count", len(intraday))
+			}
+		}
+	}
+
 	ratios, _ := s.tickerSvc.GetFinancialRatios(r.Context(), symbol)
 
 	response := map[string]interface{}{

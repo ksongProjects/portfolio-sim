@@ -2,14 +2,16 @@
 
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, TrendingUp, TrendingDown, Building, DollarSign, BarChart2, Percent, Calendar, Activity } from "lucide-react";
+import { ArrowLeft, TrendingUp, TrendingDown, Building, DollarSign, BarChart2, Percent, Calendar, Activity, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/page-layout";
 import { useTickerLookup } from "@/hooks/useTickerLookup";
+import { usePortfolio } from "@/hooks/usePortfolio";
 import { cn } from "@/lib/utils";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from "recharts";
+import { toast } from "sonner";
 
 function fmtCurrency(v: number): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(v);
@@ -73,11 +75,11 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: Array<
     <div className="bg-surface-container-high border border-outline-variant p-3 text-xs">
       <div className="font-mono font-semibold text-on-surface mb-1">{formatTime(data.timestamp)}</div>
       <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-        <span className="text-on-surface-variant">Open</span><span className="font-mono text-on-surface">{data.open.toFixed(2)}</span>
-        <span className="text-on-surface-variant">High</span><span className="font-mono text-on-surface">{data.high.toFixed(2)}</span>
-        <span className="text-on-surface-variant">Low</span><span className="font-mono text-on-surface">{data.low.toFixed(2)}</span>
-        <span className="text-on-surface-variant">Close</span><span className="font-mono text-on-surface">{data.close.toFixed(2)}</span>
-        <span className="text-on-surface-variant">Volume</span><span className="font-mono text-on-surface">{data.volume.toLocaleString()}</span>
+        <span className="text-on-surface-variant">Open</span><span className="font-mono text-on-surface">{(data.open ?? 0).toFixed(2)}</span>
+        <span className="text-on-surface-variant">High</span><span className="font-mono text-on-surface">{(data.high ?? 0).toFixed(2)}</span>
+        <span className="text-on-surface-variant">Low</span><span className="font-mono text-on-surface">{(data.low ?? 0).toFixed(2)}</span>
+        <span className="text-on-surface-variant">Close</span><span className="font-mono text-on-surface">{(data.close ?? 0).toFixed(2)}</span>
+        <span className="text-on-surface-variant">Volume</span><span className="font-mono text-on-surface">{(data.volume ?? 0).toLocaleString()}</span>
       </div>
     </div>
   );
@@ -135,6 +137,18 @@ export default function TickerPage() {
   const params = useParams();
   const symbol = params.symbol as string;
   const { selectedTicker, intradayData, intradayChange, intradayChangePct, loading, chartRange, setChartRange } = useTickerLookup(symbol);
+  const { positions, removePosition, isRemovingPosition } = usePortfolio("default", { includeIndices: false });
+  const position = positions.find(p => p.Symbol === symbol);
+
+  const handleRemovePosition = async () => {
+    if (!position) return;
+    try {
+      await removePosition("default", position.ID);
+      toast.success(`Removed ${symbol} from portfolio`);
+    } catch {
+      toast.error(`Failed to remove ${symbol}`);
+    }
+  };
 
   if (loading) {
     return (
@@ -169,11 +183,18 @@ export default function TickerPage() {
           title={selectedTicker.symbol} 
           description={selectedTicker.name}
         >
-          <Link href="/portfolio">
-            <Button variant="secondary" size="sm">
-              <ArrowLeft className="h-4 w-4" /> Back to Portfolio
-            </Button>
-          </Link>
+          <div className="flex gap-2">
+            {position && (
+              <Button variant="destructive" size="sm" onClick={handleRemovePosition} disabled={isRemovingPosition}>
+                <Trash2 className="h-4 w-4" /> Remove Position
+              </Button>
+            )}
+            <Link href="/portfolio">
+              <Button variant="secondary" size="sm">
+                <ArrowLeft className="h-4 w-4" /> Back to Portfolio
+              </Button>
+            </Link>
+          </div>
         </PageHeader>
       </div>
 
