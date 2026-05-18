@@ -329,7 +329,8 @@ export function usePortfolio(portfolioId = "default", options: UsePortfolioOptio
 
 	const removePositionMutation = useMutation({
 		mutationFn: async ({ targetPortfolioId, positionId }: { targetPortfolioId: string; positionId: string }) => {
-			const res = await apiFetch(`/api/portfolio/positions?portfolio_id=${encodeURIComponent(targetPortfolioId)}&position_id=${encodeURIComponent(positionId)}`, {
+			const portfolioId = targetPortfolioId === "default" ? "00000000-0000-0000-0000-000000000001" : targetPortfolioId;
+			const res = await apiFetch(`/api/portfolio/positions?portfolio_id=${encodeURIComponent(portfolioId)}&position_id=${encodeURIComponent(positionId)}`, {
 				method: "DELETE",
 			});
 			if (!res.ok) {
@@ -338,34 +339,37 @@ export function usePortfolio(portfolioId = "default", options: UsePortfolioOptio
 			}
 		},
 		onMutate: async (variables): Promise<RemovePositionContext> => {
+			const targetPortfolioId = variables.targetPortfolioId === "default" ? "00000000-0000-0000-0000-000000000001" : variables.targetPortfolioId;
 			await Promise.all([
 				queryClient.cancelQueries({
-					queryKey: ["portfolio", "positions", variables.targetPortfolioId],
+					queryKey: ["portfolio", "positions", targetPortfolioId],
 				}),
 				queryClient.cancelQueries({
-					queryKey: ["portfolio", "summary", variables.targetPortfolioId],
+					queryKey: ["portfolio", "summary", targetPortfolioId],
 				}),
 			]);
-			const previousPositions = queryClient.getQueryData<Position[]>(["portfolio", "positions", variables.targetPortfolioId]);
-			const previousSummary = queryClient.getQueryData<PortfolioSummary | null>(["portfolio", "summary", variables.targetPortfolioId]);
+			const previousPositions = queryClient.getQueryData<Position[]>(["portfolio", "positions", targetPortfolioId]);
+			const previousSummary = queryClient.getQueryData<PortfolioSummary | null>(["portfolio", "summary", targetPortfolioId]);
 			queryClient.setQueryData<Position[]>(
-				["portfolio", "positions", variables.targetPortfolioId],
+				["portfolio", "positions", targetPortfolioId],
 				(current = []) => current.filter(p => p.ID !== variables.positionId)
 			);
 			return { previousPositions, previousSummary };
 		},
 		onError: (_error, variables, context) => {
+			const targetPortfolioId = variables.targetPortfolioId === "default" ? "00000000-0000-0000-0000-000000000001" : variables.targetPortfolioId;
 			if (context?.previousPositions) {
-				queryClient.setQueryData(["portfolio", "positions", variables.targetPortfolioId], context.previousPositions);
+				queryClient.setQueryData(["portfolio", "positions", targetPortfolioId], context.previousPositions);
 			}
 			if (context?.previousSummary) {
-				queryClient.setQueryData(["portfolio", "summary", variables.targetPortfolioId], context.previousSummary);
+				queryClient.setQueryData(["portfolio", "summary", targetPortfolioId], context.previousSummary);
 			}
 		},
 		onSuccess: async (_, variables) => {
+			const targetPortfolioId = variables.targetPortfolioId === "default" ? "00000000-0000-0000-0000-000000000001" : variables.targetPortfolioId;
 			await Promise.all([
-				queryClient.invalidateQueries({ queryKey: ["portfolio", "positions", variables.targetPortfolioId] }),
-				queryClient.invalidateQueries({ queryKey: ["portfolio", "summary", variables.targetPortfolioId] }),
+				queryClient.invalidateQueries({ queryKey: ["portfolio", "positions", targetPortfolioId] }),
+				queryClient.invalidateQueries({ queryKey: ["portfolio", "summary", targetPortfolioId] }),
 			]);
 		},
 	});
