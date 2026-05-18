@@ -166,6 +166,16 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
     }
   }, [open]);
 
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && open) {
+        handleClose();
+      }
+    };
+    document.addEventListener("keydown", handleEsc);
+    return () => document.removeEventListener("keydown", handleEsc);
+  }, [open]);
+
   const handleSearch = async () => {
     if (!query.trim()) return;
     await searchTickers(query);
@@ -206,8 +216,8 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
   return (
     <>
       <div className="fixed inset-0 z-50 bg-black/50" onClick={handleClose} />
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div className="bg-surface border border-outline-variant w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col rounded-lg shadow-xl">
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={handleClose}>
+        <div className="bg-surface border border-outline-variant w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col rounded-lg shadow-xl" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center justify-between px-5 py-4 border-b border-outline-variant">
             <div>
               <h2 className="text-base font-semibold text-on-surface">Add Position</h2>
