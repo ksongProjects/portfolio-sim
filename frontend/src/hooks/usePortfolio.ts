@@ -141,11 +141,12 @@ export function usePortfolio(portfolioId = "default", options: UsePortfolioOptio
 
 	const addPositionMutation = useMutation({
 		mutationFn: async ({ targetPortfolioId, symbol, shares, price }: AddPositionVariables) => {
+			const portfolioId = targetPortfolioId === "default" ? "00000000-0000-0000-0000-000000000001" : targetPortfolioId;
 			const res = await apiFetch("/api/portfolio/positions", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
-					portfolio_id: targetPortfolioId,
+					portfolio_id: portfolioId,
 					symbol,
 					shares,
 					price,
@@ -158,67 +159,63 @@ export function usePortfolio(portfolioId = "default", options: UsePortfolioOptio
 			}
 		},
 		onMutate: async (variables): Promise<AddPositionContext> => {
+			const targetPortfolioId = variables.targetPortfolioId === "default" ? "00000000-0000-0000-0000-000000000001" : variables.targetPortfolioId;
 			await Promise.all([
 				queryClient.cancelQueries({
-					queryKey: ["portfolio", "positions", variables.targetPortfolioId],
+					queryKey: ["portfolio", "positions", targetPortfolioId],
 				}),
 				queryClient.cancelQueries({
-					queryKey: ["portfolio", "summary", variables.targetPortfolioId],
+					queryKey: ["portfolio", "summary", targetPortfolioId],
 				}),
 			]);
 
-			const previousPositions = queryClient.getQueryData<Position[]>([
-				"portfolio",
-				"positions",
-				variables.targetPortfolioId,
-			]);
-			const previousSummary = queryClient.getQueryData<PortfolioSummary | null>([
-				"portfolio",
-				"summary",
-				variables.targetPortfolioId,
-			]);
+			const previousPositions = queryClient.getQueryData<Position[]>(["portfolio", "positions", targetPortfolioId]);
+			const previousSummary = queryClient.getQueryData<PortfolioSummary | null>(["portfolio", "summary", targetPortfolioId]);
 
 			const symbol = variables.symbol.trim().toUpperCase();
-			const now = new Date().toISOString();
 			const costBasis = variables.shares * variables.price;
-			const optimisticPosition: Position = {
-				ID: `optimistic:${symbol}:${now}`,
-				PortfolioID: variables.targetPortfolioId,
-				TickerID: "",
-				Symbol: symbol,
-				CompanyName: symbol,
-				Quantity: variables.shares,
-				AvgCost: variables.price,
-				CurrentPrice: variables.price,
-				CurrentValue: costBasis,
-				DayChange: 0,
-				DayChangePct: 0,
-				TotalGain: 0,
-				TotalGainPct: 0,
-				OpenedAt: now,
-			};
 
-			queryClient.setQueryData<Position[]>(
-				["portfolio", "positions", variables.targetPortfolioId],
-				(current = []) => [optimisticPosition, ...current]
-			);
+			queryClient.setQueryData<Position[]>(["portfolio", "positions", targetPortfolioId], (current = []) => {
+				const existingIdx = current.findIndex(p => p.Symbol === symbol);
+				if (existingIdx >= 0) {
+					const existing = current[existingIdx];
+					const newTotalQty = existing.Quantity + variables.shares;
+					const newAvgCost = (existing.Quantity * existing.AvgCost + variables.shares * variables.price) / newTotalQty;
+					const updated = { ...existing, Quantity: newTotalQty, AvgCost: newAvgCost, CurrentValue: newTotalQty * existing.CurrentPrice };
+					return [...current.slice(0, existingIdx), updated, ...current.slice(existingIdx + 1)];
+				}
+				const now = new Date().toISOString();
+				const optimisticPosition: Position = {
+					ID: `optimistic:${symbol}:${now}`,
+					PortfolioID: targetPortfolioId,
+					TickerID: "",
+					Symbol: symbol,
+					CompanyName: symbol,
+					Quantity: variables.shares,
+					AvgCost: variables.price,
+					CurrentPrice: variables.price,
+					CurrentValue: costBasis,
+					DayChange: 0,
+					DayChangePct: 0,
+					TotalGain: 0,
+					TotalGainPct: 0,
+					OpenedAt: now,
+				};
+				return [optimisticPosition, ...current];
+			});
 
 			if (previousSummary) {
-				const totalValue = previousSummary.TotalValue + costBasis;
-				const totalInvested = previousSummary.TotalInvested + costBasis;
-				const totalGain = totalValue - totalInvested;
-
-				queryClient.setQueryData<PortfolioSummary>(
-					["portfolio", "summary", variables.targetPortfolioId],
-					{
-						...previousSummary,
-						TotalValue: totalValue,
-						TotalInvested: totalInvested,
-						TotalGain: totalGain,
-						TotalGainPct: totalInvested === 0 ? 0 : (totalGain / totalInvested) * 100,
-						DayChangePct: totalValue === 0 ? 0 : (previousSummary.DayChange / totalValue) * 100,
-					}
-				);
+				const existingPos = previousPositions?.find(p => p.Symbol === symbol);
+				const addQty = existingPos ? 0 : variables.shares;
+				const addCost = existingPos ? 0 : costBasis;
+				queryClient.setQueryData<PortfolioSummary>(["portfolio", "summary", targetPortfolioId], {
+					...previousSummary,
+					TotalValue: previousSummary.TotalValue + costBasis,
+					TotalInvested: previousSummary.TotalInvested + costBasis,
+					TotalGain: previousSummary.TotalValue + costBasis - (previousSummary.TotalInvested + costBasis),
+					TotalGainPct: previousSummary.TotalInvested + costBasis === 0 ? 0 : ((previousSummary.TotalValue + costBasis - (previousSummary.TotalInvested + costBasis)) / (previousSummary.TotalInvested + costBasis)) * 100,
+					DayChangePct: previousSummary.DayChangePct,
+				});
 			}
 
 			return { previousPositions, previousSummary };
