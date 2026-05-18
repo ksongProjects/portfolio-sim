@@ -446,16 +446,28 @@ func (s *PortfolioService) AddPosition(ctx context.Context, db interface {
 	if err != nil {
 		return fmt.Errorf("ticker query failed: %s", symbol)
 	}
-	defer rows.Close()
-	if rows.Next() {
-		rows.Scan(&tickerID)
-	} else {
+	if !rows.Next() {
+		rows.Close()
 		return fmt.Errorf("ticker not found: %s", symbol)
 	}
-	_, err = db.Exec(ctx, `
-		INSERT INTO positions (portfolio_id, ticker_id, quantity, avg_cost, opened_at)
-		VALUES ($1, $2, $3, $4, NOW())
-	`, portfolioID, tickerID, quantity, avgCost)
+	rows.Scan(&tickerID)
+	rows.Close()
+
+	rows, err = db.Query(ctx, `SELECT quantity, avg_cost FROM positions WHERE portfolio_id = $1 AND ticker_id = $2`, portfolioID, tickerID)
+	if err != nil {
+		return fmt.Errorf("position query failed: %s", symbol)
+	}
+	if rows.Next() {
+		var existingQty, existingAvgCost float64
+		rows.Scan(&existingQty, &existingAvgCost)
+		rows.Close()
+		newTotalQty := existingQty + quantity
+		newAvgCost := (existingQty*existingAvgCost + quantity*avgCost) / newTotalQty
+		_, err = db.Exec(ctx, `UPDATE positions SET quantity = $1, avg_cost = $2 WHERE portfolio_id = $3 AND ticker_id = $4`, newTotalQty, newAvgCost, portfolioID, tickerID)
+	} else {
+		rows.Close()
+		_, err = db.Exec(ctx, `INSERT INTO positions (portfolio_id, ticker_id, quantity, avg_cost, opened_at) VALUES ($1, $2, $3, $4, NOW())`, portfolioID, tickerID, quantity, avgCost)
+	}
 	return err
 }
 
