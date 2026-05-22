@@ -360,14 +360,19 @@ func (s *PortfolioService) GetPriceBars(ctx context.Context, db interface {
 	defer rows.Close()
 
 	var bars []TickerPriceBar
-	for rows.Next() {
-		var bar TickerPriceBar
-		var ts time.Time
-		if err := rows.Scan(&ts, &bar.Price, &bar.Volume); err != nil {
-			continue
+	if rows != nil {
+		for rows.Next() {
+			var bar TickerPriceBar
+			var ts time.Time
+			if err := rows.Scan(&ts, &bar.Price, &bar.Volume); err != nil {
+				continue
+			}
+			bar.Timestamp = ts.UTC().Format(time.RFC3339)
+			bars = append(bars, bar)
 		}
-		bar.Timestamp = ts.UTC().Format(time.RFC3339)
-		bars = append(bars, bar)
+	}
+	if bars == nil {
+		bars = []TickerPriceBar{}
 	}
 	return bars, nil
 }
