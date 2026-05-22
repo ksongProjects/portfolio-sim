@@ -59,6 +59,37 @@ function formatDayLabel(timestamp: string): string {
   return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+type ChartRange = "1d" | "1w" | "1m";
+
+function formatXAxisTick(timestamp: string, range: ChartRange): string {
+  const date = new Date(timestamp);
+  if (isNaN(date.getTime())) return "";
+  switch (range) {
+    case "1d":
+      return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
+    case "1w":
+      return date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "America/New_York" });
+    case "1m":
+      return date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" });
+    default:
+      return date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" });
+  }
+}
+
+function getXAxisInterval(data: { timestamp: string }[], range: ChartRange): number | undefined {
+  if (data.length === 0) return undefined;
+  switch (range) {
+    case "1d":
+      return Math.floor(data.length / 8);
+    case "1w":
+      return Math.floor(data.length / 5);
+    case "1m":
+      return Math.floor(data.length / 4);
+    default:
+      return undefined;
+  }
+}
+
 function getHourIndices(data: { timestamp: string }[]): number[] {
   if (data.length === 0) return [];
   const indices: number[] = [];
@@ -88,7 +119,7 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: Array<
   );
 }
 
-function IntradayChart({ data }: { data: { timestamp: string; open?: number; high?: number; low?: number; close: number; volume?: number }[] }) {
+function IntradayChart({ data, range = "1d" }: { data: { timestamp: string; open?: number; high?: number; low?: number; close: number; volume?: number }[]; range?: ChartRange }) {
   if (data.length === 0) {
     return <div className="h-64 flex items-center justify-center text-on-surface-variant">No chart data available</div>;
   }
@@ -100,18 +131,22 @@ function IntradayChart({ data }: { data: { timestamp: string; open?: number; hig
 
   const chartData = data.map((d) => ({
     ...d,
-    time: formatDateTimeLabel(d.timestamp),
+    timestamp: d.timestamp,
   }));
+
+  const interval = getXAxisInterval(data, range);
 
   return (
     <ResponsiveContainer width="100%" height={280}>
       <LineChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="var(--outline-variant)" />
         <XAxis
-          dataKey="time"
+          dataKey="timestamp"
           tick={{ fontSize: 10, fill: "#9ca3af" }}
           tickLine={true}
           axisLine={{ stroke: "var(--outline)" }}
+          tickFormatter={(ts) => formatXAxisTick(ts.toString(), range)}
+          interval={interval}
         />
         <YAxis
           domain={["auto", "auto"]}
@@ -260,7 +295,7 @@ export default function TickerPage() {
               ))}
             </div>
           </div>
-          <IntradayChart data={chartData} />
+          <IntradayChart data={chartData} range={chartRange} />
         </div>
 
         <div className="grid grid-cols-4 gap-3">
