@@ -26,11 +26,11 @@ export interface TickerDetails {
 
 export interface IntradayBar {
   timestamp: string;
-  open: number;
-  high: number;
-  low: number;
   close: number;
   volume: number;
+  open?: number;
+  high?: number;
+  low?: number;
 }
 
 export interface IntradayData {
@@ -59,21 +59,25 @@ async function fetchTickerCompany(symbol: string) {
   return fetchJson<TickerDetails>(`/api/tickers/${encodeURIComponent(symbol)}/details`, undefined, "Failed to fetch company data");
 }
 
-async function fetchTickerBars(symbol: string, hours: number = 24) {
-  return fetchJson<{ symbol: string; bars: { timestamp: string; price: number; volume: number }[] }>(
-    `/api/tickers/bars?symbol=${encodeURIComponent(symbol)}&hours=${hours}`,
+async function fetchTickerBars(symbol: string, range: string) {
+  return fetchJson<{
+    symbol: string;
+    bars: { timestamp: string; open: number; high: number; low: number; close: number; volume: number }[];
+    change: number;
+    changePct: number;
+  }>(
+    `/api/tickers/bars?symbol=${encodeURIComponent(symbol)}&range=${encodeURIComponent(range)}`,
     undefined,
     "Failed to fetch ticker bars"
   );
 }
 
 async function fetchIntradayBars(symbol: string, range: string) {
-  const hours = range === "1d" ? 24 : range === "1w" ? 168 : 720;
-  const response = await fetchTickerBars(symbol, hours);
+  const response = await fetchTickerBars(symbol, range);
   return {
-    bars: response.bars.map(b => ({ timestamp: b.timestamp, close: b.price, volume: b.volume })),
-    change: 0,
-    changePct: 0,
+    bars: response.bars.map(b => ({ timestamp: b.timestamp, close: b.close, volume: b.volume ?? 0 })),
+    change: response.change,
+    changePct: response.changePct,
   };
 }
 

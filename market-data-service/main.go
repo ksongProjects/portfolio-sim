@@ -480,6 +480,17 @@ func (s *MarketDataService) fetchIntradayBarsForTicker(ticker string) {
 			continue
 		}
 		s.storage.InsertIntradayBar(context.Background(), normBar.TickerID, normBar.Interval, normBar.Open, normBar.High, normBar.Low, normBar.Close, normBar.Volume, normBar.Timestamp)
+		barData := map[string]interface{}{
+			"symbol":    ticker,
+			"interval":  normBar.Interval,
+			"timestamp": normBar.Timestamp.Format(time.RFC3339),
+			"open":      normBar.Open,
+			"high":      normBar.High,
+			"low":       normBar.Low,
+			"close":     normBar.Close,
+			"volume":    normBar.Volume,
+		}
+		s.sseMgr.PublishIntradayBar(ticker, "1min", barData)
 	}
 }
 
@@ -708,6 +719,31 @@ details, err := s.storage.GetTickerDetails(r.Context(), symbol)
 	json.NewEncoder(w).Encode(newDetails)
 }
 
+func getStartOfTradingDay(t time.Time) time.Time {
+	loc := t.Location()
+	today := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, loc)
+	weekday := t.Weekday()
+	if weekday == time.Saturday {
+		return today.AddDate(0, 0, -1)
+	}
+	if weekday == time.Sunday {
+		return today.AddDate(0, 0, -2)
+	}
+	return today
+}
+
+func getFiveTradingDaysBack(t time.Time) time.Time {
+	count := 0
+	day := t
+	for count < 5 {
+		day = day.AddDate(0, 0, -1)
+		if day.Weekday() != time.Saturday && day.Weekday() != time.Sunday {
+			count++
+		}
+	}
+	return time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, day.Location())
+}
+
 func (s *MarketDataService) handleIntradayBars(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	if !strings.HasSuffix(path, "/intraday") {
@@ -728,11 +764,11 @@ func (s *MarketDataService) handleIntradayBars(w http.ResponseWriter, r *http.Re
 	to = time.Now()
 	switch rangeParam {
 	case "1w":
-		from = to.AddDate(0, 0, -7)
+		from = getFiveTradingDaysBack(to)
 	case "1m":
-		from = to.AddDate(0, -1, 0)
+		from = to.AddDate(0, 0, -30)
 	default:
-		from = to.AddDate(0, 0, -1)
+		from = getStartOfTradingDay(to)
 	}
 
 	aggInterval := "1min"

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/coder/websocket"
 	"github.com/portfolio-sim/backend/database"
 	"github.com/portfolio-sim/backend/logging"
 	"github.com/portfolio-sim/backend/redis"
@@ -220,7 +221,7 @@ func (s *Server) Start() error {
 	http.HandleFunc("GET /api/videos", lm(http.HandlerFunc(s.handleGetStoredVideos)))
 	http.HandleFunc("POST /api/videos/analyze", lm(http.HandlerFunc(s.handleAnalyzeVideo)))
 	http.HandleFunc("POST /api/videos/summarize", lm(http.HandlerFunc(s.handleSummarizeVideos)))
-	http.HandleFunc("GET /api/stream/market", s.handleMarketStream)
+	http.HandleFunc("GET /api/ws/market", s.handleMarketWebSocket)
 
 	s.logger.Info("main api server starting", "port", s.cfg.Server.HTTPPort)
 
@@ -496,22 +497,20 @@ func (s *Server) handleDismissNotification(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) handleMarketStream(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+func (s *Server) handleMarketWebSocket(w http.ResponseWriter, r *http.Request) {
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		CompressionMode: websocket.CompressionContextTakeover,
+	})
+	if err != nil {
+		s.logger.Error("websocket accept failed", "error", err)
 		return
 	}
+	defer conn.Close(websocket.StatusNormalClosure, "")
 
 	ctx := r.Context()
 
 	symbols := uniqueSymbols(r.URL.Query()["symbols"])
-	streamStreams := make([]string, 0)
+
 	if len(symbols) > 0 {
 		for _, sym := range symbols {
 			s.queueTickerSubscribe(ctx, sym)
@@ -521,47 +520,43 @@ func (s *Server) handleMarketStream(w http.ResponseWriter, r *http.Request) {
 				s.queueTickerAction(context.Background(), sym, "unsubscribe")
 			}
 		}()
-		for _, sym := range symbols {
-			streamStreams = append(streamStreams, fmt.Sprintf("stream:market:ticks:%s", sym))
-		}
-	} else {
-		streamStreams = []string{"stream:market:ticks:*"}
 	}
 
-	lastIDs := make(map[string]string)
-	for _, stream := range streamStreams {
-		lastIDs[stream] = "$"
+	pubsub := s.redisClient.Subscribe(ctx, fmt.Sprintf("market:bars:*"))
+	defer pubsub.Close()
+
+	var symbolsMap = make(map[string]struct{})
+	for _, sym := range symbols {
+		symbolsMap[sym] = struct{}{}
 	}
 
-	s.logger.Info("SSE market stream connected", "symbols", symbols)
+	s.logger.Info("websocket market stream connected", "symbols", symbols)
 
 	for {
-		select {
-		case <-ctx.Done():
-			s.logger.Info("SSE market stream disconnected")
-			return
-		default:
-		}
-
-		streams := make([]string, 0, len(streamStreams)*2)
-		for stream := range lastIDs {
-			streams = append(streams, stream, lastIDs[stream])
-		}
-
-		results, err := s.redisClient.XRead(ctx, streams, 10)
+		msg, err := pubsub.ReceiveMessage(ctx)
 		if err != nil {
-			time.Sleep(500 * time.Millisecond)
+			if ctx.Err() != nil {
+				return
+			}
+			s.logger.Error("pubsub receive failed", "error", err)
 			continue
 		}
 
-		for _, result := range results {
-			for _, msg := range result.Messages {
-				lastIDs[result.Stream] = msg.ID
-				if data, ok := msg.Values["data"].(string); ok {
-					fmt.Fprintf(w, "data: %s\n\n", data)
-					flusher.Flush()
-				}
+		channel := msg.Channel
+		if len(symbols) > 0 {
+			parts := strings.Split(channel, ":")
+			if len(parts) < 3 {
+				continue
 			}
+			ticker := parts[2]
+			if _, ok := symbolsMap[ticker]; !ok {
+				continue
+			}
+		}
+
+		if err := conn.Write(ctx, websocket.MessageText, []byte(msg.Payload)); err != nil {
+			s.logger.Error("websocket write failed", "error", err)
+			return
 		}
 	}
 }
@@ -1614,37 +1609,27 @@ func (s *Server) handleGetTickerBars(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "symbol required", http.StatusBadRequest)
 		return
 	}
-	hoursStr := r.URL.Query().Get("hours")
-	hours := 24
-	if hoursStr != "" {
-		if h, err := strconv.Atoi(hoursStr); err == nil {
-			hours = h
-		}
+	rangeParam := r.URL.Query().Get("range")
+	if rangeParam == "" {
+		rangeParam = "1d"
 	}
 
-	var tickerID string
-	rows, err := s.db.Query(r.Context(), `SELECT id FROM tickers WHERE symbol = $1 AND is_active = true`, symbol)
-	if err == nil {
-		defer rows.Close()
-		if rows.Next() {
-			rows.Scan(&tickerID)
-		}
-	}
-
-	if tickerID == "" {
-		http.Error(w, "ticker not found", http.StatusNotFound)
+	bars, change, changePct, err := s.tickerSvc.GetIntradayBars(r.Context(), symbol, "", rangeParam)
+	if err != nil {
+		s.logger.Error("get ticker bars failed", "error", err, "symbol", symbol)
+		http.Error(w, "failed to get ticker bars", http.StatusInternalServerError)
 		return
 	}
-
-	bars, err := s.portfolioSvc.GetPriceBars(r.Context(), s.db, tickerID, hours)
-	if err != nil {
-		s.logger.Error("get ticker bars failed", "error", err)
+	if bars == nil {
+		bars = []services.IntradayBar{}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"symbol": symbol,
-		"bars":   bars,
+		"symbol":    symbol,
+		"bars":      bars,
+		"change":    change,
+		"changePct": changePct,
 	})
 }
 
