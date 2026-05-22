@@ -347,7 +347,7 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
                   ))}
                 </div>
 
-                <Button variant="default" size="default" className="w-full" onClick={() => setStep("confirm")}>
+                <Button variant="default" size="default" className="w-full" onClick={() => { setPrice(selectedTicker.price.toString()); setStep("confirm"); }}>
                   Continue to Confirm
                 </Button>
               </div>
@@ -380,6 +380,7 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
                     placeholder="0"
                     min="0"
                     step="any"
+                    className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [&]:appearance-none"
                   />
                   <Input
                     label="Price per Share"
@@ -389,6 +390,7 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
                     placeholder="0.00"
                     min="0"
                     step="0.01"
+                    className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [&]:appearance-none"
                   />
                 </div>
 

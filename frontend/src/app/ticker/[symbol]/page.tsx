@@ -8,10 +8,13 @@ import { CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/page-layout";
 import { useTickerLookup } from "@/hooks/useTickerLookup";
+import { useMarketSocket } from "@/hooks/useMarketSocket";
 import { usePortfolio } from "@/hooks/usePortfolio";
 import { cn } from "@/lib/utils";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from "recharts";
 import { toast } from "sonner";
+import { useMemo } from "react";
+import { type IntradayBar } from "@/hooks/useTickerLookup";
 
 function fmtCurrency(v: number): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(v);
@@ -85,7 +88,7 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: Array<
   );
 }
 
-function IntradayChart({ data }: { data: { timestamp: string; close: number }[] }) {
+function IntradayChart({ data }: { data: { timestamp: string; open?: number; high?: number; low?: number; close: number; volume?: number }[] }) {
   if (data.length === 0) {
     return <div className="h-64 flex items-center justify-center text-on-surface-variant">No chart data available</div>;
   }
@@ -139,6 +142,27 @@ export default function TickerPage() {
   const { selectedTicker, intradayData, intradayChange, intradayChangePct, loading, chartRange, setChartRange } = useTickerLookup(symbol);
   const { positions, removePosition, isRemovingPosition } = usePortfolio("default", { includeIndices: false });
   const position = positions.find(p => p.Symbol === symbol);
+  const { getBar } = useMarketSocket([symbol], true);
+
+  const chartData = useMemo(() => {
+    const baseData: IntradayBar[] = [...intradayData];
+    const liveBar = getBar(symbol);
+    if (liveBar && liveBar.close > 0) {
+      const lastIdx = baseData.findIndex(b => {
+        const d = new Date(b.timestamp);
+        const lb = new Date(liveBar.timestamp);
+        return d.getTime() === lb.getTime();
+      });
+      const barEntry: IntradayBar = { timestamp: liveBar.timestamp, close: liveBar.close, volume: liveBar.volume ?? baseData[0]?.volume, open: liveBar.open, high: liveBar.high, low: liveBar.low };
+      if (lastIdx >= 0) {
+        baseData[lastIdx] = barEntry;
+      } else {
+        baseData.push(barEntry);
+      }
+      baseData.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    }
+    return baseData;
+  }, [intradayData, symbol, getBar]);
 
   const handleRemovePosition = async () => {
     if (!position) return;
@@ -236,7 +260,7 @@ export default function TickerPage() {
               ))}
             </div>
           </div>
-          <IntradayChart data={intradayData} />
+          <IntradayChart data={chartData} />
         </div>
 
         <div className="grid grid-cols-4 gap-3">
