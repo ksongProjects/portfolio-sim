@@ -445,7 +445,8 @@ func (s *MarketDataService) fetchTickerDetailsComposite(ctx context.Context, sym
 	}
 
 	quoteSource := ""
-	if refreshQuote || cached == nil || cached.Price == 0 {
+	forceRefresh := cached == nil || cached.Price == 0
+	if refreshQuote || forceRefresh || stale {
 		provider := s.providerForOperation(ctx, operationQuote, "")
 		if provider != nil {
 			price, err := provider.FetchPrice(symbol)

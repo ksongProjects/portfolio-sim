@@ -351,6 +351,17 @@ func (s *MarketDataService) fetchPriceLoop(ctx context.Context, ticker string, p
 
 		s.sseMgr.PublishTick(ticker, normPrice)
 
+		barData := map[string]interface{}{
+			"symbol":    ticker,
+			"interval":  "1min",
+			"timestamp": normPrice.Timestamp.Format(time.RFC3339),
+			"close":     normPrice.Price,
+			"change":    normPrice.Change,
+			"changePct": normPrice.ChangePct,
+			"volume":    normPrice.Volume,
+		}
+		s.sseMgr.PublishIntradayBar(ticker, "1min", barData)
+
 		if !sleepWithContext(ctx, time.Second) {
 			return
 		}
