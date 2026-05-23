@@ -68,17 +68,33 @@ function generate1mTicks(from: Date, to: Date): Date[] {
   return ticks;
 }
 
-function getTicksForRange(range: ChartRange, from: Date, to: Date): Date[] {
-  switch (range) {
-    case "1d":
-      return generate1dTicks(from, to);
-    case "1w":
-      return generate1wTicks(from, to);
-    case "1m":
-      return generate1mTicks(from, to);
-    default:
-      return [];
+function getTicksFromData(data: { timestamp: string }[], range: ChartRange): string[] {
+  if (data.length === 0) return [];
+  const seen = new Set<string>();
+  const ticks: string[] = [];
+  for (const d of data) {
+    const date = new Date(d.timestamp);
+    if (date.getDay() === 0 || date.getDay() === 6) continue;
+    const hour = date.getHours();
+    if (hour < 4 || hour >= 20) continue;
+    if (range === "1d") {
+      if (date.getMinutes() === 0) {
+        const key = date.getTime().toString();
+        if (!seen.has(key)) {
+          seen.add(key);
+          ticks.push(d.timestamp);
+        }
+      }
+    } else {
+      date.setHours(4, 0, 0, 0);
+      const key = date.getTime().toString();
+      if (!seen.has(key)) {
+        seen.add(key);
+        ticks.push(date.toISOString());
+      }
+    }
   }
+  return ticks;
 }
 
 function formatXAxisTick(timestamp: string, range: ChartRange): string {
@@ -139,9 +155,7 @@ function PortfolioLineChart({ data, range }: PortfolioLineChartProps) {
 
   const intervalLabel = range === "1d" ? "Today" : range === "1w" ? "This Week" : range === "1m" ? "This Month" : range;
 
-  const from = new Date(data[0].timestamp);
-  const to = new Date(data[data.length - 1].timestamp);
-  const ticks = getTicksForRange(range as ChartRange, from, to);
+  const ticks = getTicksFromData(data, range as ChartRange);
 
   return (
     <ResponsiveContainer width="100%" height="100%">
@@ -153,7 +167,7 @@ function PortfolioLineChart({ data, range }: PortfolioLineChartProps) {
           tickLine={true}
           axisLine={{ stroke: "var(--outline)" }}
           tickFormatter={(ts) => formatXAxisTick(ts.toString(), range as ChartRange)}
-          ticks={ticks.map(t => t.toISOString())}
+          ticks={ticks}
         />
         <YAxis
           domain={[minValue - padding, maxValue + padding]}
