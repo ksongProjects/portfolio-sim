@@ -757,8 +757,8 @@ func (s *PortfolioService) GetNewsArticles(ctx context.Context, db interface {
 	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
 }) ([]NewsArticle, error) {
 	query := `
-		SELECT id, title, source, source_type, url, summary, content,
-		       sentiment, sentiment_value, published_at, channel
+		SELECT id::text, title, source, COALESCE(source_type, 'rss'), url, summary,
+		       sentiment, COALESCE(sentiment_value, ''), published_at, COALESCE(channel, '')
 		FROM news_articles
 		ORDER BY published_at DESC
 	`
@@ -771,19 +771,13 @@ func (s *PortfolioService) GetNewsArticles(ctx context.Context, db interface {
 	var articles []NewsArticle
 	for rows.Next() {
 		var a NewsArticle
-		var content, sentimentValue, channel *string
+		var content *string
 		if err := rows.Scan(&a.ID, &a.Title, &a.Source, &a.SourceType, &a.URL,
-			&a.Summary, content, &a.Sentiment, sentimentValue, &a.PublishedAt, channel); err != nil {
+			&a.Summary, &a.Sentiment, &a.SentimentValue, &a.PublishedAt, &a.Channel); err != nil {
 			continue
 		}
 		if content != nil {
 			a.Content = *content
-		}
-		if sentimentValue != nil {
-			a.SentimentValue = *sentimentValue
-		}
-		if channel != nil {
-			a.Channel = *channel
 		}
 		a.TickerSymbols = []string{}
 		articles = append(articles, a)
