@@ -71,3 +71,7 @@ func (c *Client) CreateGroup(ctx context.Context, stream string, group string) e
 func (c *Client) Subscribe(ctx context.Context, channels ...string) *redis.PubSub {
 	return c.rdb.Subscribe(ctx, channels...)
 }
+
+func (c *Client) PSubscribe(ctx context.Context, patterns ...string) *redis.PubSub {
+	return c.rdb.PSubscribe(ctx, patterns...)
+}

@@ -522,7 +522,7 @@ func (s *Server) handleMarketWebSocket(w http.ResponseWriter, r *http.Request) {
 		}()
 	}
 
-	pubsub := s.redisClient.Subscribe(ctx, fmt.Sprintf("market:bars:*"))
+	pubsub := s.redisClient.PSubscribe(ctx, fmt.Sprintf("market:bars:*"))
 	defer pubsub.Close()
 
 	var symbolsMap = make(map[string]struct{})
