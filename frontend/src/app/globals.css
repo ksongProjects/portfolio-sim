@@ -17,13 +17,14 @@
   --color-outline-variant: #3c4a3c;
   --color-surface-tint: #3ce36a;
   --color-primary: #3fe56c;
+  --color-primary-foreground: #003912;
   --color-on-primary: #003912;
   --color-primary-container: #00c853;
   --color-on-primary-container: #004c1b;
   --color-inverse-primary: #006e2a;
   --color-secondary: #c6c6c7;
-  --color-on-secondary: #2f3131;
-  --color-secondary-foreground: #2f3131;
+  --color-secondary-foreground: #1a1c1c;
+  --color-on-secondary: #1a1c1c;
   --color-secondary-container: #454747;
   --color-on-secondary-container: #b4b5b5;
   --color-tertiary: #cbc8c8;

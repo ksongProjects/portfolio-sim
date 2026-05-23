@@ -18,16 +18,22 @@ import (
 )
 
 type ProviderService struct {
-	logger    *slog.Logger
-	logClient *logging.Client
-	codec     *secrets.Codec
+	logger     *slog.Logger
+	logClient  *logging.Client
+	codec      *secrets.Codec
+	httpClient *http.Client
 }
 
 func NewProviderService(logger *slog.Logger, logClient *logging.Client, codec *secrets.Codec) *ProviderService {
 	if logger == nil {
 		logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	}
-	return &ProviderService{logger: logger, logClient: logClient, codec: codec}
+	return &ProviderService{
+		logger:     logger,
+		logClient:  logClient,
+		codec:      codec,
+		httpClient: &http.Client{Timeout: 15 * time.Second},
+	}
 }
 
 type ProviderConfig struct {
@@ -56,6 +62,7 @@ type ConnectionStatus struct {
 func (s *ProviderService) GetProviders(ctx context.Context, db interface {
 	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
 }) ([]ProviderConfig, error) {
+	s.logger.Info("GetProviders called")
 	query := `
 		SELECT ds.id, ds.name, ds.source_priority, ds.rate_limit_per_min,
 			   CASE
@@ -71,9 +78,12 @@ func (s *ProviderService) GetProviders(ctx context.Context, db interface {
 	`
 	rows, err := db.Query(ctx, query)
 	if err != nil {
+		s.logger.Error("GetProviders query failed", "error", err)
 		return nil, err
 	}
 	defer rows.Close()
+
+	s.logger.Info("GetProviders query succeeded, checking rows")
 
 	providerMeta := map[string]struct {
 		Description string
@@ -106,8 +116,10 @@ func (s *ProviderService) GetProviders(ctx context.Context, db interface {
 		var tokenExpiresAt *time.Time
 		var validationError string
 		if err := rows.Scan(&id, &name, &priority, &rateLimit, &hasKey, &isValidated, &tokenExpiresAt, &validationError); err != nil {
+			s.logger.Error("GetProviders scan failed", "error", err)
 			continue
 		}
+		s.logger.Info("GetProviders row scanned", "id", id, "hasKey", hasKey, "isValidated", isValidated)
 		meta := providerMeta[id]
 		def := defaults[id]
 		tokenExpired := tokenExpiresAt != nil && tokenExpiresAt.Before(time.Now())
@@ -132,6 +144,7 @@ func (s *ProviderService) GetProviders(ctx context.Context, db interface {
 	}
 
 	if len(results) == 0 {
+		s.logger.Warn("GetProviders no rows, using fallback")
 		results = []ProviderConfig{
 			{ID: "massive", ProviderID: "massive", Name: "Massive", Description: "Real-time and historical market data", Type: "market_data", RateLimit: 5, DocURL: "https://massive.com/docs/rest/quickstart", TokenExpired: false},
 			{ID: "questrade", ProviderID: "questrade", Name: "Questrade", Description: "Questrade market data API", Type: "market_data", RateLimit: 100, DocURL: "https://www.questrade.com/api", TokenExpired: false},
@@ -269,11 +282,11 @@ func (s *ProviderService) SaveQuestradeOAuth(ctx context.Context, db interface {
 	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
 	Exec(ctx context.Context, sql string, args ...interface{}) (int64, error)
 }, providerID, accessToken, refreshToken, apiServer string, expiresIn int) error {
-	encryptedAccessToken, err := s.codec.EncryptString(accessToken)
+	encryptedRefreshToken, err := s.codec.EncryptString(refreshToken)
 	if err != nil {
 		return err
 	}
-	encryptedRefreshToken, err := s.codec.EncryptString(refreshToken)
+	encryptedAccessToken, err := s.codec.EncryptString(accessToken)
 	if err != nil {
 		return err
 	}
@@ -284,10 +297,10 @@ func (s *ProviderService) SaveQuestradeOAuth(ctx context.Context, db interface {
 	expiresAt := time.Now().Add(time.Duration(expiresIn) * time.Second)
 	query := `
 		INSERT INTO provider_configurations (id, provider_id, encrypted_key, access_token, refresh_token, api_server, token_expires_at, is_validated, validated_at, validation_error, created_at, updated_at)
-		VALUES (gen_random_uuid(), $1, $2, $2, $3, $4, $5, true, NOW(), NULL, NOW(), NOW())
-		ON CONFLICT (provider_id) DO UPDATE SET encrypted_key = $2, access_token = $2, refresh_token = $3, api_server = $4, token_expires_at = $5, is_validated = true, validated_at = NOW(), validation_error = NULL, updated_at = NOW()
+		VALUES (gen_random_uuid(), $1, $2, $3, $2, $4, $5, true, NOW(), NULL, NOW(), NOW())
+		ON CONFLICT (provider_id) DO UPDATE SET encrypted_key = $2, access_token = $3, refresh_token = $2, api_server = $4, token_expires_at = $5, is_validated = true, validated_at = NOW(), validation_error = NULL, updated_at = NOW()
 	`
-	_, err = db.Exec(ctx, query, providerID, encryptedAccessToken, encryptedRefreshToken, encryptedAPIServer, expiresAt)
+	_, err = db.Exec(ctx, query, providerID, encryptedRefreshToken, encryptedAccessToken, encryptedAPIServer, expiresAt)
 	return err
 }
 
@@ -329,6 +342,11 @@ func (s *ProviderService) ExchangeQuestradeToken(ctx context.Context, initialRef
 	const qtAPI = "https://login.questrade.com/oauth2/token"
 	tokenURL := fmt.Sprintf("%s?grant_type=refresh_token&refresh_token=%s", qtAPI, url.QueryEscape(initialRefreshToken))
 
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, tokenURL, nil)
+	if err != nil {
+		return "", "", "", 0, fmt.Errorf("failed to create request: %w", err)
+	}
+
 	if s.logClient != nil {
 		s.logClient.InfoWithMeta(ctx, "Questrade token exchange request", map[string]interface{}{
 			"url":    sanitizeProviderURL(tokenURL),
@@ -337,9 +355,9 @@ func (s *ProviderService) ExchangeQuestradeToken(ctx context.Context, initialRef
 		})
 	}
 
-	resp, err := http.Get(tokenURL)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return "", "", "", 0, err
+		return "", "", "", 0, fmt.Errorf("oauth request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -461,6 +479,11 @@ type QuestradeOAuthResult struct {
 func (s *ProviderService) validateMassiveKey(ctx context.Context, apiKey string) (bool, error) {
 	url := fmt.Sprintf("https://api.massive.com/v2/aggs/ticker/AAPL/prev?adjusted=true&apiKey=%s", apiKey)
 
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return false, err
+	}
+
 	if s.logClient != nil {
 		s.logClient.InfoWithMeta(ctx, "Massive validation request", map[string]interface{}{
 			"url":    sanitizeProviderURL(url),
@@ -469,7 +492,7 @@ func (s *ProviderService) validateMassiveKey(ctx context.Context, apiKey string)
 		})
 	}
 
-	resp, err := http.Get(url)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return false, err
 	}
@@ -500,6 +523,11 @@ func (s *ProviderService) validateMassiveKey(ctx context.Context, apiKey string)
 func (s *ProviderService) validateFMPKey(ctx context.Context, apiKey string) (bool, error) {
 	url := fmt.Sprintf("https://financialmodelingprep.com/stable/quote?symbol=AAPL&apikey=%s", apiKey)
 
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return false, err
+	}
+
 	if s.logClient != nil {
 		s.logClient.InfoWithMeta(ctx, "FMP validation request", map[string]interface{}{
 			"url":    sanitizeProviderURL(url),
@@ -508,7 +536,7 @@ func (s *ProviderService) validateFMPKey(ctx context.Context, apiKey string) (bo
 		})
 	}
 
-	resp, err := http.Get(url)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return false, err
 	}
@@ -553,6 +581,11 @@ func (s *ProviderService) validateQuestradeKey(ctx context.Context, apiKey strin
 	const qtAPI = "https://login.questrade.com/oauth2/token"
 	tokenURL := fmt.Sprintf("%s?grant_type=refresh_token&refresh_token=%s", qtAPI, url.QueryEscape(apiKey))
 
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, tokenURL, nil)
+	if err != nil {
+		return false, nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
 	if s.logClient != nil {
 		s.logClient.InfoWithMeta(ctx, "Questrade validation request", map[string]interface{}{
 			"url":    sanitizeProviderURL(tokenURL),
@@ -561,7 +594,7 @@ func (s *ProviderService) validateQuestradeKey(ctx context.Context, apiKey strin
 		})
 	}
 
-	resp, err := http.Get(tokenURL)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return false, nil, fmt.Errorf("oauth request failed: %w", err)
 	}
@@ -613,6 +646,11 @@ func (s *ProviderService) validateQuestradeKey(ctx context.Context, apiKey strin
 func (s *ProviderService) validateYouTubeKey(ctx context.Context, apiKey string) (bool, error) {
 	url := fmt.Sprintf("https://www.googleapis.com/youtube/v3/videos?part=snippet&id=dQw4w9WgXcQ&key=%s", apiKey)
 
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return false, err
+	}
+
 	if s.logClient != nil {
 		s.logClient.InfoWithMeta(ctx, "YouTube validation request", map[string]interface{}{
 			"url":    "https://www.googleapis.com/youtube/v3/videos?part=snippet&id=VIDEO_ID",
@@ -621,7 +659,7 @@ func (s *ProviderService) validateYouTubeKey(ctx context.Context, apiKey string)
 		})
 	}
 
-	resp, err := http.Get(url)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return false, err
 	}
@@ -652,6 +690,11 @@ func (s *ProviderService) validateYouTubeKey(ctx context.Context, apiKey string)
 func (s *ProviderService) validateGeminiKey(ctx context.Context, apiKey string) (bool, error) {
 	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models?key=%s", apiKey)
 
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return false, err
+	}
+
 	if s.logClient != nil {
 		s.logClient.InfoWithMeta(ctx, "Gemini validation request", map[string]interface{}{
 			"url":    sanitizeProviderURL(url),
@@ -660,7 +703,7 @@ func (s *ProviderService) validateGeminiKey(ctx context.Context, apiKey string) 
 		})
 	}
 
-	resp, err := http.Get(url)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return false, err
 	}

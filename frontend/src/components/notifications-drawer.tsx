@@ -3,7 +3,7 @@
 import { X, Bell, Check, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import type { Notification } from "@/hooks/useNotifications";
 
@@ -42,12 +42,12 @@ export function NotificationsDrawer({
   const unreadCount = notifications.filter((n) => !n.read).length;
 
   return (
-    <Drawer open={open} onOpenChange={(open) => !open && onClose()} direction="right">
-      <DrawerContent className="inset-y-0 right-0 h-full w-96 max-w-full border-l border-outline-variant flex flex-col">
-        <DrawerHeader className="flex flex-row items-center justify-between px-4 py-3 border-b border-outline-variant shrink-0">
+    <Sheet open={open} onOpenChange={(open) => !open && onClose()}>
+      <SheetContent side="right" showCloseButton={false} className="inset-y-0 right-0 h-full w-96 max-w-full border-l border-outline-variant flex flex-col bg-surface-container">
+        <SheetHeader className="flex flex-row items-center justify-between px-4 py-3 border-b border-outline-variant shrink-0">
           <div className="flex items-center gap-2">
             <Bell className="h-5 w-5 text-on-surface" />
-            <DrawerTitle className="text-sm font-semibold text-on-surface">Notifications</DrawerTitle>
+            <SheetTitle className="text-sm font-semibold text-on-surface">Notifications</SheetTitle>
             {unreadCount > 0 && (
               <Badge variant="error">{unreadCount} new</Badge>
             )}
@@ -67,7 +67,7 @@ export function NotificationsDrawer({
               <X className="h-4 w-4" />
             </Button>
           </div>
-        </DrawerHeader>
+        </SheetHeader>
         <div className="flex-1 overflow-y-auto min-h-0">
           {notifications.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-on-surface-variant">
@@ -115,7 +115,7 @@ export function NotificationsDrawer({
             </ul>
           )}
         </div>
-      </DrawerContent>
-    </Drawer>
+      </SheetContent>
+    </Sheet>
   );
 }

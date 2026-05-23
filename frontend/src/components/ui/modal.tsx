@@ -24,12 +24,10 @@ export function Modal({
   return (
     <Dialog open={open} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className={className} showCloseButton={showCloseButton}>
-        {(title || description) && (
-          <DialogHeader>
-            {title && <DialogTitle>{title}</DialogTitle>}
-            <DialogDescription>{description || " "}</DialogDescription>
-          </DialogHeader>
-        )}
+        <DialogHeader>
+          {title && <DialogTitle>{title}</DialogTitle>}
+          {description && <DialogDescription>{description}</DialogDescription>}
+        </DialogHeader>
         {children}
       </DialogContent>
     </Dialog>

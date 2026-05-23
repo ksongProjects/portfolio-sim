@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Search, TrendingUp, TrendingDown, BarChart2, DollarSign, Percent, Clock, ChevronRight } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, CartesianGrid } from "recharts";
 import { Button } from "@/components/ui/button";
@@ -103,7 +103,18 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
     searchLoading,
     searchTickers,
     lookupTicker,
+    clearSelection,
   } = useTickerLookup();
+
+  useEffect(() => {
+    if (!open) {
+      setStep("search");
+      setQuery("");
+      setShares("");
+      setPrice("");
+      clearSelection();
+    }
+  }, [open, clearSelection]);
 
   const handleSearch = async () => {
     if (!query.trim()) return;
@@ -138,6 +149,10 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
   };
 
   const handleClose = () => {
+    setStep("search");
+    setQuery("");
+    setShares("");
+    setPrice("");
     onClose();
   };
 
@@ -146,7 +161,7 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
       open={open}
       onClose={handleClose}
       title="Add Position"
-      description={step === "search" ? "Search for a ticker" : step === "details" ? "Review ticker details" : "Confirm position"}
+      description={step === "search" ? "Search for a ticker to add to your portfolio" : step === "details" ? "Review ticker details before adding" : "Confirm position details"}
     >
       <div className="space-y-4">
         {step === "search" && (
@@ -175,7 +190,7 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
             )}
 
             {searchResults.length > 0 && (
-              <ul className="border border-outline-variant/30 divide-y divide-outline-variant/30">
+              <ul className="border border-outline-variant/30 divide-y divide-outline-variant/30 max-h-64 overflow-y-auto">
                 {searchResults
                   .filter((ticker) => {
                     const isEquity = !ticker.symbol.includes("/") && !ticker.symbol.includes("^") && !ticker.exchange?.includes("Index");

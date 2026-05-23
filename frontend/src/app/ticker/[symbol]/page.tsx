@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/page-layout";
+import { Spinner } from "@/components/ui/skeleton";
 import { useTickerLookup } from "@/hooks/useTickerLookup";
 import { useMarketSocket } from "@/hooks/useMarketSocket";
 import { usePortfolio } from "@/hooks/usePortfolio";
@@ -24,7 +25,8 @@ function fmtPct(v: number): string {
   return (v >= 0 ? "+" : "") + v.toFixed(2) + "%";
 }
 
-function fmtNumber(v: number): string {
+function fmtNumber(v: number | undefined | null): string {
+  if (v === undefined || v === null || isNaN(v)) return "N/A";
   if (v >= 1e12) return (v / 1e12).toFixed(2) + "T";
   if (v >= 1e9) return (v / 1e9).toFixed(2) + "B";
   if (v >= 1e6) return (v / 1e6).toFixed(2) + "M";
@@ -323,7 +325,7 @@ function IntradayChart({ data, range = "1d" }: { data: { timestamp: string; open
 export default function TickerPage() {
   const params = useParams();
   const symbol = params.symbol as string;
-  const { selectedTicker, intradayData, intradayChange, intradayChangePct, loading, chartRange, setChartRange } = useTickerLookup(symbol);
+  const { selectedTicker, intradayData, intradayChange, intradayChangePct, loading: tickerLoading, chartLoading, chartRange, setChartRange } = useTickerLookup(symbol);
   const { positions, removePosition, isRemovingPosition } = usePortfolio("default", { includeIndices: false });
   const position = positions.find(p => p.Symbol === symbol);
   const { getBar } = useMarketSocket([symbol], true);
@@ -358,7 +360,7 @@ export default function TickerPage() {
     }
   };
 
-  if (loading) {
+  if (tickerLoading && !selectedTicker) {
     return (
       <div className="flex flex-col h-full">
         <div className="px-6 pt-6 pb-4">
@@ -371,7 +373,7 @@ export default function TickerPage() {
     );
   }
 
-  if (!selectedTicker) {
+  if (!selectedTicker && !tickerLoading) {
     return (
       <div className="flex flex-col h-full">
         <div className="px-6 pt-6 pb-4">
@@ -388,8 +390,8 @@ export default function TickerPage() {
     <div className="flex flex-col h-full">
       <div className="px-6 pt-6 pb-4">
         <PageHeader 
-          title={selectedTicker.symbol} 
-          description={selectedTicker.name}
+          title={selectedTicker?.symbol ?? symbol} 
+          description={selectedTicker?.name}
         >
           <div className="flex gap-2">
             {position && (
@@ -410,12 +412,12 @@ export default function TickerPage() {
         <div className="flex items-start justify-between">
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-2xl font-mono font-bold text-on-surface">{selectedTicker.symbol}</span>
-              <Badge variant="secondary">{selectedTicker.exchange}</Badge>
+              <span className="text-2xl font-mono font-bold text-on-surface">{selectedTicker?.symbol}</span>
+              <Badge variant="secondary">{selectedTicker?.exchange}</Badge>
             </div>
           </div>
           <div className="text-right">
-            <div className="text-2xl font-mono font-semibold text-on-surface">{fmtCurrency(selectedTicker.price)}</div>
+            <div className="text-2xl font-mono font-semibold text-on-surface">{fmtCurrency(selectedTicker?.price ?? 0)}</div>
             <div className={cn("text-sm font-mono flex items-center gap-1", intradayChangePct >= 0 ? "text-primary" : "text-error")}>
               {intradayChangePct >= 0 ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
               {fmtCurrency(Math.abs(intradayChange))} ({fmtPct(intradayChangePct)})
@@ -444,15 +446,22 @@ export default function TickerPage() {
               ))}
             </div>
           </div>
-          <IntradayChart data={chartData} range={chartRange} />
+          {chartLoading ? (
+            <div className="h-64 flex flex-col items-center justify-center gap-3">
+              <Spinner className="h-8 w-8" />
+              <span className="text-sm text-on-surface-variant">Loading chart data...</span>
+            </div>
+          ) : (
+            <IntradayChart data={chartData} range={chartRange} />
+          )}
         </div>
 
         <div className="grid grid-cols-4 gap-3">
           {[
-            { icon: DollarSign, label: "Market Cap", value: fmtNumber(selectedTicker.marketCap) },
-            { icon: BarChart2, label: "P/E Ratio", value: selectedTicker.peRatio?.toFixed(2) || "N/A" },
-            { icon: Percent, label: "Div Yield", value: selectedTicker.dividendYield ? (selectedTicker.dividendYield * 100).toFixed(2) + "%" : "N/A" },
-            { icon: Calendar, label: "52W Range", value: `${fmtCurrency(selectedTicker.week52Low)} - ${fmtCurrency(selectedTicker.week52High)}` },
+            { icon: DollarSign, label: "Market Cap", value: fmtNumber(selectedTicker?.marketCap) },
+            { icon: BarChart2, label: "P/E Ratio", value: selectedTicker?.peRatio?.toFixed(2) || "N/A" },
+            { icon: Percent, label: "Div Yield", value: selectedTicker?.dividendYield ? (selectedTicker.dividendYield * 100).toFixed(2) + "%" : "N/A" },
+            { icon: Calendar, label: "52W Range", value: `${fmtCurrency(selectedTicker?.week52Low ?? 0)} - ${fmtCurrency(selectedTicker?.week52High ?? 0)}` },
           ].map((item) => (
             <div key={item.label} className="flex items-center gap-2 p-3 border border-outline-variant/30">
               <item.icon className="h-4 w-4 text-on-surface-variant shrink-0" />
@@ -472,11 +481,11 @@ export default function TickerPage() {
             </div>
             <div className="space-y-3">
               {[
-                { label: "Sector", value: selectedTicker.sector || "N/A" },
-                { label: "Industry", value: selectedTicker.industry || "N/A" },
-                { label: "Volume", value: selectedTicker.volume?.toLocaleString() || "N/A" },
-                { label: "Avg Volume", value: selectedTicker.avgVolume?.toLocaleString() || "N/A" },
-                { label: "EPS", value: selectedTicker.eps?.toFixed(2) || "N/A" },
+                { label: "Sector", value: selectedTicker?.sector || "N/A" },
+                { label: "Industry", value: selectedTicker?.industry || "N/A" },
+                { label: "Volume", value: selectedTicker?.volume?.toLocaleString() || "N/A" },
+                { label: "Avg Volume", value: selectedTicker?.avgVolume?.toLocaleString() || "N/A" },
+                { label: "EPS", value: selectedTicker?.eps?.toFixed(2) || "N/A" },
               ].map((item) => (
                 <div key={item.label} className="flex items-center justify-between">
                   <span className="text-sm text-on-surface-variant">{item.label}</span>
