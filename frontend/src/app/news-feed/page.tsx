@@ -6,8 +6,8 @@ import { CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Clock, ExternalLink, Search, Bookmark, RefreshCw, Plus, X, Rss, Check, Video, Play, Loader } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Clock, ExternalLink, Search, Bookmark, RefreshCw, Plus, Rss, Check, Video, Play, Loader } from "lucide-react";
 import { useNews, type NewsArticle } from "@/hooks/useNews";
 import { useRSSFeeds } from "@/hooks/useRSSFeeds";
 

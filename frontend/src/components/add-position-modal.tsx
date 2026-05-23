@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { X, Search, TrendingUp, TrendingDown, BarChart2, DollarSign, Percent, Clock, ChevronRight } from "lucide-react";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from "recharts";
+import { useState, useRef } from "react";
+import { Search, TrendingUp, TrendingDown, BarChart2, DollarSign, Percent, Clock, ChevronRight } from "lucide-react";
+import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, CartesianGrid } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
-import { useTickerLookup, type TickerDetails, type IntradayBar, type FinancialRatio } from "@/hooks/useTickerLookup";
+import { useTickerLookup, type TickerDetails } from "@/hooks/useTickerLookup";
 import { cn } from "@/lib/utils";
 
 interface AddPositionModalProps {
@@ -40,62 +40,6 @@ function formatTime(timestamp: string): string {
     const parts = timestamp.split(" ");
     return parts.length > 1 ? parts[1].substring(0, 5) : timestamp;
   }
-  return date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "America/New_York" });
-}
-
-function formatHourLabel(timestamp: string): string {
-  const date = new Date(timestamp);
-  if (isNaN(date.getTime())) return "";
-  return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
-}
-
-function formatDateTimeLabel(timestamp: string): string {
-  const date = new Date(timestamp);
-  if (isNaN(date.getTime())) return "";
-  return date.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
-}
-
-function formatDayLabel(timestamp: string): string {
-  const date = new Date(timestamp);
-  if (isNaN(date.getTime())) return "";
-  return date.toLocaleDateString([], { month: "short", day: "numeric" });
-}
-
-function getHourIndices(data: { timestamp: string }[]): number[] {
-  if (data.length === 0) return [];
-  const indices: number[] = [];
-  for (let i = 0; i < data.length; i++) {
-    const date = new Date(data[i].timestamp);
-    if (!isNaN(date.getTime()) && date.getMinutes() === 0) {
-      indices.push(i);
-    }
-  }
-  return indices;
-}
-
-function getDayBoundaryIndices(data: { timestamp: string }[]): { index: number; label: string }[] {
-  if (data.length === 0) return [];
-  const boundaries: { index: number; label: string }[] = [];
-  for (let i = 1; i < data.length; i++) {
-    const prevDate = new Date(data[i - 1].timestamp);
-    const currDate = new Date(data[i].timestamp);
-    if (!isNaN(prevDate.getTime()) && !isNaN(currDate.getTime())) {
-      const prevDay = prevDate.toDateString();
-      const currDay = currDate.toDateString();
-      if (prevDay !== currDay) {
-        boundaries.push({
-          index: i,
-          label: formatDayLabel(data[i].timestamp),
-        });
-      }
-    }
-  }
-  return boundaries;
-}
-
-function formatMarketTime(hour: number, minute: number): string {
-  const date = new Date();
-  date.setHours(hour, minute, 0, 0);
   return date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "America/New_York" });
 }
 
@@ -159,24 +103,7 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
     searchLoading,
     searchTickers,
     lookupTicker,
-    clearSelection,
   } = useTickerLookup();
-
-  useEffect(() => {
-    if (open) {
-      setStep("search");
-      setQuery("");
-      setShares("");
-      setPrice("");
-      clearSelection();
-    }
-  }, [open, clearSelection]);
-
-  useEffect(() => {
-    if (open && searchRef.current) {
-      searchRef.current.focus();
-    }
-  }, [open]);
 
   const handleSearch = async () => {
     if (!query.trim()) return;
