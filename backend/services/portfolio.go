@@ -758,7 +758,8 @@ func (s *PortfolioService) GetNewsArticles(ctx context.Context, db interface {
 }) ([]NewsArticle, error) {
 	query := `
 		SELECT id::text, title, source, COALESCE(source_type, 'rss'), url, summary,
-		       sentiment, COALESCE(sentiment_value, ''), published_at, COALESCE(channel, '')
+		       sentiment, COALESCE(sentiment_value, ''), published_at, COALESCE(channel, ''),
+		       COALESCE(tickers, '[]'::jsonb) as tickers
 		FROM news_articles
 		ORDER BY published_at DESC
 	`
@@ -772,14 +773,20 @@ func (s *PortfolioService) GetNewsArticles(ctx context.Context, db interface {
 	for rows.Next() {
 		var a NewsArticle
 		var content *string
+		var tickersJSON []byte
 		if err := rows.Scan(&a.ID, &a.Title, &a.Source, &a.SourceType, &a.URL,
-			&a.Summary, &a.Sentiment, &a.SentimentValue, &a.PublishedAt, &a.Channel); err != nil {
+			&a.Summary, &a.Sentiment, &a.SentimentValue, &a.PublishedAt, &a.Channel, &tickersJSON); err != nil {
 			continue
 		}
 		if content != nil {
 			a.Content = *content
 		}
-		a.TickerSymbols = []string{}
+		if len(tickersJSON) > 0 {
+			_ = json.Unmarshal(tickersJSON, &a.TickerSymbols)
+		}
+		if a.TickerSymbols == nil {
+			a.TickerSymbols = []string{}
+		}
 		articles = append(articles, a)
 	}
 	return articles, nil
