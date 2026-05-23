@@ -16,6 +16,86 @@ function fmtPct(v: number): string {
   return (v >= 0 ? "+" : "") + v.toFixed(2) + "%";
 }
 
+type ChartRange = "1d" | "1w" | "1m";
+
+function generate1dTicks(from: Date, to: Date): Date[] {
+  const ticks: Date[] = [];
+  const start = new Date(from);
+  start.setMinutes(0, 0, 0);
+  const end = new Date(to);
+  end.setMinutes(0, 0, 0);
+  const current = new Date(start);
+  while (current <= end) {
+    const day = current.getDay();
+    if (day !== 0 && day !== 6) {
+      const hour = current.getHours();
+      if (hour >= 4 && hour < 20) {
+        ticks.push(new Date(current));
+      }
+    }
+    current.setHours(current.getHours() + 1);
+  }
+  return ticks;
+}
+
+function generate1wTicks(from: Date, to: Date): Date[] {
+  const ticks: Date[] = [];
+  const current = new Date(from);
+  current.setHours(4, 0, 0, 0);
+  const end = new Date(to);
+  while (current <= end) {
+    const day = current.getDay();
+    if (day !== 0 && day !== 6) {
+      ticks.push(new Date(current));
+    }
+    current.setDate(current.getDate() + 1);
+  }
+  return ticks;
+}
+
+function generate1mTicks(from: Date, to: Date): Date[] {
+  const ticks: Date[] = [];
+  const current = new Date(from);
+  current.setHours(4, 0, 0, 0);
+  const end = new Date(to);
+  while (current <= end) {
+    const day = current.getDay();
+    if (day !== 0 && day !== 6) {
+      ticks.push(new Date(current));
+    }
+    current.setDate(current.getDate() + 1);
+  }
+  return ticks;
+}
+
+function getTicksForRange(range: ChartRange, from: Date, to: Date): Date[] {
+  switch (range) {
+    case "1d":
+      return generate1dTicks(from, to);
+    case "1w":
+      return generate1wTicks(from, to);
+    case "1m":
+      return generate1mTicks(from, to);
+    default:
+      return [];
+  }
+}
+
+function formatXAxisTick(timestamp: string, range: ChartRange): string {
+  const date = new Date(timestamp);
+  if (isNaN(date.getTime())) return "";
+  switch (range) {
+    case "1d":
+      return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
+    case "1w":
+      return date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "America/New_York" });
+    case "1m":
+      return date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" });
+    default:
+      return date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" });
+  }
+}
+
 function fmtSignedCurrency(v: number): string {
   return `${v >= 0 ? "+" : "-"}${fmtCurrency(Math.abs(v))}`;
 }
@@ -38,19 +118,8 @@ function PortfolioLineChart({ data, range }: PortfolioLineChartProps) {
     return <NoDataMessage />;
   }
 
-  const formatTimeLabel = (timestamp: string): string => {
-    const date = new Date(timestamp);
-    if (range === "1d") {
-      return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
-    } else if (range === "1w") {
-      return date.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", timeZone: "America/New_York" });
-    } else {
-      return date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" });
-    }
-  };
-
   const chartData = data.map((d) => ({
-    time: formatTimeLabel(d.timestamp),
+    timestamp: d.timestamp,
     value: d.value,
   }));
 
@@ -70,15 +139,21 @@ function PortfolioLineChart({ data, range }: PortfolioLineChartProps) {
 
   const intervalLabel = range === "1d" ? "Today" : range === "1w" ? "This Week" : range === "1m" ? "This Month" : range;
 
+  const from = new Date(data[0].timestamp);
+  const to = new Date(data[data.length - 1].timestamp);
+  const ticks = getTicksForRange(range as ChartRange, from, to);
+
   return (
     <ResponsiveContainer width="100%" height="100%">
       <LineChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="var(--outline-variant)" />
         <XAxis
-          dataKey="time"
+          dataKey="timestamp"
           tick={{ fontSize: 10, fill: "#9ca3af" }}
           tickLine={true}
           axisLine={{ stroke: "var(--outline)" }}
+          tickFormatter={(ts) => formatXAxisTick(ts.toString(), range as ChartRange)}
+          ticks={ticks.map(t => t.toISOString())}
         />
         <YAxis
           domain={[minValue - padding, maxValue + padding]}
