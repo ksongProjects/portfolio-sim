@@ -6,7 +6,7 @@ import { CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Clock, ExternalLink, Search, Bookmark, RefreshCw, Plus, Rss, Check, Video, Play, Loader } from "lucide-react";
 import { useNews, type NewsArticle } from "@/hooks/useNews";
 import { useRSSFeeds } from "@/hooks/useRSSFeeds";
@@ -367,6 +367,7 @@ const openDetail = (article: NewsArticle) => {
           <DialogContent className="w-96 max-w-[90vw]">
             <DialogHeader>
               <DialogTitle>Add RSS Feed</DialogTitle>
+              <DialogDescription>Add a new RSS feed to monitor market news and updates.</DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
               <div>
@@ -390,6 +391,7 @@ const openDetail = (article: NewsArticle) => {
           <DialogContent className="w-[450px] max-w-[90vw]">
             <DialogHeader>
               <DialogTitle>Add YouTube Channel</DialogTitle>
+              <DialogDescription>Search for and add a YouTube channel to monitor video content.</DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
               <div>
@@ -444,6 +446,7 @@ const openDetail = (article: NewsArticle) => {
                 <span className="text-xs text-on-surface-variant">{timeAgo(detailItem.PublishedAt)}</span>
               </div>
               <DialogTitle className="text-lg font-semibold">{detailItem.Title}</DialogTitle>
+              <DialogDescription>Article details and summary</DialogDescription>
             </DialogHeader>
             {detailItem.Summary && (
               <p className="text-sm text-on-surface-variant leading-relaxed mb-4">{detailItem.Summary}</p>
