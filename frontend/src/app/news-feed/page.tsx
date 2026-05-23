@@ -1,15 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { PageGrid, PageCell, PageHeader } from "@/components/page-layout";
+import { PageCell, PageHeader } from "@/components/page-layout";
 import { CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { DataTable } from "@/components/ui/data-table";
+import { ColumnDef } from "@tanstack/react-table";
 import { Clock, ExternalLink, Search, Bookmark, RefreshCw, Plus, Rss, Check, Video, Play, Loader, Trash2 } from "lucide-react";
-import { useNews, type NewsArticle } from "@/hooks/useNews";
-import { useRSSFeeds } from "@/hooks/useRSSFeeds";
+import { useNews, type NewsArticle, type YouTubeVideo } from "@/hooks/useNews";
+import { useRSSFeeds, type RSSFeed } from "@/hooks/useRSSFeeds";
 
 function timeAgo(dateStr: string): string {
   try {
@@ -28,17 +31,117 @@ function timeAgo(dateStr: string): string {
   }
 }
 
+const videoColumns: ColumnDef<YouTubeVideo>[] = [
+  {
+    id: "select",
+    size: 40,
+    header: "",
+    cell: ({ row }) => {
+      const video = row.original;
+      const isSelected = selectedVideoIds.has(video.id);
+      const isAnalyzed = articles.some(a => a.SourceType === "youtube" && a.URL.includes(video.id));
+      return (
+        <button
+          onClick={(e) => { e.stopPropagation(); !isAnalyzed && toggleVideoSelection(video.id); }}
+          disabled={isAnalyzed}
+          className={`h-5 w-5 rounded border flex items-center justify-center transition-colors ${
+            isSelected ? "bg-primary border-primary" : isAnalyzed ? "bg-primary/30 border-primary/30" : "border-outline hover:border-primary"
+          }`}
+        >
+          {isSelected && <Check className="h-3 w-3 text-on-primary" />}
+          {isAnalyzed && <Check className="h-3 w-3 text-primary" />}
+        </button>
+      );
+    },
+  },
+  {
+    accessorKey: "title",
+    header: "Title",
+    size: 300,
+    cell: ({ row }) => <div className="font-medium">{row.original.title}</div>,
+  },
+  {
+    accessorKey: "published_at",
+    header: "Published",
+    size: 120,
+    cell: ({ row }) => <span className="text-on-surface-variant">{timeAgo(row.original.published_at)}</span>,
+  },
+  {
+    id: "duration",
+    header: "Duration",
+    size: 80,
+    cell: () => <span className="text-on-surface-variant">-</span>,
+  },
+  {
+    id: "keywords",
+    header: "Keywords",
+    size: 200,
+    cell: ({ row }) => {
+      const keywords = row.original.description?.split('\n').find(l => l.toLowerCase().startsWith('keywords:'))?.replace(/^keywords:\s*/i, '') || '';
+      return (
+        <div className="flex flex-wrap gap-1">
+          {keywords.split(',').map((kw, i) => kw.trim() && (
+            <Badge key={i} variant="outline" className="text-xs">{kw.trim()}</Badge>
+          ))}
+        </div>
+      );
+    },
+  },
+];
+
+const articleColumns: ColumnDef<NewsArticle>[] = [
+  {
+    id: "select",
+    size: 40,
+    header: "",
+    cell: ({ row }) => {
+      const isSelected = selectedArticleIds.has(row.original.ID);
+      return (
+        <button
+          onClick={(e) => { e.stopPropagation(); toggleArticleSelection(row.original.ID); }}
+          className={`h-5 w-5 rounded border flex items-center justify-center transition-colors ${
+            isSelected ? "bg-primary border-primary" : "border-outline hover:border-primary"
+          }`}
+        >
+          {isSelected && <Check className="h-3 w-3 text-on-primary" />}
+        </button>
+      );
+    },
+  },
+  {
+    accessorKey: "Title",
+    header: "Title",
+    cell: ({ row }) => <div className="font-medium">{row.original.Title}</div>,
+  },
+  {
+    accessorKey: "PublishedAt",
+    header: "Published",
+    size: 120,
+    cell: ({ row }) => <span className="text-on-surface-variant">{timeAgo(row.original.PublishedAt)}</span>,
+  },
+  {
+    accessorKey: "TickerSymbols",
+    header: "Tickers",
+    size: 200,
+    cell: ({ row }) => (
+      <div className="flex flex-wrap gap-1">
+        {row.original.TickerSymbols?.map((sym) => (
+          <Badge key={sym} variant="outline" className="text-xs">{sym}</Badge>
+        ))}
+      </div>
+    ),
+  },
+];
+
 export default function NewsFeedPage() {
   const { articles, channels, latestVideos, loading, fetchNews, fetchLatestVideos, summarizeVideos, searchChannels, addChannel, deleteChannel } = useNews();
   const [search, setSearch] = useState("");
   const [saved, setSaved] = useState<string[]>([]);
   const [toast, setToast] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"all" | "bullish" | "bearish" | "neutral">("all");
-  const [selectedFeeds, setSelectedFeeds] = useState<string[]>([]);
   const [showAddFeed, setShowAddFeed] = useState(false);
   const [newFeedName, setNewFeedName] = useState("");
   const [newFeedUrl, setNewFeedUrl] = useState("");
-const { feeds, loading: feedsLoading, addFeed, scrapeFeeds } = useRSSFeeds();
+const { feeds, loading: feedsLoading, addFeed, scrapeFeeds, scrapeFeed, deleteFeed, refetchFeeds } = useRSSFeeds();
   const [selectedChannel, setSelectedChannel] = useState<string>("");
   const [selectedVideoIds, setSelectedVideoIds] = useState<Set<string>>(new Set());
   const [summarizingIds, setSummarizingIds] = useState<Set<string>>(new Set());
@@ -50,6 +153,14 @@ const { feeds, loading: feedsLoading, addFeed, scrapeFeeds } = useRSSFeeds();
   const [channelSearch, setChannelSearch] = useState("");
   const [channelResults, setChannelResults] = useState<{id: string; name: string; handle: string}[]>([]);
   const [searchingChannels, setSearchingChannels] = useState(false);
+  const [deleteChannelTarget, setDeleteChannelTarget] = useState<{id: string; name: string} | null>(null);
+  const [activeMainTab, setActiveMainTab] = useState<"news" | "youtube" | "rss">("news");
+  const [feedToDelete, setFeedToDelete] = useState<RSSFeed | null>(null);
+  const [channelVideoCount, setChannelVideoCount] = useState<Record<string, number>>({});
+  const [refreshingChannels, setRefreshingChannels] = useState<Set<string>>(new Set());
+  const [selectedFeed, setSelectedFeed] = useState<string>("");
+  const [refreshingFeeds, setRefreshingFeeds] = useState<Set<string>>(new Set());
+  const [selectedArticleIds, setSelectedArticleIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (selectedChannel) {
@@ -84,17 +195,20 @@ const { feeds, loading: feedsLoading, addFeed, scrapeFeeds } = useRSSFeeds();
     setSaved((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]));
   };
 
-  const toggleFeedFilter = (feedName: string) => {
-    setSelectedFeeds((prev) =>
-      prev.includes(feedName) ? prev.filter((f) => f !== feedName) : [...prev, feedName]
-    );
-  };
-
   const toggleVideoSelection = (videoId: string) => {
     setSelectedVideoIds((prev) => {
       const next = new Set(prev);
       if (next.has(videoId)) next.delete(videoId);
       else next.add(videoId);
+      return next;
+    });
+  };
+
+  const toggleArticleSelection = (articleId: string) => {
+    setSelectedArticleIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(articleId)) next.delete(articleId);
+      else next.add(articleId);
       return next;
     });
   };
@@ -165,10 +279,8 @@ const openDetail = (article: NewsArticle) => {
   };
 
   const filteredNews = articles.filter((n) => {
-    const matchesSearch = n.Title.toLowerCase().includes(search.toLowerCase()) || n.Source.toLowerCase().includes(search.toLowerCase());
-    const matchesTab = activeTab === "all" || n.Sentiment === activeTab;
-    const matchesFeeds = selectedFeeds.length === 0 || selectedFeeds.includes(n.Source);
-    return matchesSearch && matchesTab && matchesFeeds;
+    const matchesSearch = search === "" || n.Title.toLowerCase().includes(search.toLowerCase()) || n.Source.toLowerCase().includes(search.toLowerCase()) || n.TickerSymbols.some(s => s.toLowerCase().includes(search.toLowerCase()));
+    return matchesSearch;
   });
 
   return (
@@ -186,138 +298,125 @@ const openDetail = (article: NewsArticle) => {
         </PageHeader>
       </div>
 
-      <div className="flex-1 px-6 pb-6 overflow-auto">
-        <PageGrid style={{ gridTemplateColumns: "2fr 1fr" }}>
-          <PageCell>
-            <div className="flex items-center justify-between mb-3">
-              <CardTitle>Latest News</CardTitle>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-on-surface-variant" />
-                <Input placeholder="Search..." className="pl-9 w-[180px]" value={search} onChange={(e) => setSearch(e.target.value)} />
+<div className="flex-1 px-6 pb-6 overflow-auto">
+        <div className="flex gap-1 mb-4 border-b border-outline-variant/30">
+          {(["news", "youtube", "rss"] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveMainTab(tab)}
+              className={`px-4 py-2 text-sm font-medium capitalize transition-colors border-b-2 ${
+                activeMainTab === tab ? "border-primary text-primary" : "border-transparent text-on-surface-variant hover:text-on-surface"
+              }`}
+            >
+              {tab === "youtube" ? "YouTube Channels" : tab === "rss" ? "RSS Feeds" : "News"}
+            </button>
+          ))}
+        </div>
+
+        {activeMainTab === "news" && (
+            <PageCell>
+              <div className="flex items-center justify-between mb-3">
+                <CardTitle>Latest News</CardTitle>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-on-surface-variant" />
+                  <Input placeholder="Search..." className="pl-9 w-[180px]" value={search} onChange={(e) => setSearch(e.target.value)} />
+                </div>
               </div>
-            </div>
 
-            <div className="flex gap-1 mb-3">
-              {(["all", "bullish", "bearish", "neutral"] as const).map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] transition-colors capitalize ${
-                    activeTab === tab ? "bg-primary text-on-primary" : "text-on-surface-variant hover:text-on-surface hover:bg-surface-container"
-                  }`}
-                >
-                  {tab}
-                </button>
-              ))}
-            </div>
-
-            {feeds.length > 0 && (
-              <div className="flex items-center gap-2 mb-3 pb-3 border-b border-outline-variant/30">
-                <Rss className="h-4 w-4 text-on-surface-variant" />
-                <div className="flex flex-wrap gap-1.5">
-                  {feeds.map((feed) => {
-                    const selected = selectedFeeds.includes(feed.name);
-                    return (
-                      <button
-                        key={feed.id}
-                        onClick={() => toggleFeedFilter(feed.name)}
-                        className={`px-2 py-0.5 text-xs rounded border transition-colors ${
-                          selected ? "bg-primary text-on-primary border-primary" : "bg-surface-container border-outline-variant hover:border-primary/50"
-                        }`}
-                      >
-                        {feed.name}
+              <div className="space-y-2">
+                {filteredNews.map((news) => (
+                  <div key={news.ID} className="flex items-start gap-4 p-4 border border-outline-variant/30 hover:bg-surface-container-low transition-colors">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant={news.Sentiment === "bullish" ? "success" : news.Sentiment === "bearish" ? "error" : "secondary"}>{news.Sentiment}</Badge>
+                        {news.SourceType === "youtube" ? <Video className="h-3 w-3 text-error" /> : <Rss className="h-3 w-3 text-on-surface-variant" />}
+                        <span className="text-xs text-on-surface-variant">{news.Source}</span>
+                        <span className="text-xs text-on-surface-variant flex items-center gap-1"><Clock className="h-3 w-3" />{timeAgo(news.PublishedAt)}</span>
+                      </div>
+                      <h3 className="text-sm font-medium mb-2">{news.Title}</h3>
+                      <div className="flex items-center gap-2">
+                        {news.TickerSymbols?.map((sym) => <Badge key={sym} variant="outline">{sym}</Badge>)}
+                        <Button variant="ghost" size="sm" onClick={() => openDetail(news)}>
+                          View Details
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end gap-2">
+                      <a href={news.URL} target="_blank" rel="noopener noreferrer" className="text-on-surface-variant hover:text-primary transition-colors" onClick={(e) => e.stopPropagation()}>
+                        <ExternalLink className="h-4 w-4" />
+                      </a>
+                      <button onClick={() => toggleSaved(news.ID)} className="text-on-surface-variant hover:text-primary transition-colors">
+                        <Bookmark className={`h-4 w-4 ${saved.includes(news.ID) ? "fill-primary text-primary" : ""}`} />
                       </button>
-                    );
-                  })}
-                  {selectedFeeds.length > 0 && (
-                    <button onClick={() => setSelectedFeeds([])} className="text-xs text-on-surface-variant hover:text-primary ml-1">
-                      Clear
-                    </button>
-                  )}
-                </div>
+                    </div>
+                  </div>
+                ))}
+                {filteredNews.length === 0 && !loading && (
+                  <div className="text-center text-on-surface-variant text-sm py-8">No news articles available</div>
+                )}
               </div>
-            )}
+            </PageCell>
+          )}
 
-            <div className="space-y-2">
-              {filteredNews.map((news) => (
-                <div key={news.ID} className="flex items-start gap-4 p-4 border border-outline-variant/30 hover:bg-surface-container-low transition-colors cursor-pointer" onClick={() => openDetail(news)}>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Badge variant={news.Sentiment === "bullish" ? "success" : news.Sentiment === "bearish" ? "error" : "secondary"}>{news.Sentiment}</Badge>
-                      {news.SourceType === "youtube" ? <Video className="h-3 w-3 text-error" /> : <Rss className="h-3 w-3 text-on-surface-variant" />}
-                      <span className="text-xs text-on-surface-variant">{news.Source}</span>
-                      <span className="text-xs text-on-surface-variant flex items-center gap-1"><Clock className="h-3 w-3" />{timeAgo(news.PublishedAt)}</span>
-                    </div>
-                    <h3 className="text-sm font-medium mb-2">{news.Title}</h3>
-                    <div className="flex gap-2">
-                      {news.TickerSymbols?.map((sym) => <Badge key={sym} variant="outline">{sym}</Badge>)}
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-end gap-2">
-                    <a href={news.URL} target="_blank" rel="noopener noreferrer" className="text-on-surface-variant hover:text-primary transition-colors" onClick={(e) => e.stopPropagation()}>
-                      <ExternalLink className="h-4 w-4" />
-                    </a>
-                    <button onClick={(e) => { e.stopPropagation(); toggleSaved(news.ID); }} className="text-on-surface-variant hover:text-primary transition-colors">
-                      <Bookmark className={`h-4 w-4 ${saved.includes(news.ID) ? "fill-primary text-primary" : ""}`} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-              {filteredNews.length === 0 && !loading && (
-                <div className="text-center text-on-surface-variant text-sm py-8">No news articles available</div>
-              )}
-            </div>
-          </PageCell>
-
+        {activeMainTab === "youtube" && (
           <PageCell>
-            <div className="flex items-center justify-between mb-3">
-              <CardTitle>YouTube Videos</CardTitle>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <label className="text-sm font-medium">Channel:</label>
+                <select
+                  value={selectedChannel}
+                  onChange={(e) => {
+                    setSelectedChannel(e.target.value);
+                    setSelectedVideoIds(new Set());
+                  }}
+                  className="h-9 px-3 pr-10 min-w-[200px] rounded border border-outline-variant bg-surface-container text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <option value="">Select a channel...</option>
+                  {channels.map((ch) => (
+                    <option key={ch.id} value={ch.channel_id}>{ch.name}</option>
+                  ))}
+                </select>
+                {selectedChannel && (
+                  <>
+                    <Input
+                      type="number"
+                      min="1"
+                      max="50"
+                      value={channelVideoCount[selectedChannel] || 10}
+                      onChange={(e) => setChannelVideoCount(prev => ({ ...prev, [selectedChannel]: parseInt(e.target.value) || 10 }))}
+                      className="w-20 h-9"
+                    />
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        if (selectedChannel) {
+                          setRefreshingChannels(prev => new Set(prev).add(selectedChannel));
+                          fetchLatestVideos(selectedChannel).finally(() => {
+                            setRefreshingChannels(prev => {
+                              const next = new Set(prev);
+                              next.delete(selectedChannel);
+                              return next;
+                            });
+                          });
+                        }
+                      }}
+                      disabled={refreshingChannels.has(selectedChannel)}
+                    >
+                      <RefreshCw className={`h-4 w-4 ${refreshingChannels.has(selectedChannel) ? "animate-spin" : ""}`} />
+                    </Button>
+                  </>
+                )}
+              </div>
               <Button variant="secondary" size="sm" onClick={() => setShowAddChannel(true)}>
                 <Plus className="h-3 w-3 mr-1" /> Add Channel
               </Button>
             </div>
 
-<div className="space-y-1.5 mb-4">
-              {channels.map((ch) => (
-                <div
-                  key={ch.id}
-                  className={`flex items-center gap-2 p-2 rounded border transition-colors ${
-                    selectedChannel === ch.channel_id ? "bg-primary/10 border-primary" : "border-outline-variant hover:bg-surface-container"
-                  }`}
-                >
-                  <button
-                    onClick={() => {
-                      setSelectedChannel(ch.channel_id);
-                      setSelectedVideoIds(new Set());
-                    }}
-                    className="flex-1 flex items-center gap-2 text-left"
-                  >
-                    <Video className="h-4 w-4 text-error" />
-                    <span className="text-sm">{ch.name}</span>
-                  </button>
-                  <button
-                    onClick={async () => {
-                      if (!confirm(`Remove ${ch.name}?`)) return;
-                      await deleteChannel(ch.id);
-                      if (selectedChannel === ch.channel_id) {
-                        setSelectedChannel("");
-                      }
-                    }}
-                    className="text-on-surface-variant hover:text-error transition-colors"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              ))}
-              {channels.length === 0 && (
-                <div className="text-xs text-on-surface-variant py-2">No channels added</div>
-              )}
-            </div>
-
             {selectedChannel && (
-              <>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-on-surface-variant">{latestVideos.length} latest videos</span>
+              <div className="mt-4">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm font-medium">{latestVideos.length} Videos</span>
                   <div className="flex gap-2">
                     {selectedVideoIds.size > 0 && (
                       <Button size="sm" onClick={handleSummarizeSelected} disabled={summarizingIds.size > 0}>
@@ -326,56 +425,101 @@ const openDetail = (article: NewsArticle) => {
                     )}
                   </div>
                 </div>
-                <div className="border border-outline-variant/30 rounded">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-outline-variant/30 bg-surface-container">
-                        <th className="w-10 p-2"></th>
-                        <th className="text-left p-2 text-xs font-semibold uppercase tracking-wider text-on-surface-variant">Title</th>
-                        <th className="text-left p-2 text-xs font-semibold uppercase tracking-wider text-on-surface-variant w-20">Published</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {loading && latestVideos.length === 0 ? (
-                        <tr><td colSpan={3} className="p-4 text-center text-on-surface-variant"><Loader className="h-4 w-4 animate-spin inline mr-2" />Loading...</td></tr>
-                      ) : latestVideos.map((video) => {
-                        const isSelected = selectedVideoIds.has(video.id);
-                        const isSummarizing = summarizingIds.has(video.id);
-                        const isAnalyzed = articles.some(a => a.SourceType === "youtube" && a.URL.includes(video.id));
-                        return (
-                          <tr key={video.id} className="border-b border-outline-variant/20 hover:bg-surface-container-low">
-                            <td className="p-2 text-center">
-                              <button
-                                onClick={() => !isSummarizing && !isAnalyzed && toggleVideoSelection(video.id)}
-                                disabled={isSummarizing || isAnalyzed}
-                                className={`h-5 w-5 rounded border flex items-center justify-center transition-colors ${
-                                  isSelected ? "bg-primary border-primary" : isAnalyzed ? "bg-primary/30 border-primary/30" : "border-outline hover:border-primary"
-                                }`}
-                              >
-                                {isSelected && <Check className="h-3 w-3 text-on-primary" />}
-                                {isAnalyzed && <Check className="h-3 w-3 text-primary" />}
-                              </button>
-                            </td>
-                            <td className="p-2">
-                              <div className="font-medium text-xs truncate max-w-[200px]">{video.title}</div>
-                            </td>
-                            <td className="p-2 text-on-surface-variant text-xs">{timeAgo(video.published_at)}</td>
-                          </tr>
-                        );
-                      })}
-                      {latestVideos.length === 0 && !loading && (
-                        <tr><td colSpan={3} className="p-4 text-center text-on-surface-variant">No videos found</td></tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </>
+                <DataTable
+                  columns={videoColumns}
+                  data={latestVideos}
+                  loading={loading && latestVideos.length === 0}
+                  emptyMessage="No videos found"
+                  enablePagination={true}
+                  enableColumnResizing={true}
+                  maxHeight="400px"
+                  pageSizes={[10, 20, 50]}
+                />
+              </div>
             )}
+
             {!selectedChannel && (
-              <div className="text-xs text-on-surface-variant py-4 text-center">Select a channel to view videos</div>
+              <div className="text-center text-on-surface-variant text-sm py-12">
+                Select a channel to view videos
+              </div>
             )}
           </PageCell>
-        </PageGrid>
+        )}
+
+        {activeMainTab === "rss" && (
+          <PageCell>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <label className="text-sm font-medium">Feed:</label>
+                <select
+                  value={selectedFeed}
+                  onChange={(e) => {
+                    setSelectedFeed(e.target.value);
+                    setSelectedArticleIds(new Set());
+                  }}
+                  className="h-9 px-3 pr-10 min-w-[200px] rounded border border-outline-variant bg-surface-container text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <option value="">Select a feed...</option>
+                  {feeds.map((feed) => (
+                    <option key={feed.id} value={feed.name}>{feed.name}</option>
+                  ))}
+                </select>
+                {selectedFeed && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      setRefreshingFeeds(prev => new Set(prev).add(selectedFeed));
+                      scrapeFeed(selectedFeed).finally(() => {
+                        setTimeout(() => {
+                          refetchFeeds();
+                          setRefreshingFeeds(prev => {
+                            const next = new Set(prev);
+                            next.delete(selectedFeed);
+                            return next;
+                          });
+                        }, 1500);
+                      });
+                    }}
+                    disabled={refreshingFeeds.has(selectedFeed)}
+                  >
+                    <RefreshCw className={`h-4 w-4 ${refreshingFeeds.has(selectedFeed) ? "animate-spin" : ""}`} />
+                  </Button>
+                )}
+              </div>
+              <Button variant="secondary" size="sm" onClick={() => setShowAddFeed(true)}>
+                <Plus className="h-3 w-3 mr-1" /> Add Feed
+              </Button>
+            </div>
+
+            {selectedFeed && (
+              <div className="mt-4">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm font-medium">Articles</span>
+                  <Button variant="secondary" size="sm" onClick={() => setActiveMainTab("news")}>
+                    <Search className="h-4 w-4 mr-1" /> Search Articles
+                  </Button>
+                </div>
+                <DataTable
+                  columns={articleColumns}
+                  data={articles.filter(a => a.Source === selectedFeed)}
+                  loading={feedsLoading}
+                  emptyMessage="No articles from this feed. Click &ldquo;Search Articles&rdquo; to view all articles, or refresh the feed."
+                  enablePagination={true}
+                  enableColumnResizing={true}
+                  maxHeight="400px"
+                  pageSizes={[10, 20, 50]}
+                />
+              </div>
+            )}
+
+            {!selectedFeed && (
+              <div className="text-center text-on-surface-variant text-sm py-12">
+                Select a feed to view articles
+              </div>
+            )}
+          </PageCell>
+        )}
       </div>
 
       {showAddFeed && (
@@ -478,7 +622,40 @@ const openDetail = (article: NewsArticle) => {
             </a>
           </DialogContent>
         </Dialog>
-      )}
+)}
+
+      <ConfirmDialog
+        open={deleteChannelTarget !== null}
+        onOpenChange={(open) => !open && setDeleteChannelTarget(null)}
+        title="Remove Channel"
+        description={`Are you sure you want to remove ${deleteChannelTarget?.name}? This cannot be undone.`}
+        confirmLabel="Remove"
+        variant="destructive"
+        onConfirm={async () => {
+          if (deleteChannelTarget) {
+            await deleteChannel(deleteChannelTarget.id);
+            if (selectedChannel === deleteChannelTarget.id) {
+              setSelectedChannel("");
+            }
+            setDeleteChannelTarget(null);
+          }
+        }}
+      />
+
+      <ConfirmDialog
+        open={feedToDelete !== null}
+        onOpenChange={(open) => !open && setFeedToDelete(null)}
+        title="Remove RSS Feed"
+        description={`Are you sure you want to remove ${feedToDelete?.name}? This cannot be undone.`}
+        confirmLabel="Remove"
+        variant="destructive"
+        onConfirm={async () => {
+          if (feedToDelete) {
+            await deleteFeed(feedToDelete.id);
+            setFeedToDelete(null);
+          }
+        }}
+      />
 
       {toast && (
         <div className="fixed bottom-6 right-6 z-50 bg-surface-container-highest border border-primary text-on-surface px-4 py-3 text-sm font-medium">{toast}</div>

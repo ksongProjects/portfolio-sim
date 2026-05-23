@@ -110,6 +110,18 @@ export function useRSSFeeds() {
     }
   }, [scrapeFeedsMutation]);
 
+  const scrapeFeed = useCallback(
+    async (feedId: string) => {
+      try {
+        await apiFetch(`/api/rss-feeds/${feedId}/scrape`, { method: "POST" });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    []
+  );
+
   const combinedError =
     feedsQuery.error ?? addFeedMutation.error ?? deleteFeedMutation.error ?? scrapeFeedsMutation.error;
 
@@ -121,5 +133,7 @@ export function useRSSFeeds() {
     addFeed,
     deleteFeed,
     scrapeFeeds,
+    scrapeFeed,
+    refetchFeeds: () => feedsQuery.refetch(),
   };
 }

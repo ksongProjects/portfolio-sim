@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   Key,
   Plug,
@@ -48,6 +49,7 @@ function ProviderCard({
   const [testResult, setTestResult] = useState<ProviderStatus | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const handleSave = async () => {
     if (!apiKey) return;
@@ -98,8 +100,13 @@ const handleRefresh = async () => {
 
   const handleDelete = async () => {
     if (!onDelete) return;
-    if (!confirm(`Remove ${provider.name} configuration?`)) return;
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!onDelete) return;
     await onDelete(provider.provider_id);
+    setShowDeleteConfirm(false);
   };
 
   const status: ProviderStatus = provider.token_expired
@@ -207,6 +214,16 @@ const handleRefresh = async () => {
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        onOpenChange={setShowDeleteConfirm}
+        title="Remove Configuration"
+        description={`Are you sure you want to remove ${provider.name} configuration? This cannot be undone.`}
+        confirmLabel="Remove"
+        variant="destructive"
+        onConfirm={confirmDelete}
+      />
     </div>
   );
 }
