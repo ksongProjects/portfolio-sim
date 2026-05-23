@@ -3,6 +3,7 @@
 import { X, Bell, Check, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { cn } from "@/lib/utils";
 import type { Notification } from "@/hooks/useNotifications";
 
@@ -40,20 +41,13 @@ export function NotificationsDrawer({
 }: NotificationsDrawerProps) {
   const unreadCount = notifications.filter((n) => !n.read).length;
 
-  if (!open) return null;
-
   return (
-    <>
-      <div
-        className="fixed inset-0 z-50 bg-black/40"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-      <div className="fixed right-0 top-0 z-50 h-full w-96 max-w-full bg-surface border-l border-outline-variant shadow-xl flex flex-col">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-outline-variant">
+    <Drawer open={open} onOpenChange={(open) => !open && onClose()} direction="right">
+      <DrawerContent className="right-0 top-0 h-full w-96 max-w-full border-l border-outline-variant! [&>div]:h-full">
+        <DrawerHeader className="flex flex-row items-center justify-between px-4 py-3 border-b border-outline-variant">
           <div className="flex items-center gap-2">
             <Bell className="h-5 w-5 text-on-surface" />
-            <span className="text-sm font-semibold text-on-surface">Notifications</span>
+            <DrawerTitle className="text-sm font-semibold text-on-surface">Notifications</DrawerTitle>
             {unreadCount > 0 && (
               <Badge variant="error">{unreadCount} new</Badge>
             )}
@@ -73,8 +67,7 @@ export function NotificationsDrawer({
               <X className="h-4 w-4" />
             </Button>
           </div>
-        </div>
-
+        </DrawerHeader>
         <div className="flex-1 overflow-y-auto">
           {notifications.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-on-surface-variant">
@@ -122,7 +115,7 @@ export function NotificationsDrawer({
             </ul>
           )}
         </div>
-      </div>
-    </>
+      </DrawerContent>
+    </Drawer>
   );
 }

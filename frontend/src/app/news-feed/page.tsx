@@ -6,6 +6,7 @@ import { CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Clock, ExternalLink, Search, Bookmark, RefreshCw, Plus, X, Rss, Check, Video, Play, Loader } from "lucide-react";
 import { useNews, type NewsArticle } from "@/hooks/useNews";
 import { useRSSFeeds } from "@/hooks/useRSSFeeds";
@@ -362,14 +363,11 @@ const openDetail = (article: NewsArticle) => {
       </div>
 
       {showAddFeed && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center">
-          <div className="bg-surface-container-highest border border-outline rounded-lg p-6 w-96 max-w-[90vw]">
-            <div className="flex items-center justify-between mb-4">
-              <CardTitle>Add RSS Feed</CardTitle>
-              <button onClick={() => setShowAddFeed(false)} className="text-on-surface-variant hover:text-on-surface">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+        <Dialog open={showAddFeed} onOpenChange={(open) => !open && setShowAddFeed(false)}>
+          <DialogContent className="w-96 max-w-[90vw]">
+            <DialogHeader>
+              <DialogTitle>Add RSS Feed</DialogTitle>
+            </DialogHeader>
             <div className="space-y-4">
               <div>
                 <label className="text-xs text-on-surface-variant mb-1 block">Feed Name</label>
@@ -383,19 +381,16 @@ const openDetail = (article: NewsArticle) => {
                 Add Feed
               </Button>
             </div>
-          </div>
-        </div>
+          </DialogContent>
+        </Dialog>
       )}
 
       {showAddChannel && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center">
-          <div className="bg-surface-container-highest border border-outline rounded-lg p-6 w-[450px] max-w-[90vw]">
-            <div className="flex items-center justify-between mb-4">
-              <CardTitle>Add YouTube Channel</CardTitle>
-              <button onClick={() => { setShowAddChannel(false); setChannelSearch(""); setChannelResults([]); setNewChannelId(""); setNewChannelName(""); }} className="text-on-surface-variant hover:text-on-surface">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+        <Dialog open={showAddChannel} onOpenChange={(open) => !open && setShowAddChannel(false)}>
+          <DialogContent className="w-[450px] max-w-[90vw]">
+            <DialogHeader>
+              <DialogTitle>Add YouTube Channel</DialogTitle>
+            </DialogHeader>
             <div className="space-y-4">
               <div>
                 <label className="text-xs text-on-surface-variant mb-1 block">Search Channels</label>
@@ -433,21 +428,23 @@ const openDetail = (article: NewsArticle) => {
                 Add Channel
               </Button>
             </div>
-          </div>
-        </div>
+          </DialogContent>
+        </Dialog>
       )}
 
       {showDetailModal && detailItem && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setShowDetailModal(false)}>
-          <div className="bg-surface-container-highest border border-outline rounded-lg p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center gap-2 mb-3">
-              {detailItem.SourceType === "youtube" && <Video className="h-5 w-5 text-error" />}
-              <Badge variant={detailItem.Sentiment === "bullish" ? "success" : detailItem.Sentiment === "bearish" ? "error" : "secondary"}>{detailItem.Sentiment}</Badge>
-              <span className="text-xs text-on-surface-variant">{detailItem.Source}</span>
-              <span className="text-xs text-on-surface-variant">&bull;</span>
-              <span className="text-xs text-on-surface-variant">{timeAgo(detailItem.PublishedAt)}</span>
-            </div>
-            <h2 className="text-lg font-semibold mb-3">{detailItem.Title}</h2>
+        <Dialog open={showDetailModal} onOpenChange={(open) => !open && setShowDetailModal(false)}>
+          <DialogContent className="w-full max-w-2xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <div className="flex items-center gap-2 mb-3">
+                {detailItem.SourceType === "youtube" && <Video className="h-5 w-5 text-error" />}
+                <Badge variant={detailItem.Sentiment === "bullish" ? "success" : detailItem.Sentiment === "bearish" ? "error" : "secondary"}>{detailItem.Sentiment}</Badge>
+                <span className="text-xs text-on-surface-variant">{detailItem.Source}</span>
+                <span className="text-xs text-on-surface-variant">&bull;</span>
+                <span className="text-xs text-on-surface-variant">{timeAgo(detailItem.PublishedAt)}</span>
+              </div>
+              <DialogTitle className="text-lg font-semibold">{detailItem.Title}</DialogTitle>
+            </DialogHeader>
             {detailItem.Summary && (
               <p className="text-sm text-on-surface-variant leading-relaxed mb-4">{detailItem.Summary}</p>
             )}
@@ -460,11 +457,8 @@ const openDetail = (article: NewsArticle) => {
             <a href={detailItem.URL} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-primary hover:underline">
               {detailItem.SourceType === "youtube" ? "Watch on YouTube" : "Read full article"} <ExternalLink className="h-4 w-4" />
             </a>
-            <button onClick={() => setShowDetailModal(false)} className="absolute top-4 right-4 text-on-surface-variant hover:text-on-surface">
-              <X className="h-5 w-5" />
-            </button>
-          </div>
-        </div>
+          </DialogContent>
+        </Dialog>
       )}
 
       {toast && (
