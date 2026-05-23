@@ -61,6 +61,139 @@ function formatDayLabel(timestamp: string): string {
 
 type ChartRange = "1d" | "1w" | "1m";
 
+function generate1dSlots(from: Date, to: Date): Date[] {
+  const slots: Date[] = [];
+  const current = new Date(from);
+  current.setSeconds(0, 0);
+  const end = new Date(to);
+  end.setSeconds(0, 0);
+  while (current <= end) {
+    const day = current.getDay();
+    if (day !== 0 && day !== 6) {
+      const hour = current.getHours();
+      if (hour >= 4 && hour < 20) {
+        slots.push(new Date(current));
+      }
+    }
+    current.setMinutes(current.getMinutes() + 1);
+  }
+  return slots;
+}
+
+function generate1wSlots(from: Date, to: Date): Date[] {
+  const slots: Date[] = [];
+  const current = new Date(from);
+  current.setHours(4, 0, 0, 0);
+  const end = new Date(to);
+  while (current <= end) {
+    const day = current.getDay();
+    if (day !== 0 && day !== 6) {
+      const hour = current.getHours();
+      if (hour >= 4 && hour < 20) {
+        slots.push(new Date(current));
+      }
+    }
+    current.setDate(current.getDate() + 1);
+    current.setHours(4, 0, 0, 0);
+  }
+  return slots;
+}
+
+function generate1mSlots(from: Date, to: Date): Date[] {
+  const slots: Date[] = [];
+  const current = new Date(from);
+  current.setHours(4, 0, 0, 0);
+  const end = new Date(to);
+  while (current <= end) {
+    const day = current.getDay();
+    if (day !== 0 && day !== 6) {
+      const hour = current.getHours();
+      if (hour >= 4 && hour < 20) {
+        slots.push(new Date(current));
+      }
+    }
+    current.setDate(current.getDate() + 1);
+    current.setHours(4, 0, 0, 0);
+  }
+  return slots;
+}
+
+function generateSlotsForRange(range: ChartRange, from: Date, to: Date): Date[] {
+  switch (range) {
+    case "1d":
+      return generate1dSlots(from, to);
+    case "1w":
+      return generate1wSlots(from, to);
+    case "1m":
+      return generate1mSlots(from, to);
+    default:
+      return [];
+  }
+}
+
+function generate1dTicks(from: Date, to: Date): Date[] {
+  const ticks: Date[] = [];
+  const start = new Date(from);
+  start.setMinutes(0, 0, 0);
+  const end = new Date(to);
+  end.setMinutes(0, 0, 0);
+  const current = new Date(start);
+  while (current <= end) {
+    const day = current.getDay();
+    if (day !== 0 && day !== 6) {
+      const hour = current.getHours();
+      if (hour >= 4 && hour < 20) {
+        ticks.push(new Date(current));
+      }
+    }
+    current.setHours(current.getHours() + 1);
+  }
+  return ticks;
+}
+
+function generate1wTicks(from: Date, to: Date): Date[] {
+  const ticks: Date[] = [];
+  const current = new Date(from);
+  current.setHours(4, 0, 0, 0);
+  const end = new Date(to);
+  while (current <= end) {
+    const day = current.getDay();
+    if (day !== 0 && day !== 6) {
+      ticks.push(new Date(current));
+    }
+    current.setDate(current.getDate() + 1);
+  }
+  return ticks;
+}
+
+function generate1mTicks(from: Date, to: Date): Date[] {
+  const ticks: Date[] = [];
+  const current = new Date(from);
+  current.setHours(4, 0, 0, 0);
+  const end = new Date(to);
+  while (current <= end) {
+    const day = current.getDay();
+    if (day !== 0 && day !== 6) {
+      ticks.push(new Date(current));
+    }
+    current.setDate(current.getDate() + 1);
+  }
+  return ticks;
+}
+
+function getTicksForRange(range: ChartRange, from: Date, to: Date): Date[] {
+  switch (range) {
+    case "1d":
+      return generate1dTicks(from, to);
+    case "1w":
+      return generate1wTicks(from, to);
+    case "1m":
+      return generate1mTicks(from, to);
+    default:
+      return [];
+  }
+}
+
 function formatXAxisTick(timestamp: string, range: ChartRange): string {
   const date = new Date(timestamp);
   if (isNaN(date.getTime())) return "";
@@ -76,30 +209,47 @@ function formatXAxisTick(timestamp: string, range: ChartRange): string {
   }
 }
 
-function getXAxisInterval(data: { timestamp: string }[], range: ChartRange): number | undefined {
-  if (data.length === 0) return undefined;
-  switch (range) {
-    case "1d":
-      return Math.floor(data.length / 8);
-    case "1w":
-      return Math.floor(data.length / 5);
-    case "1m":
-      return Math.floor(data.length / 4);
-    default:
-      return undefined;
-  }
-}
+function prepareChartData(
+  rawData: { timestamp: string; open?: number; high?: number; low?: number; close: number; volume?: number }[],
+  range: ChartRange
+): { timestamp: string; open: number; high: number; low: number; close: number; volume: number }[] {
+  if (rawData.length === 0) return [];
 
-function getHourIndices(data: { timestamp: string }[]): number[] {
-  if (data.length === 0) return [];
-  const indices: number[] = [];
-  for (let i = 0; i < data.length; i++) {
-    const date = new Date(data[i].timestamp);
-    if (!isNaN(date.getTime()) && date.getMinutes() === 0) {
-      indices.push(i);
+  const dataMap = new Map<string, { open: number; high: number; low: number; close: number; volume: number }>();
+  for (const bar of rawData) {
+    const key = new Date(bar.timestamp).getTime().toString();
+    const existing = dataMap.get(key);
+    if (existing) {
+      existing.high = Math.max(existing.high, bar.high ?? bar.close);
+      existing.low = Math.min(existing.low, bar.low ?? bar.close);
+      existing.close = bar.close;
+      existing.volume += bar.volume ?? 0;
+    } else {
+      dataMap.set(key, {
+        open: bar.open ?? bar.close,
+        high: bar.high ?? bar.close,
+        low: bar.low ?? bar.close,
+        close: bar.close,
+        volume: bar.volume ?? 0,
+      });
     }
   }
-  return indices;
+
+  const from = new Date(rawData[0].timestamp);
+  const to = new Date(rawData[rawData.length - 1].timestamp);
+  const expectedSlots = generateSlotsForRange(range, from, to);
+
+  const result: { timestamp: string; open: number; high: number; low: number; close: number; volume: number }[] = [];
+
+  for (const slot of expectedSlots) {
+    const key = slot.getTime().toString();
+    const bar = dataMap.get(key);
+    if (bar && bar.close !== 0) {
+      result.push({ timestamp: slot.toISOString(), open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: bar.volume });
+    }
+  }
+
+  return result;
 }
 
 function CustomTooltip({ active, payload }: { active?: boolean; payload?: Array<{ value: number; payload: { timestamp: string; open: number; high: number; low: number; close: number; volume: number } }> }) {
@@ -124,17 +274,16 @@ function IntradayChart({ data, range = "1d" }: { data: { timestamp: string; open
     return <div className="h-64 flex items-center justify-center text-on-surface-variant">No chart data available</div>;
   }
 
-  const firstClose = data[0]?.close || 0;
-  const lastClose = data[data.length - 1]?.close || 0;
+  const chartData = prepareChartData(data, range);
+
+  const firstClose = chartData[0]?.close || 0;
+  const lastClose = chartData[chartData.length - 1]?.close || 0;
   const isUp = lastClose >= firstClose;
   const color = isUp ? "#3fe56c" : "#ff4d4d";
 
-  const chartData = data.map((d) => ({
-    ...d,
-    timestamp: d.timestamp,
-  }));
-
-  const interval = getXAxisInterval(data, range);
+  const from = new Date(data[0].timestamp);
+  const to = new Date(data[data.length - 1].timestamp);
+  const ticks = getTicksForRange(range, from, to);
 
   return (
     <ResponsiveContainer width="100%" height={280}>
@@ -146,7 +295,7 @@ function IntradayChart({ data, range = "1d" }: { data: { timestamp: string; open
           tickLine={true}
           axisLine={{ stroke: "var(--outline)" }}
           tickFormatter={(ts) => formatXAxisTick(ts.toString(), range)}
-          interval={interval}
+          ticks={ticks.map(t => t.toISOString())}
         />
         <YAxis
           domain={["auto", "auto"]}
