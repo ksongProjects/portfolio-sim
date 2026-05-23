@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Search, TrendingUp, TrendingDown, BarChart2, DollarSign, Percent, Clock, ChevronRight } from "lucide-react";
+import { Search, TrendingUp, TrendingDown, BarChart2, DollarSign, Percent, Clock, ChevronRight, ChevronLeft } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, CartesianGrid } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -148,6 +148,14 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
     onClose();
   };
 
+  const handleBack = () => {
+    if (step === "details") {
+      setStep("search");
+    } else if (step === "confirm") {
+      setStep("details");
+    }
+  };
+
   const handleClose = () => {
     setStep("search");
     setQuery("");
@@ -274,9 +282,16 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
               ))}
             </div>
 
-            <Button variant="default" size="default" className="w-full" onClick={() => { setPrice(selectedTicker.price.toString()); setStep("confirm"); }}>
-              Continue to Confirm
-            </Button>
+            <div className="flex gap-3">
+              <Button variant="secondary" size="default" className="flex-1" type="button" onClick={handleBack}>
+                <ChevronLeft className="h-4 w-4" />
+                Back
+              </Button>
+              <Button variant="default" size="default" className="flex-1" onClick={() => { setPrice(selectedTicker.price.toString()); setStep("confirm"); }}>
+                Continue
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
         )}
 
@@ -351,6 +366,10 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
                 Add Position
               </Button>
             </div>
+            <Button variant="ghost" size="sm" type="button" onClick={handleBack} className="w-full">
+              <ChevronLeft className="h-4 w-4" />
+              Back to Details
+            </Button>
           </form>
         )}
       </div>
