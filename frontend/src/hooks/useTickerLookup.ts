@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useState, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchJson, getErrorMessage } from "@/lib/api";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 
 export interface TickerDetails {
   symbol: string;
@@ -89,7 +91,12 @@ export function useTickerLookup(initialSymbol?: string) {
   const [manualSelectedSymbol, setManualSelectedSymbol] = useState<string | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const [chartRange, setChartRange] = useState<ChartRange>("1d");
+  const [livePrice, setLivePrice] = useState<number | null>(null);
+  const [liveChangePct, setLiveChangePct] = useState<number | null>(null);
   const selectedSymbol = initialSymbol ?? manualSelectedSymbol;
+
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const companyQuery = useQuery({
     queryKey: ["tickers", "company", selectedSymbol],
@@ -102,6 +109,48 @@ export function useTickerLookup(initialSymbol?: string) {
     queryFn: () => fetchIntradayBars(selectedSymbol!, chartRange),
     enabled: Boolean(selectedSymbol),
   });
+
+  useEffect(() => {
+    if (!selectedSymbol) {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      setLivePrice(null);
+      setLiveChangePct(null);
+      return;
+    }
+
+    const url = `ws://${API_BASE.replace("http://", "")}/api/ws/market?symbols=${encodeURIComponent(selectedSymbol)}`;
+    const ws = new WebSocket(url);
+    wsRef.current = ws;
+
+    ws.onopen = () => {};
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.symbol === selectedSymbol && data.close) {
+          setLivePrice(data.close);
+          if (data.changePct !== undefined) {
+            setLiveChangePct(data.changePct);
+          }
+        }
+      } catch {
+      }
+    };
+
+    ws.onerror = () => {};
+
+    ws.onclose = () => {
+      wsRef.current = null;
+    };
+
+    return () => {
+      ws.close();
+      wsRef.current = null;
+    };
+  }, [selectedSymbol]);
 
   const searchTickers = useCallback(
     async (query: string) => {
@@ -140,6 +189,8 @@ export function useTickerLookup(initialSymbol?: string) {
   const lookupTicker = useCallback(
     async (symbol: string, interval = "1min") => {
       setManualSelectedSymbol(symbol);
+      setLivePrice(null);
+      setLiveChangePct(null);
 
       await queryClient.invalidateQueries({ queryKey: ["tickers", "details", symbol] });
       await queryClient.invalidateQueries({ queryKey: ["tickers", "intraday", symbol] });
@@ -149,6 +200,8 @@ export function useTickerLookup(initialSymbol?: string) {
 
   const clearSelection = useCallback(() => {
     setManualSelectedSymbol(null);
+    setLivePrice(null);
+    setLiveChangePct(null);
   }, []);
 
   const setSearchResults = useCallback(
@@ -158,9 +211,18 @@ export function useTickerLookup(initialSymbol?: string) {
     []
   );
 
+  const effectivePrice = livePrice ?? companyQuery.data?.price ?? 0;
+  const effectiveChangePct = liveChangePct ?? companyQuery.data?.changePct ?? 0;
+
+  const selectedTickerWithLive: TickerDetails | null = selectedSymbol && companyQuery.data ? {
+    ...companyQuery.data,
+    price: effectivePrice,
+    changePct: effectiveChangePct,
+  } : null;
+
   return {
     searchResults,
-    selectedTicker: selectedSymbol ? companyQuery.data ?? null : null,
+    selectedTicker: selectedTickerWithLive,
     intradayData: selectedSymbol ? (intradayQuery.data?.bars ?? []) : [],
     intradayChange: selectedSymbol ? (intradayQuery.data?.change ?? 0) : 0,
     intradayChangePct: selectedSymbol ? (intradayQuery.data?.changePct ?? 0) : 0,
@@ -175,5 +237,6 @@ export function useTickerLookup(initialSymbol?: string) {
     setSearchResults,
     chartRange,
     setChartRange,
+    liveConnected: wsRef.current?.readyState === WebSocket.OPEN,
   };
 }
