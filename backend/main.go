@@ -1422,7 +1422,7 @@ func (s *Server) handleGetTickerDetails(w http.ResponseWriter, r *http.Request) 
 
 	marketOpen := isMarketOpen()
 
-	if quote != nil && (!marketOpen || quote.Timestamp.After(time.Now().Add(-5*time.Minute))) {
+	if quote != nil && (quote.Price > 0 && (!marketOpen || quote.Timestamp.After(time.Now().Add(-5*time.Minute)))) {
 		s.logger.Info("returning ticker data from DB", "symbol", symbol, "market_open", marketOpen, "age_minutes", time.Since(quote.Timestamp).Minutes())
 		details = &services.TickerDetails{
 			Symbol:    quote.Symbol,
@@ -1456,7 +1456,7 @@ func (s *Server) handleGetTickerDetails(w http.ResponseWriter, r *http.Request) 
 				}
 			}
 		}
-	} else if quote != nil {
+	} else if quote != nil && quote.Price > 0 {
 		s.logger.Info("market closed, returning stale DB data", "symbol", symbol, "age_minutes", time.Since(quote.Timestamp).Minutes())
 		details = &services.TickerDetails{
 			Symbol:    quote.Symbol,

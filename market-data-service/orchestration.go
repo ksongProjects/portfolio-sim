@@ -446,7 +446,7 @@ func (s *MarketDataService) fetchTickerDetailsComposite(ctx context.Context, sym
 
 	quoteSource := ""
 	forceRefresh := cached == nil || cached.Price == 0
-	if refreshQuote || forceRefresh || stale {
+	if refreshQuote || forceRefresh {
 		provider := s.providerForOperation(ctx, operationQuote, "")
 		if provider != nil {
 			price, err := provider.FetchPrice(symbol)
@@ -459,6 +459,18 @@ func (s *MarketDataService) fetchTickerDetailsComposite(ctx context.Context, sym
 			} else {
 				mergePriceIntoTickerDetails(details, price)
 				quoteSource = price.Source
+			}
+		}
+	}
+
+	if details.Price == 0 {
+		from := getFiveTradingDaysBack(time.Now())
+		to := time.Now()
+		_, closePrice, _, _, _ := s.storage.GetIntradayBarsRange(ctx, symbol, "1min", from, to)
+		if closePrice > 0 {
+			details.Price = closePrice
+			if quoteSource == "" {
+				quoteSource = "intraday-fallback"
 			}
 		}
 	}

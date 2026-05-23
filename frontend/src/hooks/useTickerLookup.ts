@@ -192,7 +192,7 @@ export function useTickerLookup(initialSymbol?: string) {
       setLivePrice(null);
       setLiveChangePct(null);
 
-      await queryClient.invalidateQueries({ queryKey: ["tickers", "details", symbol] });
+      await queryClient.invalidateQueries({ queryKey: ["tickers", "company", symbol] });
       await queryClient.invalidateQueries({ queryKey: ["tickers", "intraday", symbol] });
     },
     [queryClient]
