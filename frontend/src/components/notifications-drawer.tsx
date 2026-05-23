@@ -43,8 +43,8 @@ export function NotificationsDrawer({
 
   return (
     <Drawer open={open} onOpenChange={(open) => !open && onClose()} direction="right">
-      <DrawerContent className="right-0 top-0 h-full w-96 max-w-full border-l border-outline-variant! [&>div]:h-full">
-        <DrawerHeader className="flex flex-row items-center justify-between px-4 py-3 border-b border-outline-variant">
+      <DrawerContent className="inset-y-0 right-0 h-full w-96 max-w-full border-l border-outline-variant flex flex-col">
+        <DrawerHeader className="flex flex-row items-center justify-between px-4 py-3 border-b border-outline-variant shrink-0">
           <div className="flex items-center gap-2">
             <Bell className="h-5 w-5 text-on-surface" />
             <DrawerTitle className="text-sm font-semibold text-on-surface">Notifications</DrawerTitle>
@@ -68,7 +68,7 @@ export function NotificationsDrawer({
             </Button>
           </div>
         </DrawerHeader>
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto min-h-0">
           {notifications.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-on-surface-variant">
               <Bell className="h-10 w-10 mb-2 opacity-30" />
