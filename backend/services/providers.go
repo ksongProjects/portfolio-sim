@@ -156,18 +156,29 @@ func (s *ProviderService) GetProviders(ctx context.Context, db interface {
 
 func (s *ProviderService) SaveProviderKey(ctx context.Context, db interface {
 	Exec(ctx context.Context, sql string, args ...interface{}) (int64, error)
-}, providerID, apiKey string) error {
+}, providerID, apiKey string, isValidated bool) error {
 	encryptedKey, err := s.codec.EncryptString(apiKey)
 	if err != nil {
 		return err
 	}
-	query := `
+	validatedAt := "NULL"
+	if isValidated {
+		validatedAt = "NOW()"
+	}
+	query := fmt.Sprintf(`
 		INSERT INTO provider_configurations (id, provider_id, encrypted_key, is_validated, validated_at, validation_error, created_at, updated_at)
-		VALUES (gen_random_uuid(), $1, $2, false, NULL, NULL, NOW(), NOW())
-		ON CONFLICT (provider_id) DO UPDATE SET encrypted_key = $2, is_validated = false, validated_at = NULL, validation_error = NULL, updated_at = NOW()
-	`
+		VALUES (gen_random_uuid(), $1, $2, %s, %s, NULL, NOW(), NOW())
+		ON CONFLICT (provider_id) DO UPDATE SET encrypted_key = $2, is_validated = %s, validated_at = %s, validation_error = NULL, updated_at = NOW()
+	`, boolToSQL(isValidated), validatedAt, boolToSQL(isValidated), validatedAt)
 	_, err = db.Exec(ctx, query, providerID, encryptedKey)
 	return err
+}
+
+func boolToSQL(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
 }
 
 func (s *ProviderService) UpdateProviderValidationState(ctx context.Context, db interface {

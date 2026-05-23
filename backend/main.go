@@ -969,15 +969,9 @@ func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		if err := s.providerSvc.SaveProviderKey(r.Context(), s.db, req.ProviderID, req.APIKey); err != nil {
+		if err := s.providerSvc.SaveProviderKey(r.Context(), s.db, req.ProviderID, req.APIKey, req.Validated); err != nil {
 			http.Error(w, "failed to save", http.StatusInternalServerError)
 			return
-		}
-		if req.Validated {
-			if err := s.providerSvc.UpdateProviderValidationState(r.Context(), s.db, req.ProviderID, true, ""); err != nil {
-				http.Error(w, "failed to save", http.StatusInternalServerError)
-				return
-			}
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
