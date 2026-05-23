@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Clock, ExternalLink, Search, Bookmark, RefreshCw, Plus, Rss, Check, Video, Play, Loader } from "lucide-react";
+import { Clock, ExternalLink, Search, Bookmark, RefreshCw, Plus, Rss, Check, Video, Play, Loader, Trash2 } from "lucide-react";
 import { useNews, type NewsArticle } from "@/hooks/useNews";
 import { useRSSFeeds } from "@/hooks/useRSSFeeds";
 
@@ -29,7 +29,7 @@ function timeAgo(dateStr: string): string {
 }
 
 export default function NewsFeedPage() {
-  const { articles, channels, latestVideos, loading, fetchNews, fetchLatestVideos, summarizeVideos, searchChannels, addChannel } = useNews();
+  const { articles, channels, latestVideos, loading, fetchNews, fetchLatestVideos, summarizeVideos, searchChannels, addChannel, deleteChannel } = useNews();
   const [search, setSearch] = useState("");
   const [saved, setSaved] = useState<string[]>([]);
   const [toast, setToast] = useState<string | null>(null);
@@ -277,21 +277,37 @@ const openDetail = (article: NewsArticle) => {
               </Button>
             </div>
 
-            <div className="space-y-1.5 mb-4">
+<div className="space-y-1.5 mb-4">
               {channels.map((ch) => (
-                <button
+                <div
                   key={ch.id}
-                  onClick={() => {
-                    setSelectedChannel(ch.channel_id);
-                    setSelectedVideoIds(new Set());
-                  }}
-                  className={`w-full flex items-center gap-2 p-2 rounded border transition-colors text-left ${
+                  className={`flex items-center gap-2 p-2 rounded border transition-colors ${
                     selectedChannel === ch.channel_id ? "bg-primary/10 border-primary" : "border-outline-variant hover:bg-surface-container"
                   }`}
                 >
-                  <Video className="h-4 w-4 text-error" />
-                  <span className="text-sm">{ch.name}</span>
-                </button>
+                  <button
+                    onClick={() => {
+                      setSelectedChannel(ch.channel_id);
+                      setSelectedVideoIds(new Set());
+                    }}
+                    className="flex-1 flex items-center gap-2 text-left"
+                  >
+                    <Video className="h-4 w-4 text-error" />
+                    <span className="text-sm">{ch.name}</span>
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!confirm(`Remove ${ch.name}?`)) return;
+                      await deleteChannel(ch.id);
+                      if (selectedChannel === ch.channel_id) {
+                        setSelectedChannel("");
+                      }
+                    }}
+                    className="text-on-surface-variant hover:text-error transition-colors"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
               ))}
               {channels.length === 0 && (
                 <div className="text-xs text-on-surface-variant py-2">No channels added</div>

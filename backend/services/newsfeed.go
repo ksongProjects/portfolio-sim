@@ -96,3 +96,16 @@ func (s *NewsFeedService) SummarizeVideos(ctx context.Context, videos []VideoSum
 	body, _ := json.Marshal(map[string][]VideoSummaryRequest{"videos": videos})
 	return s.doRequest(ctx, http.MethodPost, requestURL, bytes.NewBuffer(body), "application/json", http.StatusOK)
 }
+
+func (s *NewsFeedService) AddChannel(ctx context.Context, channelID, name string) error {
+	requestURL := fmt.Sprintf("%s/api/channels", s.newsFeedURL)
+	body, _ := json.Marshal(map[string]string{"channel_id": channelID, "name": name})
+	_, err := s.doRequest(ctx, http.MethodPost, requestURL, bytes.NewBuffer(body), "application/json", http.StatusNoContent)
+	return err
+}
+
+func (s *NewsFeedService) DeleteChannel(ctx context.Context, id string) error {
+	requestURL := fmt.Sprintf("%s/api/channels?id=%s", s.newsFeedURL, url.QueryEscape(id))
+	_, err := s.doRequest(ctx, http.MethodDelete, requestURL, nil, "", http.StatusNoContent)
+	return err
+}

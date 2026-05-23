@@ -344,6 +344,20 @@ func main() {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
+		if r.Method == "DELETE" {
+			id := strings.TrimSpace(r.URL.Query().Get("id"))
+			if id == "" {
+				http.Error(w, "id required", http.StatusBadRequest)
+				return
+			}
+			_, err := db.Pool.Exec(r.Context(), `DELETE FROM youtube_channels WHERE id = $1`, id)
+			if err != nil {
+				http.Error(w, "failed to delete channel", http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	})
 

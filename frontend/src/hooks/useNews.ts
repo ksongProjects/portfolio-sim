@@ -129,6 +129,20 @@ export function useNews() {
     },
   });
 
+  const deleteChannelMutation = useMutation({
+    mutationFn: async (channelId: string) => {
+      const res = await apiFetch(`/api/channels?id=${encodeURIComponent(channelId)}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        throw new Error("Failed to delete channel");
+      }
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["news", "channels"] });
+    },
+  });
+
   const fetchNews = useCallback(async () => {
     await articlesQuery.refetch();
   }, [articlesQuery]);
@@ -228,5 +242,6 @@ export function useNews() {
     summarizeVideos,
     searchChannels,
     addChannel,
+    deleteChannel: deleteChannelMutation.mutateAsync,
   };
 }

@@ -142,15 +142,11 @@ export function useNotifications() {
 
   const clearAll = useCallback(async () => {
     const ids = notifications.map((n) => n.id);
-    await Promise.allSettled(
-      ids.map((id) =>
-        apiFetch("/api/notifications/dismiss", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id }),
-        })
-      )
-    );
+    await apiFetch("/api/notifications/dismiss", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    });
     updateNotifications(() => []);
   }, [notifications, updateNotifications]);
 

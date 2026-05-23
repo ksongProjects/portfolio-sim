@@ -392,7 +392,7 @@ func (s *PortfolioService) GetIntradayBarsFromDB(ctx context.Context, db interfa
 	query := `
 		SELECT timestamp, open, high, low, close, volume
 		FROM intraday_bars
-		WHERE ticker_id = $1 AND interval = $2 AND timestamp >= NOW() - ($3 || ' hours')::INTERVAL
+		WHERE ticker_id = $1 AND interval = $2 AND timestamp >= NOW() - (INTERVAL '1 hour' * $3)
 		ORDER BY timestamp ASC
 	`
 	rows, err := db.Query(ctx, query, tickerID, interval, hours)

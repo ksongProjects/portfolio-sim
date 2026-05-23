@@ -217,6 +217,8 @@ func (s *Server) Start() error {
 	http.HandleFunc("GET /api/tickers/", lm(http.HandlerFunc(s.handleGetTickerDetails)))
 	http.HandleFunc("GET /api/channels/search", lm(http.HandlerFunc(s.handleSearchChannels)))
 	http.HandleFunc("GET /api/channels", lm(http.HandlerFunc(s.handleGetChannels)))
+	http.HandleFunc("POST /api/channels", lm(http.HandlerFunc(s.handleAddChannel)))
+	http.HandleFunc("DELETE /api/channels", lm(http.HandlerFunc(s.handleDeleteChannel)))
 	http.HandleFunc("GET /api/videos/latest", lm(http.HandlerFunc(s.handleGetLatestVideos)))
 	http.HandleFunc("GET /api/videos", lm(http.HandlerFunc(s.handleGetStoredVideos)))
 	http.HandleFunc("POST /api/videos/analyze", lm(http.HandlerFunc(s.handleAnalyzeVideo)))
@@ -474,27 +476,34 @@ func (s *Server) handleGetNotifications(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleDismissNotification(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	var req struct {
-		ID string `json:"id"`
+		ID    string   `json:"id"`
+		IDs   []string `json:"ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
 
-	_, err := s.db.Exec(r.Context(), `INSERT INTO notification_dismissals (log_id) VALUES ($1) ON CONFLICT (log_id) DO NOTHING`, req.ID)
-	if err != nil {
-		s.logger.Error("handleDismissNotification: insert failed", "error", err)
-		http.Error(w, "failed to dismiss notification", http.StatusInternalServerError)
+	ids := req.IDs
+	if len(ids) == 0 && req.ID != "" {
+		ids = []string{req.ID}
+	}
+
+	if len(ids) == 0 {
+		http.Error(w, "no notification IDs provided", http.StatusBadRequest)
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	query := `INSERT INTO notification_dismissals (log_id) VALUES ($1) ON CONFLICT (log_id) DO NOTHING`
+	for _, id := range ids {
+		_, err := s.db.Exec(r.Context(), query, id)
+		if err != nil {
+			s.logger.Error("handleDismissNotification: insert failed", "error", err, "id", id)
+		}
+	}
+
+w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleMarketWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -1647,6 +1656,51 @@ func (s *Server) handleGetChannels(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(data)
+}
+
+func (s *Server) handleAddChannel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		ChannelID string `json:"channel_id"`
+		Name      string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	req.ChannelID = strings.TrimSpace(req.ChannelID)
+	req.Name = strings.TrimSpace(req.Name)
+	if req.ChannelID == "" || req.Name == "" {
+		http.Error(w, "channel_id and name required", http.StatusBadRequest)
+		return
+	}
+	if err := s.newsFeedSvc.AddChannel(r.Context(), req.ChannelID, req.Name); err != nil {
+		s.logger.Error("add channel failed", "error", err)
+		http.Error(w, "failed to add channel", http.StatusBadGateway)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleDeleteChannel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	id := strings.TrimSpace(r.URL.Query().Get("id"))
+	if id == "" {
+		http.Error(w, "id required", http.StatusBadRequest)
+		return
+	}
+	if err := s.newsFeedSvc.DeleteChannel(r.Context(), id); err != nil {
+		s.logger.Error("delete channel failed", "error", err)
+		http.Error(w, "failed to delete channel", http.StatusBadGateway)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleSearchChannels(w http.ResponseWriter, r *http.Request) {

@@ -62,9 +62,9 @@ type ConnectionStatus struct {
 func (s *ProviderService) GetProviders(ctx context.Context, db interface {
 	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
 }) ([]ProviderConfig, error) {
-	s.logger.Info("GetProviders called")
 	query := `
-		SELECT ds.id, ds.name, ds.source_priority, ds.rate_limit_per_min,
+		SELECT ds.id, ds.name, ds.source_priority,
+			   COALESCE(ds.rate_limit_per_min, 0) as rate_limit_per_min,
 			   CASE
 				   WHEN COALESCE(pc.encrypted_key, '') <> '' OR COALESCE(pc.access_token, '') <> '' OR COALESCE(pc.refresh_token, '') <> '' THEN true
 				   ELSE false
@@ -78,12 +78,9 @@ func (s *ProviderService) GetProviders(ctx context.Context, db interface {
 	`
 	rows, err := db.Query(ctx, query)
 	if err != nil {
-		s.logger.Error("GetProviders query failed", "error", err)
 		return nil, err
 	}
 	defer rows.Close()
-
-	s.logger.Info("GetProviders query succeeded, checking rows")
 
 	providerMeta := map[string]struct {
 		Description string
@@ -116,10 +113,8 @@ func (s *ProviderService) GetProviders(ctx context.Context, db interface {
 		var tokenExpiresAt *time.Time
 		var validationError string
 		if err := rows.Scan(&id, &name, &priority, &rateLimit, &hasKey, &isValidated, &tokenExpiresAt, &validationError); err != nil {
-			s.logger.Error("GetProviders scan failed", "error", err)
 			continue
 		}
-		s.logger.Info("GetProviders row scanned", "id", id, "hasKey", hasKey, "isValidated", isValidated)
 		meta := providerMeta[id]
 		def := defaults[id]
 		tokenExpired := tokenExpiresAt != nil && tokenExpiresAt.Before(time.Now())
@@ -144,7 +139,6 @@ func (s *ProviderService) GetProviders(ctx context.Context, db interface {
 	}
 
 	if len(results) == 0 {
-		s.logger.Warn("GetProviders no rows, using fallback")
 		results = []ProviderConfig{
 			{ID: "massive", ProviderID: "massive", Name: "Massive", Description: "Real-time and historical market data", Type: "market_data", RateLimit: 5, DocURL: "https://massive.com/docs/rest/quickstart", TokenExpired: false},
 			{ID: "questrade", ProviderID: "questrade", Name: "Questrade", Description: "Questrade market data API", Type: "market_data", RateLimit: 100, DocURL: "https://www.questrade.com/api", TokenExpired: false},
