@@ -1220,6 +1220,17 @@ func (s *Server) handleScrapeRSSFeeds(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var lastScrapeAt time.Time
+	row, err := s.db.QueryRow(r.Context(), `SELECT MAX(last_scrape_at) FROM rss_feeds`)
+	if err == nil {
+		_ = row.Scan(&lastScrapeAt)
+	}
+	if !lastScrapeAt.IsZero() && time.Since(lastScrapeAt) < 5*time.Minute {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "skipped", "reason": "too soon"})
+		return
+	}
+
 	if s.logClient != nil {
 		s.logClient.InfoWithMeta(r.Context(), "RSS scrape request", map[string]interface{}{
 			"type":    "outbound_request",

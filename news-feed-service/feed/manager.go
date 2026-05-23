@@ -114,7 +114,12 @@ func (m *Manager) ScrapeFeeds(ctx context.Context) error {
 	}
 	m.wg.Wait()
 
+	m.updateAllFeedsLastScrape(ctx)
 	return nil
+}
+
+func (m *Manager) updateAllFeedsLastScrape(ctx context.Context) {
+	_, _ = m.pgx.Exec(ctx, `UPDATE rss_feeds SET last_scrape_at = NOW() WHERE is_active = true`)
 }
 
 type rssFeed struct {
