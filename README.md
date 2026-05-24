@@ -2,7 +2,7 @@
 
 A real-time portfolio simulation and market research platform. The app combines a Next.js frontend, a Go API gateway, market data and news microservices, a FastAPI quant service, PostgreSQL, and Redis.
 
-## Current Architecture
+## Architecture
 
 ```text
 Browser
@@ -14,20 +14,20 @@ Frontend, Next.js on :3000
 Main API, Go on :8080
   |-- portfolio, providers, settings, observability, notifications
   |-- log ingestion at POST /api/logs
-  |-- market stream SSE at GET /api/stream/market
+  |-- SSE market stream at GET /api/stream/market
   |
-  |--> Market Data Service, Go on host :8081 / container :8080
+  |--> Market Data Service, Go on :8081
   |      ticker search, quotes, details, intraday bars, ratios, backfill queues
   |
-  |--> News Feed Service, Go on host :8082 / container :8080
+  |--> News Feed Service, Go on :8082
   |      RSS scraping, YouTube channel/video lookup, Gemini analysis
   |
-  |--> Analyst Service, FastAPI on host :8083 / container :8080
+  |--> Analyst Service, Python/FastAPI on :8083
          factor analysis, portfolio construction, stat arb, PIT filtering,
          stress testing, execution analysis, market microstructure
 
-PostgreSQL 16, host :5433 / container :5432
-Redis 7, :6379
+PostgreSQL 16 on :5433
+Redis 7 on :6379
 ```
 
 ## Services
@@ -42,30 +42,25 @@ Redis 7, :6379
 | PostgreSQL | 5433 | Postgres 16 | Application data, provider credentials, logs, market data, and migrations |
 | Redis | 6379 | Redis 7 | Streams, pub/sub, and background queues |
 
-The old standalone logging service has been folded into the Main API. Services emit structured logs to `POST /api/logs`, and the UI reads them through `/api/observability/logs`.
-
 ## Features
 
 ### Frontend
 
-- Dashboard for portfolio value, P&L, holdings, recent activity, and live market index data.
-- Portfolio page with add-position workflow and ticker search.
-- Ticker detail pages with company profile data, intraday bars, financial ratios, and market statistics.
-- News feed page for RSS articles, YouTube channel search, latest videos, and manual video analysis.
-- Strategy and signal views backed by the Main API.
-- Observability page for service health, structured logs, and route-level filtering.
-- Settings page for provider credentials, Questrade token refresh, RSS feeds, market index configuration, and connection checks.
+- **Dashboard** — portfolio value, P&L, top holdings, recent activity, and live market indices via SSE.
+- **Portfolio** — add/remove positions with ticker search; current prices update live from the market stream.
+- **Ticker Detail** — company profile, intraday bars, financial ratios, market stats, and WebSocket-powered live price.
+- **News Feed** — RSS articles, YouTube channel search, latest videos, and manual video analysis with Gemini.
+- **Strategy / Signals** — views backed by the Main API.
+- **Observability** — service health, structured logs, and route-level filtering.
+- **Settings** — provider credentials, Questrade OAuth, RSS feeds, market index configuration.
 
 ### Backend and Services
 
 - Main API endpoints for portfolio positions, summary data, market indices, news, strategies, signals, providers, notifications, RSS feeds, ticker proxying, videos, logs, and SSE market streams.
 - Provider credential validation and encrypted storage for Massive, Questrade, FMP, YouTube, and Gemini.
-- Market data provider orchestration with provider priority by operation:
-  - Questrade: search, quotes, intraday bars, option chains, profiles.
-  - Massive: search, quotes, intraday bars, profiles, ratios.
-  - FMP: search, quotes, intraday bars, profiles, ratios.
+- Market data provider orchestration with provider priority by operation.
 - Redis queues for market-data backfills, ticker subscriptions, RSS scraping, transcription jobs, backtests, and option Greek jobs.
-- News articles and YouTube analysis are unified in `news_articles` with source type, ticker extraction, sentiment, content, and channel metadata.
+- News articles and YouTube analysis unified in `news_articles` with source type, ticker extraction, sentiment, content, and channel metadata.
 - Quant API routes under `/api/v1/quant` for factor scorecards, portfolio books, stat arb, point-in-time filters, stress tests, execution costs, and microstructure state.
 
 ## Quick Start
@@ -164,7 +159,9 @@ GET  /api/observability/services
 GET  /api/observability/logs
 GET  /api/portfolio/positions
 POST /api/portfolio/positions
+DELETE /api/portfolio/positions?portfolio_id=&position_id=
 GET  /api/portfolio/summary
+GET  /api/portfolio/performance
 GET  /api/market/indices
 GET  /api/settings/market-indices
 PUT  /api/settings/market-indices
@@ -185,6 +182,8 @@ DELETE /api/rss-feeds?id={feed_id}
 POST /api/rss-feeds/scrape
 GET  /api/tickers/search?q={query}
 GET  /api/tickers/{symbol}/details
+GET  /api/tickers/{symbol}/intraday?range=1d
+GET  /api/tickers/bars?symbol=&range=
 GET  /api/channels
 GET  /api/videos/latest?channel_id={channel_id}
 GET  /api/videos
@@ -226,7 +225,7 @@ POST /api/v1/quant/microstructure
 
 ## Project Structure
 
-```text
+```
 portfolio-sim/
 |-- backend/              Main Go API and database migrations
 |-- market-data-service/  Go market data service
