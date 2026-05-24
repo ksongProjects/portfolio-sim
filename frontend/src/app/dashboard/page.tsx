@@ -5,7 +5,8 @@ import { PageGrid, PageCell, PageHeader, MetricLabel, MetricValue, MetricSubValu
 import { CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { usePortfolio, usePortfolioPerformance } from "@/hooks/usePortfolio";
+import { usePortfolioPerformance } from "@/hooks/usePortfolio";
+import { useLivePositions } from "@/hooks/useLivePositions";
 import { useLiveIndices } from "@/hooks/useLiveIndices";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
@@ -201,7 +202,7 @@ function PortfolioLineChart({ data, range }: PortfolioLineChartProps) {
 }
 
 export default function DashboardPage() {
-  const { positions, summary, indices: restIndices, indicesLoading } = usePortfolio();
+  const { positions, summary, indices: restIndices } = useLivePositions();
   const { indices: liveIndices, isLive } = useLiveIndices();
   const [activePeriod, setActivePeriod] = useState("1d");
 

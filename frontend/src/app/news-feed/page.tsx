@@ -31,108 +31,6 @@ function timeAgo(dateStr: string): string {
   }
 }
 
-const videoColumns: ColumnDef<YouTubeVideo>[] = [
-  {
-    id: "select",
-    size: 40,
-    header: "",
-    cell: ({ row }) => {
-      const video = row.original;
-      const isSelected = selectedVideoIds.has(video.id);
-      const isAnalyzed = articles.some(a => a.SourceType === "youtube" && a.URL.includes(video.id));
-      return (
-        <button
-          onClick={(e) => { e.stopPropagation(); !isAnalyzed && toggleVideoSelection(video.id); }}
-          disabled={isAnalyzed}
-          className={`h-5 w-5 rounded border flex items-center justify-center transition-colors ${
-            isSelected ? "bg-primary border-primary" : isAnalyzed ? "bg-primary/30 border-primary/30" : "border-outline hover:border-primary"
-          }`}
-        >
-          {isSelected && <Check className="h-3 w-3 text-on-primary" />}
-          {isAnalyzed && <Check className="h-3 w-3 text-primary" />}
-        </button>
-      );
-    },
-  },
-  {
-    accessorKey: "title",
-    header: "Title",
-    size: 300,
-    cell: ({ row }) => <div className="font-medium">{row.original.title}</div>,
-  },
-  {
-    accessorKey: "published_at",
-    header: "Published",
-    size: 120,
-    cell: ({ row }) => <span className="text-on-surface-variant">{timeAgo(row.original.published_at)}</span>,
-  },
-  {
-    id: "duration",
-    header: "Duration",
-    size: 80,
-    cell: () => <span className="text-on-surface-variant">-</span>,
-  },
-  {
-    id: "keywords",
-    header: "Keywords",
-    size: 200,
-    cell: ({ row }) => {
-      const keywords = row.original.description?.split('\n').find(l => l.toLowerCase().startsWith('keywords:'))?.replace(/^keywords:\s*/i, '') || '';
-      return (
-        <div className="flex flex-wrap gap-1">
-          {keywords.split(',').map((kw, i) => kw.trim() && (
-            <Badge key={i} variant="outline" className="text-xs">{kw.trim()}</Badge>
-          ))}
-        </div>
-      );
-    },
-  },
-];
-
-const articleColumns: ColumnDef<NewsArticle>[] = [
-  {
-    id: "select",
-    size: 40,
-    header: "",
-    cell: ({ row }) => {
-      const isSelected = selectedArticleIds.has(row.original.ID);
-      return (
-        <button
-          onClick={(e) => { e.stopPropagation(); toggleArticleSelection(row.original.ID); }}
-          className={`h-5 w-5 rounded border flex items-center justify-center transition-colors ${
-            isSelected ? "bg-primary border-primary" : "border-outline hover:border-primary"
-          }`}
-        >
-          {isSelected && <Check className="h-3 w-3 text-on-primary" />}
-        </button>
-      );
-    },
-  },
-  {
-    accessorKey: "Title",
-    header: "Title",
-    cell: ({ row }) => <div className="font-medium">{row.original.Title}</div>,
-  },
-  {
-    accessorKey: "PublishedAt",
-    header: "Published",
-    size: 120,
-    cell: ({ row }) => <span className="text-on-surface-variant">{timeAgo(row.original.PublishedAt)}</span>,
-  },
-  {
-    accessorKey: "TickerSymbols",
-    header: "Tickers",
-    size: 200,
-    cell: ({ row }) => (
-      <div className="flex flex-wrap gap-1">
-        {row.original.TickerSymbols?.map((sym) => (
-          <Badge key={sym} variant="outline" className="text-xs">{sym}</Badge>
-        ))}
-      </div>
-    ),
-  },
-];
-
 export default function NewsFeedPage() {
   const { articles, channels, latestVideos, loading, fetchNews, fetchLatestVideos, summarizeVideos, searchChannels, addChannel, deleteChannel } = useNews();
   const [search, setSearch] = useState("");
@@ -161,6 +59,108 @@ const { feeds, loading: feedsLoading, addFeed, scrapeFeeds, scrapeFeed, deleteFe
   const [selectedFeed, setSelectedFeed] = useState<string>("");
   const [refreshingFeeds, setRefreshingFeeds] = useState<Set<string>>(new Set());
   const [selectedArticleIds, setSelectedArticleIds] = useState<Set<string>>(new Set());
+
+  const videoColumns: ColumnDef<YouTubeVideo>[] = [
+    {
+      id: "select",
+      size: 40,
+      header: "",
+      cell: ({ row }) => {
+        const video = row.original;
+        const isSelected = selectedVideoIds.has(video.id);
+        const isAnalyzed = articles.some(a => a.SourceType === "youtube" && a.URL.includes(video.id));
+        return (
+          <button
+            onClick={(e) => { e.stopPropagation(); !isAnalyzed && toggleVideoSelection(video.id); }}
+            disabled={isAnalyzed}
+            className={`h-5 w-5 rounded border flex items-center justify-center transition-colors ${
+              isSelected ? "bg-primary border-primary" : isAnalyzed ? "bg-primary/30 border-primary/30" : "border-outline hover:border-primary"
+            }`}
+          >
+            {isSelected && <Check className="h-3 w-3 text-on-primary" />}
+            {isAnalyzed && <Check className="h-3 w-3 text-primary" />}
+          </button>
+        );
+      },
+    },
+    {
+      accessorKey: "title",
+      header: "Title",
+      size: 300,
+      cell: ({ row }) => <div className="font-medium">{row.original.title}</div>,
+    },
+    {
+      accessorKey: "published_at",
+      header: "Published",
+      size: 120,
+      cell: ({ row }) => <span className="text-on-surface-variant">{timeAgo(row.original.published_at)}</span>,
+    },
+    {
+      id: "duration",
+      header: "Duration",
+      size: 80,
+      cell: () => <span className="text-on-surface-variant">-</span>,
+    },
+    {
+      id: "keywords",
+      header: "Keywords",
+      size: 200,
+      cell: ({ row }) => {
+        const keywords = row.original.description?.split('\n').find(l => l.toLowerCase().startsWith('keywords:'))?.replace(/^keywords:\s*/i, '') || '';
+        return (
+          <div className="flex flex-wrap gap-1">
+            {keywords.split(',').map((kw, i) => kw.trim() && (
+              <Badge key={i} variant="outline" className="text-xs">{kw.trim()}</Badge>
+            ))}
+          </div>
+        );
+      },
+    },
+  ];
+
+  const articleColumns: ColumnDef<NewsArticle>[] = [
+    {
+      id: "select",
+      size: 40,
+      header: "",
+      cell: ({ row }) => {
+        const isSelected = selectedArticleIds.has(row.original.ID);
+        return (
+          <button
+            onClick={(e) => { e.stopPropagation(); toggleArticleSelection(row.original.ID); }}
+            className={`h-5 w-5 rounded border flex items-center justify-center transition-colors ${
+              isSelected ? "bg-primary border-primary" : "border-outline hover:border-primary"
+            }`}
+          >
+            {isSelected && <Check className="h-3 w-3 text-on-primary" />}
+          </button>
+        );
+      },
+    },
+    {
+      accessorKey: "Title",
+      header: "Title",
+      cell: ({ row }) => <div className="font-medium">{row.original.Title}</div>,
+    },
+    {
+      accessorKey: "PublishedAt",
+      header: "Published",
+      size: 120,
+      cell: ({ row }) => <span className="text-on-surface-variant">{timeAgo(row.original.PublishedAt)}</span>,
+    },
+    {
+      accessorKey: "TickerSymbols",
+      header: "Tickers",
+      size: 200,
+      cell: ({ row }) => (
+        <div className="flex flex-wrap gap-1">
+          {row.original.TickerSymbols?.map((sym) => (
+            <Badge key={sym} variant="outline" className="text-xs">{sym}</Badge>
+          ))}
+        </div>
+      ),
+    },
+  ];
 
   useEffect(() => {
     if (selectedChannel) {

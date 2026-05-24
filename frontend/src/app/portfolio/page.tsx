@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
 import { Skeleton, MetricSkeleton } from "@/components/ui/skeleton";
 import { Plus, Download } from "lucide-react";
-import { usePortfolio } from "@/hooks/usePortfolio";
+import { useLivePositions } from "@/hooks/useLivePositions";
 import { AddPositionModal } from "@/components/add-position-modal";
 import { toast } from "sonner";
 
@@ -156,7 +156,7 @@ const columns: ColumnDef<Position>[] = [
 ];
 
 export default function PortfolioPage() {
-  const { positions, summary, loading, addPosition } = usePortfolio("default", { includeIndices: false });
+  const { positions, summary, isLoading: loading, addPosition } = useLivePositions("default", { includeIndices: false });
   const [modalOpen, setModalOpen] = useState(false);
 
   const handleAddPosition = async (position: { symbol: string; shares: number; price: number }) => {

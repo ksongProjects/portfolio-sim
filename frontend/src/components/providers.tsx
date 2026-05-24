@@ -3,6 +3,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 import { ApiError } from "@/lib/api";
+import { PriceProvider } from "./price-context";
 
 function shouldRetryQuery(failureCount: number, error: unknown) {
   if (failureCount >= 2) {
@@ -37,7 +38,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {children}
+      <PriceProvider>
+        {children}
+      </PriceProvider>
     </QueryClientProvider>
   );
 }
