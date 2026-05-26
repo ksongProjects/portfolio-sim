@@ -18,10 +18,19 @@ export function useLivePositions(portfolioId = "default", options: { includeIndi
 			if (!tick) return pos;
 			const currentPrice = tick.Price;
 			const currentValue = pos.Quantity * currentPrice;
+			const dayChangePct = tick.ChangePct ?? pos.DayChangePct;
+			const dayChange = tick.Change ?? (currentPrice * dayChangePct / 100);
+			const costBasis = pos.Quantity * pos.AvgCost;
+			const totalGain = currentValue - costBasis;
+			const totalGainPct = costBasis > 0 ? (totalGain / costBasis) * 100 : 0;
 			return {
 				...pos,
 				CurrentPrice: currentPrice,
 				CurrentValue: currentValue,
+				DayChange: dayChange,
+				DayChangePct: dayChangePct,
+				TotalGain: totalGain,
+				TotalGainPct: totalGainPct,
 			};
 		});
 	}, [positions, prices]);

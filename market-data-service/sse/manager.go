@@ -26,7 +26,12 @@ func (m *Manager) PublishTick(ticker string, data interface{}) error {
 		return err
 	}
 
-	return m.redis.XAdd(ctx, stream, "data", string(jsonData))
+	if err := m.redis.XAdd(ctx, stream, "data", string(jsonData)); err != nil {
+		return err
+	}
+
+	channel := fmt.Sprintf("market:ticks:%s", ticker)
+	return m.redis.Publish(ctx, channel, jsonData)
 }
 
 func (m *Manager) PublishOptionChain(ticker string, data interface{}) error {

@@ -44,7 +44,7 @@ export function useLivePrice(symbol: string | undefined): { price: number | null
 export function PriceProvider({ children }: { children: ReactNode }) {
 	const [prices, setPrices] = useState<Map<string, MarketTick>>(new Map());
 	const [connected, setConnected] = useState(false);
-	const esRef = useRef<EventSource | null>(null);
+	const wsRef = useRef<WebSocket | null>(null);
 	const updateTickRef = useRef<((tick: MarketTick) => void) | null>(null);
 
 	const updateTick = useCallback((tick: MarketTick) => {
@@ -60,20 +60,21 @@ export function PriceProvider({ children }: { children: ReactNode }) {
 	}, [updateTick]);
 
 	useEffect(() => {
-		if (esRef.current) {
-			esRef.current.close();
-			esRef.current = null;
+		if (wsRef.current) {
+			wsRef.current.close();
+			wsRef.current = null;
 		}
 
-		const url = `${API_BASE}/api/stream/market`;
+		const url = `ws://${API_BASE.replace("http://", "")}/api/ws/market`;
 
-		const es = new EventSource(url);
-		esRef.current = es;
+		const ws = new WebSocket(url);
+		wsRef.current = ws;
 
-		es.onopen = () => setConnected(true);
-		es.onerror = () => setConnected(false);
+		ws.onopen = () => setConnected(true);
+		ws.onerror = () => setConnected(false);
+		ws.onclose = () => setConnected(false);
 
-		es.onmessage = (event) => {
+		ws.onmessage = (event) => {
 			try {
 				const tick: MarketTick = JSON.parse(event.data);
 				updateTickRef.current?.(tick);
@@ -81,8 +82,8 @@ export function PriceProvider({ children }: { children: ReactNode }) {
 		};
 
 		return () => {
-			es.close();
-			esRef.current = null;
+			ws.close();
+			wsRef.current = null;
 		};
 	}, []);
 

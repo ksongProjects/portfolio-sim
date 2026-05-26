@@ -509,6 +509,7 @@ w.WriteHeader(http.StatusNoContent)
 func (s *Server) handleMarketWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		CompressionMode: websocket.CompressionContextTakeover,
+		OriginPatterns:   []string{"*"},
 	})
 	if err != nil {
 		s.logger.Error("websocket accept failed", "error", err)
@@ -531,7 +532,7 @@ func (s *Server) handleMarketWebSocket(w http.ResponseWriter, r *http.Request) {
 		}()
 	}
 
-	pubsub := s.redisClient.PSubscribe(ctx, fmt.Sprintf("market:bars:*"))
+	pubsub := s.redisClient.PSubscribe(ctx, fmt.Sprintf("market:bars:*"), fmt.Sprintf("market:ticks:*"))
 	defer pubsub.Close()
 
 	var symbolsMap = make(map[string]struct{})
