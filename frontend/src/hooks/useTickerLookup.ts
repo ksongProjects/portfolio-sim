@@ -39,6 +39,7 @@ export interface IntradayData {
   bars: IntradayBar[];
   change: number;
   changePct: number;
+  dataDate?: string;
 }
 
 export interface FinancialRatio {
@@ -67,6 +68,7 @@ async function fetchTickerBars(symbol: string, range: string) {
     bars: { timestamp: string; open: number; high: number; low: number; close: number; volume: number }[];
     change: number;
     changePct: number;
+    dataDate?: string;
   }>(
     `/api/tickers/bars?symbol=${encodeURIComponent(symbol)}&range=${encodeURIComponent(range)}`,
     undefined,
@@ -80,6 +82,7 @@ async function fetchIntradayBars(symbol: string, range: string) {
     bars: response.bars.map(b => ({ timestamp: b.timestamp, close: b.close, volume: b.volume ?? 0 })),
     change: response.change,
     changePct: response.changePct,
+    dataDate: response.dataDate,
   };
 }
 
@@ -226,6 +229,7 @@ export function useTickerLookup(initialSymbol?: string) {
     intradayData: selectedSymbol ? (intradayQuery.data?.bars ?? []) : [],
     intradayChange: selectedSymbol ? (intradayQuery.data?.change ?? 0) : 0,
     intradayChangePct: selectedSymbol ? (intradayQuery.data?.changePct ?? 0) : 0,
+    intradayDataDate: selectedSymbol ? (intradayQuery.data?.dataDate ?? undefined) : undefined,
     loading: companyQuery.isFetching,
     chartLoading: intradayQuery.isFetching,
     chartError: intradayQuery.error ? getErrorMessage(intradayQuery.error) : null,

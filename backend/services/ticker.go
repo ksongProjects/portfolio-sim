@@ -272,8 +272,9 @@ func (s *TickerService) GetIntradayBars(ctx context.Context, symbol string, inte
 	return result.Bars, result.Change, result.ChangePct, nil
 }
 
-func (s *TickerService) GetIntradayBarsForSymbols(ctx context.Context, symbols []string, rangeParam string) (map[string][]IntradayBar, error) {
+func (s *TickerService) GetIntradayBarsForSymbols(ctx context.Context, symbols []string, rangeParam string) (map[string][]IntradayBar, string, error) {
 	results := make(map[string][]IntradayBar)
+	dataDate := ""
 	for _, symbol := range symbols {
 		bars, _, _, err := s.GetIntradayBars(ctx, symbol, "", rangeParam)
 		if err != nil {
@@ -281,8 +282,13 @@ func (s *TickerService) GetIntradayBarsForSymbols(ctx context.Context, symbols [
 			continue
 		}
 		results[symbol] = bars
+		if dataDate == "" && len(bars) > 0 {
+			if ts, err := time.Parse(time.RFC3339, bars[0].Timestamp); err == nil {
+				dataDate = ts.Format("2006-01-02")
+			}
+		}
 	}
-	return results, nil
+	return results, dataDate, nil
 }
 
 func (s *TickerService) GetFinancialRatios(ctx context.Context, symbol string) ([]FinancialRatio, error) {

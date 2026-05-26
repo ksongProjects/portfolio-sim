@@ -285,6 +285,10 @@ func (p *QuestradeProvider) getTokensFromBackend() (*backendTokens, error) {
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, fmt.Errorf("questrade tokens not configured in backend")
 	}
+	if resp.StatusCode == http.StatusInternalServerError {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("backend error %d: %s (not retrying)", resp.StatusCode, string(body))
+	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("backend returned %d: %s", resp.StatusCode, string(body))

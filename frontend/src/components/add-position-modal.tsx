@@ -43,7 +43,7 @@ function formatTime(timestamp: string): string {
   return date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "America/New_York" });
 }
 
-function IntradayChart({ data }: { data: { timestamp: string; close: number; volume?: number }[] }) {
+function IntradayChart({ data, dataDate }: { data: { timestamp: string; close: number; volume?: number }[]; dataDate?: string }) {
   if (data.length === 0) return <div className="h-32 flex items-center justify-center text-on-surface-variant text-sm">No chart data</div>;
 
   const firstClose = data[0]?.close || 0;
@@ -57,7 +57,9 @@ function IntradayChart({ data }: { data: { timestamp: string; close: number; vol
   }));
 
   return (
-    <ResponsiveContainer width="100%" height={120}>
+    <div>
+      {dataDate && <div className="text-xs text-on-surface-variant mb-1">{dataDate}</div>}
+      <ResponsiveContainer width="100%" height={120}>
       <LineChart data={chartData} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="var(--outline-variant)" />
         <XAxis
@@ -84,6 +86,7 @@ function IntradayChart({ data }: { data: { timestamp: string; close: number; vol
         />
       </LineChart>
     </ResponsiveContainer>
+    </div>
   );
 }
 
@@ -99,6 +102,7 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
     searchResults,
     selectedTicker,
     intradayData,
+    intradayDataDate,
     loading: tickerLoading,
     searchLoading,
     searchTickers,
@@ -262,7 +266,7 @@ export function AddPositionModal({ open, onClose, onAdd }: AddPositionModalProps
                 <Clock className="h-4 w-4 text-on-surface-variant" />
                 <span className="text-xs font-semibold uppercase tracking-[0.08em] text-on-surface-variant">Intraday Chart</span>
               </div>
-              <IntradayChart data={intradayData} />
+              <IntradayChart data={intradayData} dataDate={intradayDataDate} />
             </div>
 
             <div className="grid grid-cols-2 gap-3">

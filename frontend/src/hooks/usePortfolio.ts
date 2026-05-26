@@ -79,6 +79,7 @@ export interface PortfolioPerformanceData {
 	data: PortfolioPerformancePoint[];
 	interval: string;
 	range: string;
+	dataDate?: string;
 }
 
 async function fetchPerformanceData(portfolioId: string, range: string) {

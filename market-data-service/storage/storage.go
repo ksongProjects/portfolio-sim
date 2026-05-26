@@ -330,12 +330,13 @@ func (s *Storage) UpdateTickerProfile(ctx context.Context, symbol, sector, indus
 	if err != nil {
 		return err
 	}
+	epoch := time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
 	_, err = s.pool.Exec(ctx, `
 		INSERT INTO fundamental_data (ticker_id, source_id, data_type, period, json_data, timestamp)
-		VALUES ($1, 'company_profile', 'profile', '', $2::jsonb, NOW())
+		VALUES ($1, 'company_profile', 'company_profile', '', $2::jsonb, $3)
 		ON CONFLICT (ticker_id, source_id, data_type, period, timestamp)
-		DO UPDATE SET json_data = $2::jsonb
-	`, tickerID, fmt.Sprintf(`{"sector": "%s", "industry": "%s"}`, sector, industry))
+		DO UPDATE SET json_data = EXCLUDED.json_data, timestamp = $3
+	`, tickerID, fmt.Sprintf(`{"sector": "%s", "industry": "%s"}`, sector, industry), epoch)
 	return err
 }
 

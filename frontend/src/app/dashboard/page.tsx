@@ -128,9 +128,10 @@ function NoDataMessage() {
 interface PortfolioLineChartProps {
   data: { timestamp: string; value: number }[];
   range: string;
+  dataDate?: string;
 }
 
-function PortfolioLineChart({ data, range }: PortfolioLineChartProps) {
+function PortfolioLineChart({ data, range, dataDate }: PortfolioLineChartProps) {
   if (data.length === 0) {
     return <NoDataMessage />;
   }
@@ -157,6 +158,8 @@ function PortfolioLineChart({ data, range }: PortfolioLineChartProps) {
   const intervalLabel = range === "1d" ? "Today" : range === "1w" ? "This Week" : range === "1m" ? "This Month" : range;
 
   const ticks = getTicksFromData(data, range as ChartRange);
+
+  const dateRangeLabel = dataDate ? `${dataDate}` : (range === "1d" ? "Today" : range === "1w" ? "This Week" : range === "1m" ? "This Month" : "");
 
   return (
     <ResponsiveContainer width="100%" height="100%">
@@ -245,7 +248,10 @@ export default function DashboardPage() {
           <PageCell className="col-span-1 row-span-1">
             <div className="flex items-center justify-between mb-4">
               <CardTitle>Portfolio Performance</CardTitle>
-              <div className="flex gap-1">
+              <div className="flex items-center gap-2">
+                {performance?.dataDate && (
+                  <span className="text-xs text-on-surface-variant">{performance.dataDate}</span>
+                )}
                 {["1d", "1w", "1m", "3m", "1y", "all"].map((period) => (
                   <button
                     key={period}
@@ -263,7 +269,7 @@ export default function DashboardPage() {
             </div>
             <div className="h-[200px] border border-outline-variant/30">
               {performance?.data && performance.data.length > 0 ? (
-                <PortfolioLineChart data={performance.data} range={activePeriod.toLowerCase()} />
+                <PortfolioLineChart data={performance.data} range={activePeriod.toLowerCase()} dataDate={performance.dataDate} />
               ) : (
                 <NoDataMessage />
               )}

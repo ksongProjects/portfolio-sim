@@ -805,6 +805,16 @@ func (s *MarketDataService) handleIntradayBars(w http.ResponseWriter, r *http.Re
 		bars, _ = s.storage.GetIntradayBars(r.Context(), symbol, interval, from, to)
 	}
 
+	dataDate := ""
+	if len(bars) == 0 && rangeParam == "1d" {
+		fallbackFrom := to.AddDate(0, 0, -7)
+		bars, _ = s.storage.GetIntradayBars(r.Context(), symbol, interval, fallbackFrom, to)
+	}
+
+	if len(bars) > 0 {
+		dataDate = bars[0].Timestamp.Format("2006-01-02")
+	}
+
 	if len(bars) == 0 {
 		s.logClient.InfoWithMeta(r.Context(), "no intraday data for ticker, triggering backfill", map[string]interface{}{"symbol": symbol})
 		s.triggerBackfill(symbol, "intraday_bars", interval)
@@ -832,6 +842,7 @@ func (s *MarketDataService) handleIntradayBars(w http.ResponseWriter, r *http.Re
 		"closePrice": closePrice,
 		"change":     change,
 		"changePct":  changePct,
+		"dataDate":   dataDate,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

@@ -565,7 +565,7 @@ func (s *PortfolioService) GetCompanyProfile(ctx context.Context, db interface {
 	query := `
 		SELECT json_data
 		FROM fundamental_data
-		WHERE ticker_id = $1 AND source_id = 'company_profile' AND data_type = 'profile'
+		WHERE ticker_id = $1 AND source_id IN ('fmp', 'massive', 'company_profile') AND data_type = 'company_profile'
 		ORDER BY timestamp DESC
 		LIMIT 1
 	`
@@ -598,7 +598,7 @@ func (s *PortfolioService) SaveCompanyProfile(ctx context.Context, db interface 
 	}
 	query := `
 		INSERT INTO fundamental_data (ticker_id, source_id, data_type, period, json_data, timestamp)
-		VALUES ($1, 'company_profile', 'profile', '', $2, NOW())
+		VALUES ($1, 'company_profile', 'company_profile', '', $2, NOW())
 	`
 	_, err = db.Exec(ctx, query, tickerID, data)
 	return err

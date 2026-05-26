@@ -798,7 +798,7 @@ func (s *Server) handleGetPortfolioPerformance(w http.ResponseWriter, r *http.Re
 		}
 	}
 
-	intradayData, err := s.tickerSvc.GetIntradayBarsForSymbols(r.Context(), symbols, rangeParam)
+	intradayData, dataDate, err := s.tickerSvc.GetIntradayBarsForSymbols(r.Context(), symbols, rangeParam)
 	if err != nil {
 		s.logger.Error("get portfolio intraday data failed", "error", err)
 	}
@@ -807,9 +807,10 @@ func (s *Server) handleGetPortfolioPerformance(w http.ResponseWriter, r *http.Re
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"data":     portfolioValues,
-		"interval": interval,
-		"range":    rangeParam,
+		"data":      portfolioValues,
+		"interval":  interval,
+		"range":     rangeParam,
+		"dataDate":  dataDate,
 	})
 }
 
@@ -1041,6 +1042,10 @@ func (s *Server) handleGetInternalProviderTokens(w http.ResponseWriter, r *http.
 
 	accessToken, refreshToken, apiServer, err := s.providerSvc.GetQuestradeOAuth(r.Context(), s.db, providerID)
 	if err != nil {
+		if err.Error() == "no rows in result set" {
+			http.Error(w, "tokens not configured", http.StatusNotFound)
+			return
+		}
 		s.logger.Error("get questrade tokens failed", "error", err)
 		http.Error(w, "failed to get tokens", http.StatusInternalServerError)
 		return
@@ -1638,12 +1643,20 @@ func (s *Server) handleGetTickerBars(w http.ResponseWriter, r *http.Request) {
 		bars = []services.IntradayBar{}
 	}
 
+	dataDate := ""
+	if len(bars) > 0 {
+		if ts, err := time.Parse(time.RFC3339, bars[0].Timestamp); err == nil {
+			dataDate = ts.Format("2006-01-02")
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"symbol":    symbol,
 		"bars":      bars,
 		"change":    change,
 		"changePct": changePct,
+		"dataDate":  dataDate,
 	})
 }
 
