@@ -296,9 +296,11 @@ func (s *PortfolioService) GetTickerQuote(ctx context.Context, db interface {
 }, symbol string) (*TickerQuote, error) {
 	query := `
 		SELECT t.symbol, t.company_name, t.exchange,
-		       np.price, np.change, np.change_pct, np.volume, np.market_cap, np.timestamp
+		       np.price, np.change, np.change_pct, np.volume, np.market_cap, np.timestamp,
+		       COALESCE(fd.json_data->>'sector', ''), COALESCE(fd.json_data->>'industry', '')
 		FROM tickers t
 		LEFT JOIN normalized_prices np ON np.ticker_id = t.id
+		LEFT JOIN fundamental_data fd ON fd.ticker_id = t.id AND fd.source_id IN ('fmp', 'massive', 'company_profile') AND fd.data_type = 'company_profile'
 		WHERE t.symbol = $1 AND t.is_active = true
 		  AND (np.timestamp IS NULL OR np.timestamp = (
 			SELECT MAX(timestamp) FROM normalized_prices WHERE ticker_id = t.id
@@ -318,7 +320,8 @@ func (s *PortfolioService) GetTickerQuote(ctx context.Context, db interface {
 		var volume *int64
 		var marketCap *float64
 		var ts *time.Time
-		if err := rows.Scan(&q.Symbol, &q.Name, &q.Exchange, &price, &change, &changePct, &volume, &marketCap, &ts); err != nil {
+		var sector, industry string
+		if err := rows.Scan(&q.Symbol, &q.Name, &q.Exchange, &price, &change, &changePct, &volume, &marketCap, &ts, &sector, &industry); err != nil {
 			return nil, err
 		}
 		if price != nil {
@@ -339,6 +342,8 @@ func (s *PortfolioService) GetTickerQuote(ctx context.Context, db interface {
 		if ts != nil {
 			q.Timestamp = *ts
 		}
+		q.Sector = sector
+		q.Industry = industry
 		return &q, nil
 	}
 	return nil, nil
@@ -424,7 +429,7 @@ func (s *PortfolioService) GetPositions(ctx context.Context, db interface {
 			   p.quantity, p.avg_cost, p.opened_at
 		FROM positions p
 		JOIN tickers t ON t.id = p.ticker_id
-		LEFT JOIN fundamental_data fd ON fd.ticker_id = t.id AND fd.data_type = 'company_profile'
+		LEFT JOIN fundamental_data fd ON fd.ticker_id = t.id AND fd.source_id IN ('fmp', 'massive', 'company_profile') AND fd.data_type = 'company_profile'
 		WHERE p.portfolio_id = $1
 		ORDER BY p.quantity * p.avg_cost DESC
 	`

@@ -162,8 +162,14 @@ function PortfolioLineChart({ data, range, dataDate }: PortfolioLineChartProps) 
   const dateRangeLabel = dataDate ? `${dataDate}` : (range === "1d" ? "Today" : range === "1w" ? "This Week" : range === "1m" ? "This Month" : "");
 
   return (
-    <ResponsiveContainer width="100%" height="100%">
-      <LineChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+    <div className="relative h-full w-full">
+      {dateRangeLabel && (
+        <div className="absolute top-2 right-12 z-10 px-2 py-1 bg-surface-container-high/90 rounded text-xs text-on-surface font-mono">
+          {dateRangeLabel}
+        </div>
+      )}
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="var(--outline-variant)" />
         <XAxis
           dataKey="timestamp"
@@ -199,8 +205,9 @@ function PortfolioLineChart({ data, range, dataDate }: PortfolioLineChartProps) 
           dot={false}
           activeDot={{ r: 4, fill: color }}
         />
-      </LineChart>
-    </ResponsiveContainer>
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
   );
 }
 

@@ -57,8 +57,12 @@ function IntradayChart({ data, dataDate }: { data: { timestamp: string; close: n
   }));
 
   return (
-    <div>
-      {dataDate && <div className="text-xs text-on-surface-variant mb-1">{dataDate}</div>}
+    <div className="relative">
+      {dataDate && (
+        <div className="absolute top-2 left-2 z-10 px-2 py-1 bg-surface-container-high/90 rounded text-xs text-on-surface font-mono">
+          {dataDate}
+        </div>
+      )}
       <ResponsiveContainer width="100%" height={120}>
       <LineChart data={chartData} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="var(--outline-variant)" />

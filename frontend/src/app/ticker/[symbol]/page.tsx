@@ -330,7 +330,7 @@ export default function TickerPage() {
   const position = positions.find(p => p.Symbol === symbol);
   const { getBar } = useMarketSocket([symbol], true);
 
-  const chartData = useMemo(() => {
+const chartData = useMemo(() => {
     const baseData: IntradayBar[] = [...intradayData];
     const liveBar = getBar(symbol);
     if (liveBar && liveBar.close > 0) {
@@ -345,10 +345,23 @@ export default function TickerPage() {
       } else {
         baseData.push(barEntry);
       }
-      baseData.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
     }
     return baseData;
   }, [intradayData, symbol, getBar]);
+
+  const dateRangeLabel = useMemo(() => {
+    if (chartData.length === 0) return "";
+    const first = new Date(chartData[0].timestamp);
+    const last = new Date(chartData[chartData.length - 1].timestamp);
+    const fmt = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    if (first.toDateString() === last.toDateString()) {
+      return fmt(first);
+    }
+    if (chartRange === "1w" || chartRange === "1m") {
+      return `${fmt(first)} - ${fmt(last)}`;
+    }
+    return fmt(first);
+  }, [chartData, chartRange]);
 
   const handleRemovePosition = async () => {
     if (!position) return;
@@ -430,6 +443,9 @@ export default function TickerPage() {
             <div className="flex items-center gap-1">
               <Activity className="h-4 w-4 text-on-surface-variant" />
               <span className="text-xs font-semibold uppercase tracking-[0.08em] text-on-surface-variant">Intraday Chart</span>
+              {dateRangeLabel && (
+                <span className="text-xs text-on-surface-variant/70 font-mono ml-1">({dateRangeLabel})</span>
+              )}
             </div>
             <div className="flex gap-1">
               {(["1d", "1w", "1m"] as const).map((r) => (
